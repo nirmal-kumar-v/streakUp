@@ -24,8 +24,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  User as UserIcon,
 } from 'lucide-react';
+import { InitialsAvatar } from '../components/InitialsAvatar';
 import { extractErrorMessage } from '../utils/error';
 
 export const FriendsPage: React.FC = () => {
@@ -263,13 +263,12 @@ export const FriendsPage: React.FC = () => {
                   className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center justify-between gap-3 group hover:border-zinc-700 transition-colors"
                 >
                   <Link to={`/profile/${friend.username}`} className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden flex-shrink-0 group-hover:border-flame-500 transition-colors">
-                      {friend.profileImage ? (
-                        <img src={friend.profileImage} alt={friend.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <UserIcon className="w-5 h-5 text-zinc-400" />
-                      )}
-                    </div>
+                    <InitialsAvatar
+                      name={friend.name}
+                      image={friend.profileImage}
+                      size="md"
+                      className="group-hover:border-flame-500 transition-colors"
+                    />
                     <div className="min-w-0">
                       <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors truncate">
                         {friend.name}
@@ -332,13 +331,11 @@ export const FriendsPage: React.FC = () => {
                   className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center justify-between gap-3"
                 >
                   <Link to={`/profile/${user.username}`} className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden flex-shrink-0">
-                      {user.profileImage ? (
-                        <img src={user.profileImage} alt={user.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <UserIcon className="w-5 h-5 text-zinc-400" />
-                      )}
-                    </div>
+                    <InitialsAvatar
+                      name={user.name}
+                      image={user.profileImage}
+                      size="md"
+                    />
                     <div className="min-w-0">
                       <h4 className="text-sm font-bold text-zinc-100 truncate">{user.name}</h4>
                       <p className="text-xs text-dark-muted font-mono truncate">@{user.username}</p>
@@ -411,13 +408,11 @@ export const FriendsPage: React.FC = () => {
                     className="p-3 bg-dark-surface rounded-xl border border-dark-border flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden">
-                        {req.sender?.profileImage ? (
-                          <img src={req.sender.profileImage} alt={req.sender.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <UserIcon className="w-4 h-4 text-zinc-400" />
-                        )}
-                      </div>
+                      <InitialsAvatar
+                        name={req.sender?.name || 'User'}
+                        image={req.sender?.profileImage}
+                        size="md"
+                      />
                       <div>
                         <div className="text-sm font-bold text-zinc-100">{req.sender?.name}</div>
                         <div className="text-xs text-dark-muted font-mono">@{req.sender?.username} • {req.sender?.currentStreak || 0}d streak</div>
@@ -461,13 +456,11 @@ export const FriendsPage: React.FC = () => {
                     className="p-3 bg-dark-surface rounded-xl border border-dark-border flex items-center justify-between gap-3"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden">
-                        {req.receiver?.profileImage ? (
-                          <img src={req.receiver.profileImage} alt={req.receiver.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <UserIcon className="w-4 h-4 text-zinc-400" />
-                        )}
-                      </div>
+                      <InitialsAvatar
+                        name={req.receiver?.name || 'User'}
+                        image={req.receiver?.profileImage}
+                        size="md"
+                      />
                       <div>
                         <div className="text-sm font-bold text-zinc-100">{req.receiver?.name}</div>
                         <div className="text-xs text-dark-muted font-mono">@{req.receiver?.username}</div>

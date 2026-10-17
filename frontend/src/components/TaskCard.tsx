@@ -1,6 +1,19 @@
 import React, { useState } from 'react';
 import { Task } from '../api/tasks';
-import { Check, Clock, Calendar, Edit2, Archive, Trash2, Repeat, Sparkles } from 'lucide-react';
+import {
+  Check,
+  Clock,
+  Calendar,
+  Edit2,
+  Archive,
+  Trash2,
+  Repeat,
+  Sparkles,
+  Flame,
+  Shield,
+  Zap,
+  Info,
+} from 'lucide-react';
 
 interface TaskCardProps {
   task: Task;
@@ -8,6 +21,7 @@ interface TaskCardProps {
   onEdit: (task: Task) => void;
   onArchiveToggle: (task: Task) => Promise<void>;
   onDelete: (task: Task) => Promise<void>;
+  onViewDetails?: (task: Task) => void;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({
@@ -16,6 +30,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onEdit,
   onArchiveToggle,
   onDelete,
+  onViewDetails,
 }) => {
   const [isToggling, setIsToggling] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -63,12 +78,47 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <h3
-              className={`text-base font-semibold tracking-tight transition-all truncate ${
+              onClick={() => onViewDetails && onViewDetails(task)}
+              className={`text-base font-semibold tracking-tight transition-all truncate cursor-pointer hover:text-flame-400 ${
                 task.completedToday ? 'text-zinc-400 line-through' : 'text-zinc-100'
               }`}
             >
               {task.title}
             </h3>
+
+            {/* Independent Task Streak Badge */}
+            {task.recurrence === 'DAILY' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-flame-400 bg-flame-500/10 px-2 py-0.5 rounded-full border border-flame-500/20">
+                <Flame className="w-3 h-3 fill-flame-500" />
+                <span>{task.currentStreak || 0}d</span>
+              </span>
+            )}
+
+            {/* Independent Freeze Status Badge */}
+            {task.recurrence === 'DAILY' && (
+              <span
+                title={
+                  (task.freezeBalance || 0) > 0
+                    ? '1 Task Freeze Available'
+                    : `Recharge: ${task.freezeRechargeDays || 0}/7 qualifying days`
+                }
+                className={`inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  (task.freezeBalance || 0) > 0
+                    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/25'
+                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                }`}
+              >
+                {(task.freezeBalance || 0) > 0 ? (
+                  <>
+                    <Shield className="w-3 h-3 text-cyan-400" /> 🧊 1
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3 text-zinc-500" /> {task.freezeRechargeDays || 0}/7
+                  </>
+                )}
+              </span>
+            )}
 
             {task.completedToday && (
               <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
@@ -81,6 +131,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             <p className={`text-xs mt-1 leading-relaxed ${task.completedToday ? 'text-zinc-500' : 'text-dark-muted'}`}>
               {task.description}
             </p>
+          )}
+
+          {/* Today's Study Note Preview */}
+          {task.todayStudyNote && (
+            <div className="mt-2 p-2 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs text-zinc-300 italic flex items-center gap-2">
+              <Sparkles className="w-3 h-3 text-flame-400 shrink-0" />
+              <span className="line-clamp-1">"{task.todayStudyNote}"</span>
+            </div>
           )}
 
           {/* Metadata Badges */}
@@ -126,6 +184,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+          {onViewDetails && (
+            <button
+              onClick={() => onViewDetails(task)}
+              title="View task details & history"
+              className="p-1.5 text-zinc-400 hover:text-flame-400 hover:bg-dark-hover rounded-lg transition-colors"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             onClick={() => onEdit(task)}
             title="Edit task"
@@ -133,6 +200,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
+
           <button
             onClick={() => onArchiveToggle(task)}
             title={task.status === 'ACTIVE' ? 'Archive task' : 'Restore task'}

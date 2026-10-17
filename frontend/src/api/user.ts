@@ -37,6 +37,41 @@ export async function updateProfileSettings(data: {
   return res.data;
 }
 
+export async function uploadProfileImage(imageBase64: string) {
+  const res = await apiClient.post<{
+    success: boolean;
+    message: string;
+    profileImage: string;
+    user: any;
+  }>('/users/profile-image', { imageBase64 });
+  return res.data;
+}
+
+export async function removeProfileImage() {
+  const res = await apiClient.delete<{
+    success: boolean;
+    message: string;
+    profileImage: null;
+    user: any;
+  }>('/users/profile-image');
+  return res.data;
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  const res = await apiClient.post<{ success: boolean; message: string }>('/users/change-password', {
+    currentPassword,
+    newPassword,
+  });
+  return res.data;
+}
+
+export async function changeUsername(newUsername: string) {
+  const res = await apiClient.post<{ success: boolean; message: string; user: any }>('/users/change-username', {
+    newUsername,
+  });
+  return res.data;
+}
+
 export const DEFAULT_FALLBACK_TIMEZONES: TimezoneOption[] = [
   { value: 'Asia/Kolkata', label: 'India Standard Time (IST) - Asia/Kolkata' },
   { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
@@ -68,3 +103,4 @@ export async function fetchTimezones() {
     };
   }
 }
+

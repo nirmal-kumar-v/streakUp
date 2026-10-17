@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const taskController_1 = require("../controllers/taskController");
+const friendTaskController_1 = require("../controllers/friendTaskController");
 const authMiddleware_1 = require("../middleware/authMiddleware");
 const router = (0, express_1.Router)();
 // All task routes require authentication
@@ -10,9 +11,14 @@ router.get('/', taskController_1.getTasks);
 router.post('/', taskController_1.createTask);
 router.get('/dashboard-summary', taskController_1.getDashboardSummary);
 router.get('/activity-history', taskController_1.getActivityHistory);
+router.post('/equivalences/confirm', friendTaskController_1.confirmTaskEquivalence);
+router.post('/equivalences/reject', friendTaskController_1.rejectTaskEquivalence);
+router.get('/:id/details', taskController_1.getTaskDetails);
+router.get('/:id/friends-leaderboard', friendTaskController_1.getTaskFriendsLeaderboard);
 router.put('/:id', taskController_1.updateTask);
 router.delete('/:id', taskController_1.deleteTask);
 router.patch('/:id/archive', taskController_1.toggleArchiveTask);
 router.post('/:id/complete', taskController_1.completeTask);
 router.post('/:id/uncomplete', taskController_1.uncompleteTask);
+router.put('/:id/completions/:date/note', taskController_1.updateCompletionNote);
 exports.default = router;

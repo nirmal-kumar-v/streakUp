@@ -10,6 +10,7 @@ import { TasksPage } from './pages/TasksPage';
 import { GlobalLeaderboardPage } from './pages/GlobalLeaderboardPage';
 import { FriendsLeaderboardPage } from './pages/FriendsLeaderboardPage';
 import { FriendsPage } from './pages/FriendsPage';
+import { FriendsTasksPage } from './pages/FriendsTasksPage';
 import { PublicProfilePage } from './pages/PublicProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -63,6 +64,22 @@ export const AppContent: React.FC = () => {
             element={
               <ProtectedRoute>
                 <TasksPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/friends/tasks"
+            element={
+              <ProtectedRoute>
+                <FriendsTasksPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/friends-tasks"
+            element={
+              <ProtectedRoute>
+                <FriendsTasksPage />
               </ProtectedRoute>
             }
           />

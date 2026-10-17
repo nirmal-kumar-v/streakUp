@@ -81,3 +81,79 @@ export async function removeFriend(friendUserId: string) {
   );
   return res.data;
 }
+
+export interface FriendTaskGroup {
+  friend: {
+    id: string;
+    name: string;
+    username: string;
+    profileImage: string | null;
+    currentStreak: number;
+    longestStreak: number;
+  };
+  tasks: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    category: string;
+    priority: string;
+    recurrence: string;
+    dueTime: string | null;
+    currentStreak: number;
+    longestStreak: number;
+    freezeBalance: number;
+    freezeRechargeDays: number;
+    completedToday: boolean;
+    todayStudyNote: string | null;
+    recentCompletions: Array<{
+      id: string;
+      completionDate: string;
+      completedAt: string;
+      studyNote: string | null;
+    }>;
+  }>;
+}
+
+export async function fetchFriendsTasks() {
+  const res = await apiClient.get<{
+    success: boolean;
+    friendsTasks: FriendTaskGroup[];
+  }>('/friends/tasks');
+  return res.data;
+}
+
+export interface StudyActivityItem {
+  id: string;
+  studyNote: string;
+  completionDate: string;
+  completedAt: string;
+  isCurrentUser: boolean;
+  user: {
+    id: string;
+    name: string;
+    username: string;
+    profileImage: string | null;
+  };
+  task: {
+    id: string;
+    title: string;
+    category: string;
+    currentStreak: number;
+    recurrence: string;
+  };
+}
+
+export async function fetchFriendsStudyActivity(page: number = 1, limit: number = 20) {
+  const res = await apiClient.get<{
+    success: boolean;
+    activity: StudyActivityItem[];
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  }>('/friends/study-activity', { params: { page, limit } });
+  return res.data;
+}
+

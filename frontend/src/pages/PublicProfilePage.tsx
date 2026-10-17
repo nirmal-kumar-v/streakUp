@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   User as UserIcon,
 } from 'lucide-react';
+import { InitialsAvatar } from '../components/InitialsAvatar';
 import { extractErrorMessage } from '../utils/error';
 
 export const PublicProfilePage: React.FC = () => {
@@ -119,13 +120,12 @@ export const PublicProfilePage: React.FC = () => {
       <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel relative overflow-hidden">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left">
           {/* Avatar */}
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-zinc-800 border-2 border-flame-500/40 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-lg shadow-flame-500/10">
-            {profile.profileImage ? (
-              <img src={profile.profileImage} alt={profile.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-3xl font-black text-flame-400">{profile.name.charAt(0)}</span>
-            )}
-          </div>
+          <InitialsAvatar
+            name={profile.name}
+            image={profile.profileImage}
+            size="2xl"
+            className="border-2 border-flame-500/40 shadow-lg shadow-flame-500/10 shrink-0"
+          />
 
           {/* Details */}
           <div className="flex-1 min-w-0">

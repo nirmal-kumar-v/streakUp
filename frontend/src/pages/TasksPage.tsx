@@ -14,6 +14,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { TaskCard } from '../components/TaskCard';
 import { TaskModal } from '../components/TaskModal';
+import { TaskCompletionModal } from '../components/TaskCompletionModal';
+import { TaskDetailModal } from '../components/TaskDetailModal';
 import {
   CheckSquare,
   Plus,
@@ -39,9 +41,12 @@ export const TasksPage: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal state
+  // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [completingTask, setCompletingTask] = useState<Task | null>(null);
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+
 
   const loadTasks = useCallback(async () => {
     setIsLoading(true);
@@ -70,12 +75,12 @@ export const TasksPage: React.FC = () => {
 
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
-    try {
-      if (task.completedToday) {
+    if (task.completedToday) {
+      try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
           setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false } : t))
+            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
           );
           if (res.streak) {
             updateUser({
@@ -84,24 +89,39 @@ export const TasksPage: React.FC = () => {
             });
           }
         }
-      } else {
-        const res = await completeTask(task.id);
-        if (res.success) {
-          setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: true } : t))
-          );
-          if (res.streak) {
-            updateUser({
-              currentStreak: res.streak.currentStreak,
-              longestStreak: res.streak.longestStreak,
-            });
-          }
-        }
+      } catch (err) {
+        console.error('Failed to undo completion:', err);
       }
-    } catch (err) {
-      console.error('Failed to toggle completion:', err);
+    } else {
+      setCompletingTask(task);
     }
   };
+
+  const handleCompleteSubmit = async (studyNote?: string) => {
+    if (!completingTask) return;
+    try {
+      const res = await completeTask(completingTask.id, studyNote);
+      if (res.success) {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === completingTask.id
+              ? { ...t, completedToday: true, todayStudyNote: studyNote || null }
+              : t
+          )
+        );
+        if (res.streak) {
+          updateUser({
+            currentStreak: res.streak.currentStreak,
+            longestStreak: res.streak.longestStreak,
+          });
+        }
+        await loadTasks();
+      }
+    } catch (err) {
+      console.error('Failed to complete task:', err);
+    }
+  };
+
 
   const handleCreateOrUpdateTask = async (taskData: {
     title: string;
@@ -313,6 +333,7 @@ export const TasksPage: React.FC = () => {
                     key={task.id}
                     task={task}
                     onToggleComplete={handleToggleComplete}
+                    onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {
                       setEditingTask(t);
                       setIsModalOpen(true);
@@ -340,6 +361,7 @@ export const TasksPage: React.FC = () => {
                     key={task.id}
                     task={task}
                     onToggleComplete={handleToggleComplete}
+                    onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {
                       setEditingTask(t);
                       setIsModalOpen(true);
@@ -361,6 +383,26 @@ export const TasksPage: React.FC = () => {
         onSubmit={handleCreateOrUpdateTask}
         editingTask={editingTask}
       />
+
+      {/* Task Completion with Study Note Modal */}
+      {completingTask && (
+        <TaskCompletionModal
+          task={completingTask}
+          isOpen={!!completingTask}
+          onClose={() => setCompletingTask(null)}
+          onComplete={handleCompleteSubmit}
+        />
+      )}
+
+      {/* Task Detail Modal */}
+      {detailTaskId && (
+        <TaskDetailModal
+          taskId={detailTaskId}
+          isOpen={!!detailTaskId}
+          onClose={() => setDetailTaskId(null)}
+          onTaskUpdated={loadTasks}
+        />
+      )}
     </div>
   );
 };

@@ -90,4 +90,45 @@ describe('Streak Calculation Engine', () => {
     expect(afterUntick.currentStreak).toBe(0);
     expect(afterUntick.longestStreak).toBe(0);
   });
+
+  // --- Regression Tests for Multi-Task Overall Streak Qualification ---
+  describe('Multi-Task Overall Streak Qualification Rules', () => {
+    it('rule: completing at least one task on a local calendar day qualifies that day toward overall streak', () => {
+      // Monday (10-12): Task A completed
+      // Tuesday (10-13): Task B completed (Task A pending)
+      // Wednesday (10-14, today): Task A completed (Task B pending)
+      const overallDates = ['2026-10-12', '2026-10-13', '2026-10-14'];
+      const result = calculateStreaks(overallDates, tz, refDate);
+      expect(result.currentStreak).toBe(3);
+      expect(result.longestStreak).toBe(3);
+      expect(result.hasCompletedToday).toBe(true);
+    });
+
+    it('rule: completing multiple tasks on the same day counts as one overall streak day, not multiple days', () => {
+      // User completes Task A, Task B, and Task C all on 2026-10-14
+      const completionsWithDuplicates = ['2026-10-14', '2026-10-14', '2026-10-14'];
+      const result = calculateStreaks(completionsWithDuplicates, tz, refDate);
+      expect(result.currentStreak).toBe(1);
+      expect(result.longestStreak).toBe(1);
+      expect(result.activeDatesCount).toBe(1);
+    });
+
+    it('rule: completing Task B maintains overall streak even if Task A is not completed', () => {
+      // 10-13: Only Task A
+      // 10-14: Only Task B completed today
+      const overallDates = ['2026-10-13', '2026-10-14'];
+      const result = calculateStreaks(overallDates, tz, refDate);
+      expect(result.currentStreak).toBe(2);
+      expect(result.hasCompletedToday).toBe(true);
+    });
+
+    it('rule: overall streak breaks if zero tasks were completed yesterday and today is pending', () => {
+      // Completed 10-11 and 10-12, but no tasks on 10-13 or 10-14
+      const overallDates = ['2026-10-11', '2026-10-12'];
+      const result = calculateStreaks(overallDates, tz, refDate);
+      expect(result.currentStreak).toBe(0);
+      expect(result.longestStreak).toBe(2);
+    });
+  });
 });
+

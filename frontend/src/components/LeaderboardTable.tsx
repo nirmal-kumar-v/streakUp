@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { LeaderboardEntry } from '../api/leaderboard';
 import { Link } from 'react-router-dom';
-import { Flame, Trophy, Crown, Search, CheckCircle2, User as UserIcon } from 'lucide-react';
+import { Flame, Trophy, Crown, Search, CheckCircle2 } from 'lucide-react';
+import { InitialsAvatar } from './InitialsAvatar';
 
 interface LeaderboardTableProps {
   entries: LeaderboardEntry[];
@@ -122,12 +123,13 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               2nd
             </div>
             <Link to={`/profile/${entries[1].username}`} className="group flex flex-col items-center">
-              <div className="w-14 h-14 rounded-2xl bg-zinc-800 border-2 border-zinc-600 flex items-center justify-center overflow-hidden mb-2 group-hover:border-zinc-400 transition-colors">
-                {entries[1].profileImage ? (
-                  <img src={entries[1].profileImage} alt={entries[1].name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-lg font-bold text-zinc-300">{entries[1].name.charAt(0)}</span>
-                )}
+              <div className="mb-2 group-hover:scale-105 transition-transform">
+                <InitialsAvatar
+                  name={entries[1].name}
+                  image={entries[1].profileImage}
+                  size="xl"
+                  className="border-2 border-zinc-600"
+                />
               </div>
               <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors truncate max-w-[150px]">
                 {entries[1].name}
@@ -147,12 +149,13 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               <Crown className="w-5 h-5 fill-amber-400" />
             </div>
             <Link to={`/profile/${entries[0].username}`} className="group flex flex-col items-center">
-              <div className="w-18 h-18 rounded-2xl bg-zinc-800 border-2 border-flame-500 flex items-center justify-center overflow-hidden mb-2 shadow-md shadow-flame-500/20 group-hover:scale-105 transition-transform">
-                {entries[0].profileImage ? (
-                  <img src={entries[0].profileImage} alt={entries[0].name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl font-black text-flame-400">{entries[0].name.charAt(0)}</span>
-                )}
+              <div className="mb-2 shadow-md shadow-flame-500/20 group-hover:scale-105 transition-transform">
+                <InitialsAvatar
+                  name={entries[0].name}
+                  image={entries[0].profileImage}
+                  size="2xl"
+                  className="border-2 border-flame-500"
+                />
               </div>
               <h4 className="text-base font-extrabold text-zinc-100 group-hover:text-flame-400 transition-colors truncate max-w-[180px]">
                 {entries[0].name}
@@ -171,12 +174,13 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               3rd
             </div>
             <Link to={`/profile/${entries[2].username}`} className="group flex flex-col items-center">
-              <div className="w-14 h-14 rounded-2xl bg-zinc-800 border-2 border-amber-800/60 flex items-center justify-center overflow-hidden mb-2 group-hover:border-amber-700 transition-colors">
-                {entries[2].profileImage ? (
-                  <img src={entries[2].profileImage} alt={entries[2].name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-lg font-bold text-amber-600">{entries[2].name.charAt(0)}</span>
-                )}
+              <div className="mb-2 group-hover:scale-105 transition-transform">
+                <InitialsAvatar
+                  name={entries[2].name}
+                  image={entries[2].profileImage}
+                  size="xl"
+                  className="border-2 border-amber-800/60"
+                />
               </div>
               <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors truncate max-w-[150px]">
                 {entries[2].name}
@@ -240,13 +244,12 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                         to={`/profile/${entry.username}`}
                         className="flex items-center gap-3 group focus:outline-none"
                       >
-                        <div className="w-9 h-9 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden flex-shrink-0 group-hover:border-flame-500 transition-colors">
-                          {entry.profileImage ? (
-                            <img src={entry.profileImage} alt={entry.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <UserIcon className="w-4 h-4 text-zinc-400" />
-                          )}
-                        </div>
+                        <InitialsAvatar
+                          name={entry.name}
+                          image={entry.profileImage}
+                          size="md"
+                          className="group-hover:border-flame-500 transition-colors"
+                        />
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-zinc-100 group-hover:text-flame-400 transition-colors">

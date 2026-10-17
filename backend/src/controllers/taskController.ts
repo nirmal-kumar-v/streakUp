@@ -3,7 +3,8 @@ import { z } from 'zod';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString, getLocalTimeInfo } from '../services/timezoneService';
-import { recalculateUserStreaks } from '../services/streakService';
+import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
+import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -74,20 +75,23 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
       include: {
         completions: {
           where: { completionDate: todayDateStr },
-          select: { id: true, completionDate: true, completedAt: true }
+          select: { id: true, completionDate: true, completedAt: true, studyNote: true }
         }
       }
     });
 
-    // Transform tasks to attach completedToday flag
+    // Transform tasks to attach completedToday flag and todayStudyNote
     const formattedTasks = tasks.map(task => {
       const completedToday = task.recurrence === 'DAILY'
         ? task.completions.length > 0
         : task.isCompleted;
 
+      const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
+
       return {
         ...task,
         completedToday,
+        todayStudyNote,
         completions: undefined // hide raw completions array
       };
     });
@@ -125,6 +129,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
       data: {
         userId,
         title: data.title.trim(),
+        normalizedTitle: getCanonicalTaskTitle(data.title),
         description: data.description?.trim() || null,
         category: data.category?.trim() || 'General',
         priority: data.priority,
@@ -140,7 +145,8 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
       message: 'Task created successfully.',
       task: {
         ...task,
-        completedToday: false
+        completedToday: false,
+        todayStudyNote: null
       }
     });
   } catch (err: any) {
@@ -260,12 +266,13 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
 }
 
 /**
- * Mark a task as completed (Tick)
+ * Mark a task as completed (Tick) with optional study note
  */
 export async function completeTask(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
     const { id } = req.params;
+    const { studyNote } = req.body || {};
 
     const task = await prisma.task.findUnique({
       where: { id },
@@ -282,8 +289,12 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     const timezone = task.user?.timezone || 'Asia/Kolkata';
     const todayDateStr = getLocalDateString(timezone);
 
+    const sanitizedNote = typeof studyNote === 'string' && studyNote.trim()
+      ? studyNote.trim().slice(0, 500)
+      : null;
+
     // Create completion record (upsert to prevent duplicate records on same date)
-    await prisma.taskCompletion.upsert({
+    const completion = await prisma.taskCompletion.upsert({
       where: {
         taskId_completionDate: {
           taskId: id,
@@ -291,12 +302,14 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         }
       },
       update: {
-        completedAt: new Date()
+        completedAt: new Date(),
+        ...(sanitizedNote !== undefined ? { studyNote: sanitizedNote } : {})
       },
       create: {
         taskId: id,
         userId,
-        completionDate: todayDateStr
+        completionDate: todayDateStr,
+        studyNote: sanitizedNote
       }
     });
 
@@ -308,14 +321,20 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    // Immediately recalculate streak on backend
-    const streakResult = await recalculateUserStreaks(prisma, userId, timezone);
+    // Immediately recalculate independent task streak
+    const taskStreak = await recalculateTaskStreaks(prisma, id, userId, timezone);
+
+    // Immediately recalculate overall streak
+    const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
 
     return res.json({
       success: true,
       message: 'Task marked as completed.',
       completedToday: true,
-      streak: streakResult
+      studyNote: completion.studyNote,
+      taskStreak,
+      overallStreak,
+      streak: overallStreak // backwards compatibility
     });
   } catch (err: any) {
     console.error('completeTask error:', err);
@@ -362,20 +381,196 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    // Immediately recalculate streak on backend
-    const streakResult = await recalculateUserStreaks(prisma, userId, timezone);
+    // Immediately recalculate independent task streak
+    const taskStreak = await recalculateTaskStreaks(prisma, id, userId, timezone);
+
+    // Immediately recalculate overall streak
+    const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
 
     return res.json({
       success: true,
       message: 'Task marked as incomplete.',
       completedToday: false,
-      streak: streakResult
+      taskStreak,
+      overallStreak,
+      streak: overallStreak
     });
   } catch (err: any) {
     console.error('uncompleteTask error:', err);
     return res.status(500).json({ success: false, error: 'Failed to undo task completion.' });
   }
 }
+
+/**
+ * Edit study note on an existing completion
+ * Only owner can edit their own completion note. Does not alter streak or completedAt.
+ */
+export async function updateCompletionNote(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id, date } = req.params;
+    const { note } = req.body;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'Invalid date format. Expected YYYY-MM-DD.' });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: { userId: true }
+    });
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+    if (task.userId !== userId) {
+      return res.status(403).json({ success: false, error: 'Unauthorized. You can only edit your own notes.' });
+    }
+
+    const completion = await prisma.taskCompletion.findUnique({
+      where: {
+        taskId_completionDate: {
+          taskId: id,
+          completionDate: date
+        }
+      }
+    });
+
+    if (!completion) {
+      return res.status(404).json({ success: false, error: `No completion found for date ${date}.` });
+    }
+
+    const trimmedNote = typeof note === 'string' && note.trim()
+      ? note.trim().slice(0, 500)
+      : null;
+
+    const updated = await prisma.taskCompletion.update({
+      where: { id: completion.id },
+      data: { studyNote: trimmedNote }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Study note updated.',
+      completion: updated
+    });
+  } catch (err: any) {
+    console.error('updateCompletionNote error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update study note.' });
+  }
+}
+
+/**
+ * Get comprehensive task details: streaks, freeze stats, calendar, notes
+ * Accessible only to owner and accepted friends!
+ */
+export async function getTaskDetails(req: AuthenticatedRequest, res: Response) {
+  try {
+    const requesterId = req.user!.userId;
+    const { id } = req.params;
+
+    const task = await prisma.task.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImage: true,
+            timezone: true
+          }
+        }
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+
+    // Check authorization: must be owner OR accepted friend
+    const isOwner = task.userId === requesterId;
+    let isAcceptedFriend = false;
+
+    if (!isOwner) {
+      const [u1, u2] = requesterId < task.userId ? [requesterId, task.userId] : [task.userId, requesterId];
+      const friendship = await prisma.friendship.findUnique({
+        where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } }
+      });
+      isAcceptedFriend = !!friendship;
+    }
+
+    if (!isOwner && !isAcceptedFriend) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden. You must be an accepted friend to view this task details.'
+      });
+    }
+
+    const timezone = task.user.timezone || 'Asia/Kolkata';
+    const todayDateStr = getLocalDateString(timezone);
+
+    // Fetch completions with notes
+    const completions = await prisma.taskCompletion.findMany({
+      where: { taskId: id },
+      orderBy: { completionDate: 'desc' },
+      select: {
+        id: true,
+        completionDate: true,
+        completedAt: true,
+        studyNote: true
+      }
+    });
+
+    // Fetch freeze logs for this task
+    const freezeLogs = await prisma.freezeLog.findMany({
+      where: { taskId: id, scope: 'TASK' },
+      orderBy: { protectedDate: 'desc' },
+      select: {
+        id: true,
+        protectedDate: true,
+        usedAt: true
+      }
+    });
+
+    const completedDates = completions.map(c => c.completionDate);
+    const protectedDates = freezeLogs.map(l => l.protectedDate);
+    const completedToday = completedDates.includes(todayDateStr);
+
+    return res.json({
+      success: true,
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        category: task.category,
+        priority: task.priority,
+        recurrence: task.recurrence,
+        dueTime: task.dueTime,
+        status: task.status,
+        currentStreak: task.currentStreak,
+        longestStreak: task.longestStreak,
+        freezeBalance: task.freezeBalance,
+        freezeRechargeDays: task.freezeRechargeDays,
+        totalCompletedDays: completions.length,
+        completedToday,
+        isOwner,
+        owner: task.user
+      },
+      completions,
+      freezeLogs,
+      calendar: {
+        completedDates,
+        protectedDates,
+        todayDateStr
+      }
+    });
+  } catch (err: any) {
+    console.error('getTaskDetails error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve task details.' });
+  }
+}
+
 
 /**
  * Get dashboard summary: stats, checklist, clocks, completion rate
@@ -390,9 +585,12 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         id: true,
         name: true,
         username: true,
+        profileImage: true,
         timezone: true,
         currentStreak: true,
-        longestStreak: true
+        longestStreak: true,
+        overallFreezeBalance: true,
+        overallFreezeRechargeDays: true,
       }
     });
 
@@ -404,6 +602,14 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
     const todayDateStr = getLocalDateString(timezone);
     const clockInfo = getLocalTimeInfo(timezone);
 
+    // Fetch overall freeze logs for recent protected dates
+    const overallFreezeLogs = await prisma.freezeLog.findMany({
+      where: { userId, scope: 'OVERALL' },
+      orderBy: { protectedDate: 'desc' },
+      take: 10,
+      select: { protectedDate: true }
+    });
+
     // Fetch active tasks
     const activeTasks = await prisma.task.findMany({
       where: { userId, status: 'ACTIVE' },
@@ -411,7 +617,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
       include: {
         completions: {
           where: { completionDate: todayDateStr },
-          select: { id: true }
+          select: { id: true, studyNote: true }
         }
       }
     });
@@ -422,6 +628,8 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         ? task.completions.length > 0
         : task.isCompleted;
 
+      const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
+
       return {
         id: task.id,
         title: task.title,
@@ -431,7 +639,12 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         recurrence: task.recurrence,
         dueTime: task.dueTime,
         status: task.status,
-        completedToday
+        currentStreak: task.currentStreak,
+        longestStreak: task.longestStreak,
+        freezeBalance: task.freezeBalance,
+        freezeRechargeDays: task.freezeRechargeDays,
+        completedToday,
+        todayStudyNote
       };
     });
 
@@ -448,8 +661,12 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         id: user.id,
         name: user.name,
         username: user.username,
+        profileImage: user.profileImage,
         currentStreak: user.currentStreak,
         longestStreak: user.longestStreak,
+        overallFreezeBalance: user.overallFreezeBalance,
+        overallFreezeRechargeDays: user.overallFreezeRechargeDays,
+        protectedDates: overallFreezeLogs.map(l => l.protectedDate),
         timezone
       },
       stats: {

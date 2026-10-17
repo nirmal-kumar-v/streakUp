@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const friendController_1 = require("../controllers/friendController");
+const friendTaskController_1 = require("../controllers/friendTaskController");
 const authMiddleware_1 = require("../middleware/authMiddleware");
 const router = (0, express_1.Router)();
 // All friend routes require authentication
@@ -9,6 +10,8 @@ router.use(authMiddleware_1.requireAuth);
 router.get('/search', friendController_1.searchUsers);
 router.get('/list', friendController_1.getFriendsList);
 router.get('/requests', friendController_1.getFriendRequests);
+router.get('/tasks', friendTaskController_1.getFriendsTasks);
+router.get('/study-activity', friendTaskController_1.getFriendsStudyActivity);
 router.post('/request', friendController_1.sendFriendRequest);
 router.post('/requests/:requestId/accept', friendController_1.acceptFriendRequest);
 router.post('/requests/:requestId/reject', friendController_1.rejectFriendRequest);

@@ -13,8 +13,9 @@ import {
   LogOut,
   Menu,
   X,
-  User as UserIcon,
+  Trophy,
 } from 'lucide-react';
+import { InitialsAvatar } from './InitialsAvatar';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -62,8 +63,9 @@ export const Navbar: React.FC = () => {
     ? [
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { label: 'My Tasks', path: '/tasks', icon: CheckSquare },
+        { label: "Friends' Tasks", path: '/friends/tasks', icon: Users2 },
         { label: 'Global', path: '/leaderboard/global', icon: Globe2 },
-        { label: 'Friends Rank', path: '/leaderboard/friends', icon: Users2 },
+        { label: 'Friends Rank', path: '/leaderboard/friends', icon: Trophy },
         {
           label: 'Friends',
           path: '/friends',
@@ -134,13 +136,11 @@ export const Navbar: React.FC = () => {
                   to={`/profile/${user.username}`}
                   className="flex items-center gap-2.5 pl-2 pr-3 py-1 bg-dark-surface border border-dark-border rounded-xl hover:border-zinc-700 transition-colors group"
                 >
-                  <div className="w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden">
-                    {user.profileImage ? (
-                      <img src={user.profileImage} alt={user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <UserIcon className="w-3.5 h-3.5 text-zinc-400" />
-                    )}
-                  </div>
+                  <InitialsAvatar
+                    name={user.name}
+                    image={user.profileImage}
+                    size="sm"
+                  />
                   <span className="text-xs font-semibold text-zinc-200 group-hover:text-flame-400 transition-colors">
                     {user.name.split(' ')[0]}
                   </span>

@@ -32,49 +32,76 @@ enum FriendRequestStatus {
   CANCELLED
 }
 
-model User {
-  id                 String           @id @default(uuid())
-  name               String
-  username           String           @unique
-  normalizedUsername String           @unique // lowercased username for case-insensitive uniqueness
-  email              String           @unique
-  passwordHash       String
-  profileImage       String?
-  timezone           String           @default("Asia/Kolkata")
-  currentStreak      Int              @default(0)
-  longestStreak      Int              @default(0)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+enum FreezeScope {
+  OVERALL
+  TASK
+}
 
-  tasks              Task[]
-  taskCompletions    TaskCompletion[]
-  sentFriendRequests FriendRequest[]  @relation("SentFriendRequests")
-  receivedFriendReqs FriendRequest[]  @relation("ReceivedFriendRequests")
-  friendshipsAsUser1 Friendship[]     @relation("User1Friendships")
-  friendshipsAsUser2 Friendship[]     @relation("User2Friendships")
+enum EquivalenceStatus {
+  SUGGESTED
+  CONFIRMED
+  REJECTED
+}
+
+model User {
+  id                      String           @id @default(uuid())
+  name                    String
+  username                String           @unique
+  normalizedUsername      String           @unique // lowercased username for case-insensitive uniqueness
+  email                   String           @unique
+  passwordHash            String
+  profileImage            String?
+  timezone                String           @default("Asia/Kolkata")
+  currentStreak           Int              @default(0)
+  longestStreak           Int              @default(0)
+  lastUsernameChangeAt    DateTime?
+  overallFreezeBalance    Int              @default(0)
+  overallFreezeRechargeDays Int            @default(0)
+  lastOverallFreezeUsedAt DateTime?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  tasks                   Task[]
+  taskCompletions         TaskCompletion[]
+  sentFriendRequests      FriendRequest[]  @relation("SentFriendRequests")
+  receivedFriendReqs      FriendRequest[]  @relation("ReceivedFriendRequests")
+  friendshipsAsUser1      Friendship[]     @relation("User1Friendships")
+  friendshipsAsUser2      Friendship[]     @relation("User2Friendships")
+  freezeLogs              FreezeLog[]
+  taskEquivalences        TaskEquivalence[]
 
   @@index([normalizedUsername])
   @@index([currentStreak(sort: Desc), longestStreak(sort: Desc)])
 }
 
 model Task {
-  id          String           @id @default(uuid())
-  userId      String
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title       String
-  description String?
-  category    String           @default("General")
-  priority    Priority         @default(MEDIUM)
-  recurrence  Recurrence       @default(DAILY)
-  dueTime     String?          // e.g. "18:00"
-  status      TaskStatus       @default(ACTIVE)
-  isCompleted Boolean          @default(false) // completed flag for one-time tasks
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                   String           @id @default(uuid())
+  userId               String
+  user                 User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title                String
+  normalizedTitle      String?
+  description          String?
+  category             String           @default("General")
+  priority             Priority         @default(MEDIUM)
+  recurrence           Recurrence       @default(DAILY)
+  dueTime              String?          // e.g. "18:00"
+  status               TaskStatus       @default(ACTIVE)
+  isCompleted          Boolean          @default(false) // completed flag for one-time tasks
+  currentStreak        Int              @default(0)
+  longestStreak        Int              @default(0)
+  freezeBalance        Int              @default(0)
+  freezeRechargeDays   Int              @default(0)
+  lastFreezeUsedAt     DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
-  completions TaskCompletion[]
+  completions          TaskCompletion[]
+  freezeLogs           FreezeLog[]
+  equivalencesAsUserTask   TaskEquivalence[] @relation("UserTaskEquivalences")
+  equivalencesAsFriendTask TaskEquivalence[] @relation("FriendTaskEquivalences")
 
   @@index([userId, status])
+  @@index([userId, recurrence])
 }
 
 model TaskCompletion {
@@ -84,11 +111,50 @@ model TaskCompletion {
   userId         String
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   completionDate String   // Local calendar date in format "YYYY-MM-DD"
+  studyNote      String?
   completedAt    DateTime @default(now())
 
   // Prevent duplicate completion records for the same task and local date
   @@unique([taskId, completionDate])
   @@index([userId, completionDate])
+  @@index([taskId])
+}
+
+model FreezeLog {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId        String?
+  task          Task?       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  scope         FreezeScope
+  scopeKey      String      // 'OVERALL' or 'TASK:<taskId>'
+  protectedDate String      // Local date string "YYYY-MM-DD"
+  usedAt        DateTime    @default(now())
+
+  @@unique([userId, scopeKey, protectedDate])
+  @@index([userId, scope])
+  @@index([taskId])
+  @@index([protectedDate])
+}
+
+model TaskEquivalence {
+  id                String            @id @default(uuid())
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  friendId          String
+  userTaskId        String
+  userTask          Task              @relation("UserTaskEquivalences", fields: [userTaskId], references: [id], onDelete: Cascade)
+  friendTaskId      String
+  friendTask        Task              @relation("FriendTaskEquivalences", fields: [friendTaskId], references: [id], onDelete: Cascade)
+  confidence        Float
+  status            EquivalenceStatus @default(SUGGESTED)
+  confirmedByUserId String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([userId, userTaskId, friendTaskId])
+  @@index([userId, status])
+  @@index([friendId])
 }
 
 model FriendRequest {
@@ -119,3 +185,4 @@ model Friendship {
   @@index([user1Id])
   @@index([user2Id])
 }
+

@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Sparkles,
 } from 'lucide-react';
+import { InitialsAvatar } from '../components/InitialsAvatar';
 
 export const LandingPage: React.FC = () => {
   const { isAuthenticated } = useAuth();
@@ -172,13 +173,11 @@ export const LandingPage: React.FC = () => {
                     <span className="w-6 text-center font-mono font-bold text-xs text-zinc-400">
                       #{u.rank}
                     </span>
-                    <div className="w-9 h-9 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden">
-                      {u.profileImage ? (
-                        <img src={u.profileImage} alt={u.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-xs font-bold text-zinc-300">{u.name.charAt(0)}</span>
-                      )}
-                    </div>
+                    <InitialsAvatar
+                      name={u.name}
+                      image={u.profileImage}
+                      size="md"
+                    />
                     <div>
                       <Link to={`/profile/${u.username}`} className="text-sm font-semibold text-zinc-100 hover:text-flame-400 transition-colors">
                         {u.name}

@@ -17,6 +17,8 @@ import {
 import { DualClock } from '../components/DualClock';
 import { TaskCard } from '../components/TaskCard';
 import { TaskModal } from '../components/TaskModal';
+import { TaskCompletionModal } from '../components/TaskCompletionModal';
+import { TaskDetailModal } from '../components/TaskDetailModal';
 import { ActivityHeatmap } from '../components/ActivityHeatmap';
 import {
   Flame,
@@ -28,6 +30,8 @@ import {
   Globe2,
   ArrowRight,
   TrendingUp,
+  Shield,
+  Zap,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
@@ -37,9 +41,16 @@ export const DashboardPage: React.FC = () => {
   const [activity, setActivity] = useState<Array<{ date: string; count: number }>>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Modal state
+  // Freeze & Protected dates
+  const [overallFreezeBalance, setOverallFreezeBalance] = useState<number>(0);
+  const [overallFreezeRechargeDays, setOverallFreezeRechargeDays] = useState<number>(0);
+  const [recentProtectedDates, setRecentProtectedDates] = useState<string[]>([]);
+
+  // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [completingTask, setCompletingTask] = useState<Task | null>(null);
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -50,12 +61,15 @@ export const DashboardPage: React.FC = () => {
 
       if (sumRes.success) {
         setTasks(sumRes.todayTasks || []);
-        // Sync streak with auth context if updated
         if (sumRes.user) {
           updateUser({
             currentStreak: sumRes.user.currentStreak,
             longestStreak: sumRes.user.longestStreak,
+            profileImage: sumRes.user.profileImage,
           });
+          setOverallFreezeBalance(sumRes.user.overallFreezeBalance || 0);
+          setOverallFreezeRechargeDays(sumRes.user.overallFreezeRechargeDays || 0);
+          setRecentProtectedDates(sumRes.user.protectedDates || []);
         }
       }
 
@@ -73,14 +87,15 @@ export const DashboardPage: React.FC = () => {
     loadDashboard();
   }, [loadDashboard]);
 
-  // Handle Tick / Untick directly from Dashboard
+  // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
-    try {
-      if (task.completedToday) {
+    if (task.completedToday) {
+      // Untick immediately
+      try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
           setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false } : t))
+            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
           );
           if (res.streak) {
             updateUser({
@@ -88,27 +103,42 @@ export const DashboardPage: React.FC = () => {
               longestStreak: res.streak.longestStreak,
             });
           }
-          await loadDashboard(); // refresh counts
+          await loadDashboard();
         }
-      } else {
-        const res = await completeTask(task.id);
-        if (res.success) {
-          setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: true } : t))
-          );
-          if (res.streak) {
-            updateUser({
-              currentStreak: res.streak.currentStreak,
-              longestStreak: res.streak.longestStreak,
-            });
-          }
-          await loadDashboard(); // refresh counts
-        }
+      } catch (err) {
+        console.error('Error undoing completion:', err);
       }
-    } catch (err) {
-      console.error('Error toggling task completion:', err);
+    } else {
+      // Open study note modal before completing
+      setCompletingTask(task);
     }
   };
+
+  const handleCompleteSubmit = async (studyNote?: string) => {
+    if (!completingTask) return;
+    try {
+      const res = await completeTask(completingTask.id, studyNote);
+      if (res.success) {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === completingTask.id
+              ? { ...t, completedToday: true, todayStudyNote: studyNote || null }
+              : t
+          )
+        );
+        if (res.streak) {
+          updateUser({
+            currentStreak: res.streak.currentStreak,
+            longestStreak: res.streak.longestStreak,
+          });
+        }
+        await loadDashboard();
+      }
+    } catch (err) {
+      console.error('Error completing task:', err);
+    }
+  };
+
 
   const handleCreateOrUpdateTask = async (taskData: {
     title: string;
@@ -173,7 +203,7 @@ export const DashboardPage: React.FC = () => {
         {/* Current Streak */}
         <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel relative overflow-hidden">
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
-            <span>Current Streak</span>
+            <span>Overall Streak</span>
             <Flame className="w-4 h-4 text-flame-500" />
           </div>
           <div className="flex items-baseline gap-2 mt-2">
@@ -184,7 +214,7 @@ export const DashboardPage: React.FC = () => {
           </div>
           <p className="text-[11px] text-dark-muted mt-2">
             {user?.currentStreak && user.currentStreak > 0
-              ? 'Streak active! Complete tasks daily.'
+              ? 'Streak active! Complete at least 1 task daily.'
               : 'Complete a task today to begin!'}
           </p>
         </div>
@@ -243,6 +273,70 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Overall Streak Freeze Status Banner (Requirement 8) */}
+      <div className="p-4 bg-gradient-to-r from-cyan-950/20 via-dark-surface to-dark-bg border border-cyan-500/20 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+            <Shield className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+                Overall Streak Freeze
+              </h4>
+              <span
+                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  overallFreezeBalance > 0
+                    ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                }`}
+              >
+                {overallFreezeBalance > 0 ? '🧊 1 Available' : '0 Available'}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Protects your overall streak if you miss completing any task on a day. Max 1 freeze at a time.
+            </p>
+          </div>
+        </div>
+
+        <div className="w-full sm:w-64 space-y-1">
+          <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
+            <span className="flex items-center gap-1">
+              <Zap className="w-3 h-3 text-cyan-400" />
+              <span>Recharge</span>
+            </span>
+            <span>
+              {overallFreezeBalance === 1
+                ? 'Ready (1/1)'
+                : `${overallFreezeRechargeDays} of 7 qualifying days`}
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+            <div
+              className="h-full bg-cyan-500 transition-all duration-500"
+              style={{
+                width: `${
+                  overallFreezeBalance === 1
+                    ? 100
+                    : Math.min(100, (overallFreezeRechargeDays / 7) * 100)
+                }%`,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Protected Dates Alert (if any) */}
+      {recentProtectedDates.length > 0 && (
+        <div className="px-4 py-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl flex items-center gap-2 text-xs text-cyan-300">
+          <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
+          <span>
+            Streak protection used on: <strong>{recentProtectedDates.join(', ')}</strong>. Streak continuity remained unbroken!
+          </span>
+        </div>
+      )}
+
       {/* Today's Checklist Section */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel">
         <div className="flex items-center justify-between mb-5">
@@ -288,6 +382,7 @@ export const DashboardPage: React.FC = () => {
                 key={task.id}
                 task={task}
                 onToggleComplete={handleToggleComplete}
+                onViewDetails={(t) => setDetailTaskId(t.id)}
                 onEdit={(t) => {
                   setEditingTask(t);
                   setIsModalOpen(true);
@@ -336,14 +431,14 @@ export const DashboardPage: React.FC = () => {
         </Link>
 
         <Link
-          to="/leaderboard/friends"
+          to="/friends/tasks"
           className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex items-center justify-between group"
         >
           <div>
             <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors">
-              Friends Leaderboard
+              Friends' Tasks & Activity
             </h4>
-            <p className="text-xs text-dark-muted mt-0.5">Compete with your friend circle</p>
+            <p className="text-xs text-dark-muted mt-0.5">View study notes and habit streaks</p>
           </div>
           <Users2 className="w-4 h-4 text-dark-muted group-hover:text-flame-400 transition-colors" />
         </Link>
@@ -356,6 +451,27 @@ export const DashboardPage: React.FC = () => {
         onSubmit={handleCreateOrUpdateTask}
         editingTask={editingTask}
       />
+
+      {/* Task Completion with Study Note Modal */}
+      {completingTask && (
+        <TaskCompletionModal
+          task={completingTask}
+          isOpen={!!completingTask}
+          onClose={() => setCompletingTask(null)}
+          onComplete={handleCompleteSubmit}
+        />
+      )}
+
+      {/* Task Details & Calendar Modal */}
+      {detailTaskId && (
+        <TaskDetailModal
+          taskId={detailTaskId}
+          isOpen={!!detailTaskId}
+          onClose={() => setDetailTaskId(null)}
+          onTaskUpdated={loadDashboard}
+        />
+      )}
     </div>
   );
 };
+
