@@ -72,3 +72,5 @@ app.use((err, _req, res, _next) => {
     });
 });
 exports.default = app;
+module.exports = app;
+module.exports.default = app;

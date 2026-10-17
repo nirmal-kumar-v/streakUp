@@ -4,7 +4,7 @@
     "backend": {
       "root": "backend",
       "framework": "express",
-      "entrypoint": "dist/server.js",
+      "entrypoint": "index.js",
       "buildCommand": "npm run build"
     },
     "frontend": {
@@ -16,8 +16,7 @@
     {
       "source": "/api/(.*)",
       "destination": {
-        "service": "backend",
-        "path": "/api/$1"
+        "service": "backend"
       }
     },
     {
