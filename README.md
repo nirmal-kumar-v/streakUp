@@ -168,3 +168,34 @@ Open `http://localhost:5173` in your browser.
 - User ownership strictly verified on all task updates, deletions, and toggles.
 - Case-insensitive usernames prevent spoofing (`Nirmal` == `nirmal`).
 - Public endpoints (Global Leaderboard & Public Profiles) scrub private task data, emails, and password hashes.
+
+---
+
+## 🚀 Deploying to Vercel (Unified Monorepo)
+
+StreakUp is pre-configured for unified single-deployment hosting on [Vercel](https://vercel.com) using [`vercel.json`](./vercel.json) and Vercel Serverless Functions ([`api/index.ts`](./api/index.ts)).
+
+### Step 1: Push Code to GitHub / GitLab
+Initialize git if you haven't already and push to GitHub:
+```bash
+git add .
+git commit -m "Configure StreakUp for Vercel deployment"
+git push origin main
+```
+
+### Step 2: Import Project in Vercel
+1. Go to [Vercel Dashboard](https://vercel.com/dashboard) and click **"Add New..." -> "Project"**.
+2. Select and import your GitHub repository.
+3. Vercel automatically picks up [`vercel.json`](./vercel.json), running `npm run vercel-build` and serving static frontend files from `frontend/dist`.
+
+### Step 3: Configure Environment Variables
+In the **Environment Variables** section on Vercel, add:
+- `DATABASE_URL`: Your Neon PostgreSQL connection string (`postgresql://neondb_owner:...`)
+- `JWT_SECRET`: Your secret key (e.g. `streakup_super_secret_jwt_key_2026_change_in_production`)
+
+### Step 4: Click "Deploy"
+Vercel will:
+1. Generate the Prisma Client with Linux serverless query engines (`native` + `rhel-openssl-3.0.x`).
+2. Build the Vite production bundle into `frontend/dist`.
+3. Deploy Express routes as Serverless Functions (`api/index.ts` handling all `/api/*` traffic).
+4. Serve both your frontend SPA and backend API from your single Vercel domain (e.g. `https://streakup.vercel.app`), with zero CORS friction!

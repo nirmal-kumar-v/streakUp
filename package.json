@@ -3,14 +3,33 @@
   "version": "1.0.0",
   "description": "StreakUp Full-Stack Task, Streak and Friends Platform",
   "scripts": {
-    "install:all": "cmd /c \"cd backend && npm install && cd ../frontend && npm install\"",
+    "build": "npm run vercel-build",
+    "vercel-build": "npx prisma generate --schema=./backend/prisma/schema.prisma && npm --prefix frontend install && npm --prefix frontend run build",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"amber,emerald\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "cd backend && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev",
-    "build": "cd backend && npm run build && cd ../frontend && npm run build",
-    "test": "cd backend && npm run test"
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test": "npm --prefix backend run test"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.1",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "luxon": "^3.5.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.7",
+    "concurrently": "^9.1.2",
+    "prisma": "^6.3.1",
+    "typescript": "^5.7.3"
   }
 }

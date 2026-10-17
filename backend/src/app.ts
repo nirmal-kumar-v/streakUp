@@ -15,7 +15,7 @@ const app = express();
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
 app.use(cors({
-  origin: [clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: true, // Automatically mirrors origin (supports localhost, vercel.app, and custom domains)
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -23,22 +23,32 @@ app.use(cors({
 
 app.use(express.json());
 
-// Health & Info endpoint
-app.get('/api/health', (_req: Request, res: Response) => {
+// Health & Info endpoint (accessible at both /api/health and /health)
+const handleHealth = (_req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     app: 'StreakUp API',
     timestamp: new Date().toISOString(),
-    systemClock: getLocalTimeInfo('Asia/Kolkata')
+    systemClock: getLocalTimeInfo('Asia/Kolkata'),
+    environment: process.env.VERCEL ? 'vercel-serverless' : 'local-node'
   });
-});
+};
+app.get('/api/health', handleHealth);
+app.get('/health', handleHealth);
 
-// Mount Routes
+// Mount Routes with /api prefix (for standard and local requests)
 app.use('/api/auth', authRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/users', userRoutes);
+
+// Also mount routes without /api prefix (fallback for serverless rewrites)
+app.use('/auth', authRoutes);
+app.use('/tasks', taskRoutes);
+app.use('/friends', friendRoutes);
+app.use('/leaderboard', leaderboardRoutes);
+app.use('/users', userRoutes);
 
 // 404 Handler
 app.use('/api/*', (req: Request, res: Response) => {
