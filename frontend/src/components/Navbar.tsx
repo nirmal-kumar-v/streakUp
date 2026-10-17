@@ -8,8 +8,8 @@ import {
   CheckSquare,
   Globe2,
   Users2,
+  Users,
   UserPlus,
-  Settings,
   LogOut,
   Menu,
   X,
@@ -74,6 +74,7 @@ export const Navbar: React.FC = () => {
     ? [
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { label: 'My Tasks', path: '/tasks', icon: CheckSquare },
+        { label: 'Groups', path: '/groups', icon: Users },
         { label: "Friends' Tasks", path: '/friends/tasks', icon: Users2 },
         {
           label: 'Notifications',
@@ -151,6 +152,7 @@ export const Navbar: React.FC = () => {
                 {/* Profile Pill */}
                 <Link
                   to={`/profile/${user.username}`}
+                  title="Profile & Settings"
                   className="flex items-center gap-2.5 pl-2 pr-3 py-1 bg-dark-surface border border-dark-border rounded-xl hover:border-zinc-700 transition-colors group"
                 >
                   <InitialsAvatar
@@ -161,15 +163,6 @@ export const Navbar: React.FC = () => {
                   <span className="text-xs font-semibold text-zinc-200 group-hover:text-flame-400 transition-colors">
                     {user.name.split(' ')[0]}
                   </span>
-                </Link>
-
-                {/* Settings */}
-                <Link
-                  to="/settings"
-                  title="Settings"
-                  className="p-2 text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors"
-                >
-                  <Settings className="w-4 h-4" />
                 </Link>
 
                 {/* Logout */}
@@ -250,12 +243,12 @@ export const Navbar: React.FC = () => {
           {isAuthenticated ? (
             <div className="pt-3 border-t border-dark-border space-y-2">
               <Link
-                to="/settings"
+                to={`/profile/${user?.username}`}
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-400 hover:text-zinc-200"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm text-zinc-300 hover:text-flame-400"
               >
-                <Settings className="w-4 h-4" />
-                <span>Account Settings</span>
+                <InitialsAvatar name={user?.name || ''} image={user?.profileImage} size="xs" />
+                <span>Profile & Settings</span>
               </Link>
               <button
                 onClick={() => {

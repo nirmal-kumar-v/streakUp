@@ -7,7 +7,8 @@ import {
   rejectFriendRequest,
   cancelFriendRequest,
   getFriendsList,
-  removeFriend
+  removeFriend,
+  nudgeFriend
 } from '../controllers/friendController';
 import {
   getFriendsTasks,
@@ -29,6 +30,7 @@ router.post('/request', sendFriendRequest);
 router.post('/requests/:requestId/accept', acceptFriendRequest);
 router.post('/requests/:requestId/reject', rejectFriendRequest);
 router.delete('/requests/:requestId/cancel', cancelFriendRequest);
+router.post('/:friendUserId/nudge', nudgeFriend);
 router.delete('/:friendUserId', removeFriend);
 
 export default router;

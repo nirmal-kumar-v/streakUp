@@ -22,7 +22,8 @@ export function calculateStreakAndFreezes(
   completedDatesList: string[],
   existingProtectedDates: string[] = [],
   timezone: string = DEFAULT_TIMEZONE,
-  referenceDate?: Date
+  referenceDate?: Date,
+  scheduledDays?: number[] // Array of 0..6 (0=Sun, 1=Mon, ..., 6=Sat)
 ): TimelineStreakResult {
   const zone = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
   const now = referenceDate ? DateTime.fromJSDate(referenceDate).setZone(zone) : DateTime.now().setZone(zone);
@@ -69,9 +70,11 @@ export function calculateStreakAndFreezes(
   // Simulate day by day from firstDate up to yesterday (today is handled specially)
   while (simDate < todayDate) {
     const curDateStr = simDate.toFormat('yyyy-MM-dd');
+    const dayOfWeek = simDate.weekday % 7; // 0=Sunday, 1=Monday, ..., 6=Saturday
+    const isScheduledDay = !scheduledDays || scheduledDays.length === 0 || scheduledDays.includes(dayOfWeek);
 
     if (completedSet.has(curDateStr)) {
-      // Completed day
+      // Completed day (counts whether scheduled or not)
       currentStreak += 1;
       if (currentStreak > longestStreak) {
         longestStreak = currentStreak;
@@ -93,8 +96,8 @@ export function calculateStreakAndFreezes(
       freezeBalance = 0;
       freezeRechargeDays = 0;
       hasEverConsumedFreeze = true;
-    } else {
-      // Missed day!
+    } else if (isScheduledDay) {
+      // Scheduled day that was MISSED!
       if (currentStreak > 0 && freezeBalance === 1) {
         // We have an available freeze! Protect this missed day
         freezeBalance = 0;
@@ -109,6 +112,10 @@ export function calculateStreakAndFreezes(
         freezeBalance = 0;
         freezeRechargeDays = 0;
       }
+    } else {
+      // Unscheduled day not completed:
+      // Streak does NOT break, and freeze is NOT consumed.
+      // Streak continuity is preserved.
     }
 
     simDate = simDate.plus({ days: 1 });

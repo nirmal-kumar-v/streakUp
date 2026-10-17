@@ -7,6 +7,7 @@ export interface PublicProfile {
   profileImage: string | null;
   currentStreak: number;
   longestStreak: number;
+  points?: number;
   totalCompletedTasks: number;
   memberSince: string;
   relationshipStatus: 'SELF' | 'FRIENDS' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'NONE';
@@ -138,5 +139,15 @@ export async function verifyChangeEmailOtp(newEmail: string, otp: string) {
   }>('/users/change-email/verify', { newEmail, otp });
   return res.data;
 }
+
+export async function deleteAccount(data: { confirmation: string; password?: string }) {
+  const res = await apiClient.delete<{
+    success: boolean;
+    message: string;
+    error?: string;
+  }>('/users/account', { data });
+  return res.data;
+}
+
 
 

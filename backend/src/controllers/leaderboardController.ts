@@ -6,10 +6,12 @@ import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbErro
 
 /**
  * Global Leaderboard (Public access, optional authentication)
+ * Supports type: 'streak' (default) or 'points' (Requirement 11)
  */
 export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Response) {
   try {
     const currentUserId = req.user?.userId;
+    const type = req.query.type === 'points' ? 'points' : 'streak';
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
@@ -23,6 +25,21 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
     // Total count of qualifying users
     const totalUsers = await prisma.user.count({ where });
 
+    // Deterministic sorting based on type
+    const orderBy: any = type === 'points'
+      ? [
+          { points: 'desc' },
+          { currentStreak: 'desc' },
+          { longestStreak: 'desc' },
+          { username: 'asc' }
+        ]
+      : [
+          { currentStreak: 'desc' },
+          { longestStreak: 'desc' },
+          { points: 'desc' },
+          { username: 'asc' }
+        ];
+
     // Fetch ranked users
     const users = await prisma.user.findMany({
       where,
@@ -33,6 +50,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
         profileImage: true,
         currentStreak: true,
         longestStreak: true,
+        points: true,
         timezone: true,
         createdAt: true,
         _count: {
@@ -41,11 +59,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
           }
         }
       },
-      orderBy: [
-        { currentStreak: 'desc' },
-        { longestStreak: 'desc' },
-        { username: 'asc' }
-      ],
+      orderBy,
       skip,
       take: limit
     });
@@ -70,6 +84,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
           profileImage: u.profileImage,
           currentStreak: u.currentStreak,
           longestStreak: u.longestStreak,
+          points: u.points,
           totalCompletedTasks: u._count.taskCompletions,
           tasksCompletedToday,
           isCurrentUser: currentUserId ? u.id === currentUserId : false,
@@ -90,33 +105,73 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
           profileImage: true,
           currentStreak: true,
           longestStreak: true,
+          points: true,
           timezone: true,
           _count: { select: { taskCompletions: true } }
         }
       });
 
       if (currentUser) {
-        // Count users with higher streak or tie-break
-        const higherRankCount = await prisma.user.count({
-          where: {
-            OR: [
-              { currentStreak: { gt: currentUser.currentStreak } },
-              {
-                AND: [
-                  { currentStreak: currentUser.currentStreak },
-                  { longestStreak: { gt: currentUser.longestStreak } }
-                ]
-              },
-              {
-                AND: [
-                  { currentStreak: currentUser.currentStreak },
-                  { longestStreak: currentUser.longestStreak },
-                  { username: { lt: currentUser.username } }
-                ]
-              }
-            ]
-          }
-        });
+        let higherRankCount = 0;
+        if (type === 'points') {
+          higherRankCount = await prisma.user.count({
+            where: {
+              OR: [
+                { points: { gt: currentUser.points } },
+                {
+                  AND: [
+                    { points: currentUser.points },
+                    { currentStreak: { gt: currentUser.currentStreak } }
+                  ]
+                },
+                {
+                  AND: [
+                    { points: currentUser.points },
+                    { currentStreak: currentUser.currentStreak },
+                    { longestStreak: { gt: currentUser.longestStreak } }
+                  ]
+                },
+                {
+                  AND: [
+                    { points: currentUser.points },
+                    { currentStreak: currentUser.currentStreak },
+                    { longestStreak: currentUser.longestStreak },
+                    { username: { lt: currentUser.username } }
+                  ]
+                }
+              ]
+            }
+          });
+        } else {
+          higherRankCount = await prisma.user.count({
+            where: {
+              OR: [
+                { currentStreak: { gt: currentUser.currentStreak } },
+                {
+                  AND: [
+                    { currentStreak: currentUser.currentStreak },
+                    { longestStreak: { gt: currentUser.longestStreak } }
+                  ]
+                },
+                {
+                  AND: [
+                    { currentStreak: currentUser.currentStreak },
+                    { longestStreak: currentUser.longestStreak },
+                    { points: { gt: currentUser.points } }
+                  ]
+                },
+                {
+                  AND: [
+                    { currentStreak: currentUser.currentStreak },
+                    { longestStreak: currentUser.longestStreak },
+                    { points: currentUser.points },
+                    { username: { lt: currentUser.username } }
+                  ]
+                }
+              ]
+            }
+          });
+        }
 
         const todayDateStr = getLocalDateString(currentUser.timezone || 'Asia/Kolkata');
         const tasksCompletedToday = await prisma.taskCompletion.count({
@@ -134,6 +189,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
           profileImage: currentUser.profileImage,
           currentStreak: currentUser.currentStreak,
           longestStreak: currentUser.longestStreak,
+          points: currentUser.points,
           totalCompletedTasks: currentUser._count.taskCompletions,
           tasksCompletedToday,
           isCurrentUser: true
@@ -143,6 +199,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
 
     return res.json({
       success: true,
+      type,
       leaderboard: rankedUsers,
       pagination: {
         page,
@@ -176,10 +233,12 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
 
 /**
  * Friends Leaderboard (Authenticated access required)
+ * Supports type: 'streak' (default) or 'points'
  */
 export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
+    const type = req.query.type === 'points' ? 'points' : 'streak';
 
     // Get all accepted friends
     const friendships = await prisma.friendship.findMany({
@@ -196,6 +255,20 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
     // Include current user in friends leaderboard!
     const allCohortIds = Array.from(new Set([...friendUserIds, userId]));
 
+    const orderBy: any = type === 'points'
+      ? [
+          { points: 'desc' },
+          { currentStreak: 'desc' },
+          { longestStreak: 'desc' },
+          { username: 'asc' }
+        ]
+      : [
+          { currentStreak: 'desc' },
+          { longestStreak: 'desc' },
+          { points: 'desc' },
+          { username: 'asc' }
+        ];
+
     const users = await prisma.user.findMany({
       where: {
         id: { in: allCohortIds }
@@ -207,6 +280,7 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
         profileImage: true,
         currentStreak: true,
         longestStreak: true,
+        points: true,
         timezone: true,
         _count: {
           select: {
@@ -214,11 +288,7 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
           }
         }
       },
-      orderBy: [
-        { currentStreak: 'desc' },
-        { longestStreak: 'desc' },
-        { username: 'asc' }
-      ]
+      orderBy
     });
 
     const friendsLeaderboard = await Promise.all(
@@ -239,6 +309,7 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
           profileImage: u.profileImage,
           currentStreak: u.currentStreak,
           longestStreak: u.longestStreak,
+          points: u.points,
           totalCompletedTasks: u._count.taskCompletions,
           tasksCompletedToday,
           isCurrentUser: u.id === userId
@@ -250,6 +321,7 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
 
     return res.json({
       success: true,
+      type,
       leaderboard: friendsLeaderboard,
       totalParticipants: friendsLeaderboard.length,
       currentUserEntry

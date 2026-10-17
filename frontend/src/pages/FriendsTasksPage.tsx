@@ -5,6 +5,7 @@ import {
   FriendTaskGroup,
   StudyActivityItem,
 } from '../api/friends';
+import { toggleStudyNoteReaction, ReactionType } from '../api/reactions';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 import {
@@ -48,6 +49,63 @@ export const FriendsTasksPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  const REACTION_CONFIG: Array<{ type: ReactionType; emoji: string; label: string }> = [
+    { type: 'FIRE', emoji: '🔥', label: 'Fire' },
+    { type: 'STRONG', emoji: '💪', label: 'Strong' },
+    { type: 'CLAP', emoji: '👏', label: 'Clap' },
+    { type: 'CELEBRATE', emoji: '🎉', label: 'Celebrate' },
+  ];
+
+  const handleToggleReaction = async (completionId: string, reactionType: ReactionType) => {
+    // Optimistic UI update
+    setActivity((prev) =>
+      prev.map((item) => {
+        if (item.id !== completionId) return item;
+        const currentReactions = { ...(item.reactions || {}) };
+        const currentUserReactions = [...(item.userReactions || [])];
+        const hasReacted = currentUserReactions.includes(reactionType);
+
+        if (hasReacted) {
+          currentReactions[reactionType] = Math.max(0, (currentReactions[reactionType] || 1) - 1);
+          const nextUserReactions = currentUserReactions.filter((r) => r !== reactionType);
+          return {
+            ...item,
+            reactions: currentReactions,
+            userReactions: nextUserReactions,
+          };
+        } else {
+          currentReactions[reactionType] = (currentReactions[reactionType] || 0) + 1;
+          currentUserReactions.push(reactionType);
+          return {
+            ...item,
+            reactions: currentReactions,
+            userReactions: currentUserReactions,
+          };
+        }
+      })
+    );
+
+    try {
+      const res = await toggleStudyNoteReaction(completionId, reactionType);
+      if (res.success) {
+        const nextCounts = res.reactions || res.counts;
+        setActivity((prev) =>
+          prev.map((item) => {
+            if (item.id !== completionId) return item;
+            return {
+              ...item,
+              reactions: nextCounts,
+              userReactions: res.userReactions || [],
+            };
+          })
+        );
+      }
+    } catch (err) {
+      console.error('Failed to toggle reaction:', err);
+      loadData();
+    }
+  };
 
   return (
     <div className="space-y-6 pb-16">
@@ -283,6 +341,30 @@ export const FriendsTasksPage: React.FC = () => {
                 <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-200 italic flex items-start gap-2.5">
                   <Sparkles className="w-4 h-4 text-flame-400 shrink-0 mt-0.5" />
                   <span className="leading-relaxed">"{item.studyNote}"</span>
+                </div>
+
+                {/* Study Note Reactions (Requirement 6) */}
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  {REACTION_CONFIG.map(({ type, emoji, label }) => {
+                    const count = item.reactions?.[type] || 0;
+                    const hasReacted = item.userReactions?.includes(type);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => handleToggleReaction(item.id, type)}
+                        title={`${label} (${count})`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all active:scale-95 border ${
+                          hasReacted
+                            ? 'bg-flame-500/20 border-flame-500/50 text-flame-300 font-bold shadow-sm'
+                            : 'bg-dark-surface/60 border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                        }`}
+                      >
+                        <span className="text-sm">{emoji}</span>
+                        {count > 0 && <span className="font-mono text-[11px] font-bold">{count}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))

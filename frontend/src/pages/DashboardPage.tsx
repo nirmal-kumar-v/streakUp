@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchDashboardSummary,
-  fetchActivityHistory,
   completeTask,
   uncompleteTask,
   createTask,
@@ -26,20 +25,25 @@ import {
   CheckCircle2,
   ListTodo,
   Plus,
-  Users2,
-  Globe2,
   ArrowRight,
   TrendingUp,
   Shield,
   Zap,
+  Award,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user, updateUser } = useAuth();
 
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activity, setActivity] = useState<Array<{ date: string; count: number }>>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pointsStats, setPointsStats] = useState<{
+    totalPoints: number;
+    completedCount: number;
+    missedCount: number;
+    netCompletedPoints: number;
+    netMissedPoints: number;
+  } | null>(null);
 
   // Freeze & Protected dates
   const [overallFreezeBalance, setOverallFreezeBalance] = useState<number>(0);
@@ -54,27 +58,24 @@ export const DashboardPage: React.FC = () => {
 
   const loadDashboard = useCallback(async () => {
     try {
-      const [sumRes, actRes] = await Promise.all([
-        fetchDashboardSummary(),
-        fetchActivityHistory(),
-      ]);
+      const sumRes = await fetchDashboardSummary();
 
       if (sumRes.success) {
         setTasks(sumRes.todayTasks || []);
+        if (sumRes.pointsStats) {
+          setPointsStats(sumRes.pointsStats);
+        }
         if (sumRes.user) {
           updateUser({
             currentStreak: sumRes.user.currentStreak,
             longestStreak: sumRes.user.longestStreak,
             profileImage: sumRes.user.profileImage,
+            points: sumRes.user.points,
           });
           setOverallFreezeBalance(sumRes.user.overallFreezeBalance || 0);
           setOverallFreezeRechargeDays(sumRes.user.overallFreezeRechargeDays || 0);
           setRecentProtectedDates(sumRes.user.protectedDates || []);
         }
-      }
-
-      if (actRes.success) {
-        setActivity(actRes.activity || []);
       }
     } catch (err) {
       console.error('Failed to load dashboard:', err);
@@ -114,8 +115,8 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  const handleCompleteSubmit = async (studyNote?: string) => {
-    if (!completingTask) return;
+  const handleCompleteSubmit = async (studyNote: string) => {
+    if (!completingTask || !studyNote) return;
     try {
       const res = await completeTask(completingTask.id, studyNote);
       if (res.success) {
@@ -273,6 +274,82 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Points & Accountability Card (Requirement 9) */}
+      <div className="bg-gradient-to-br from-amber-500/10 via-dark-card to-dark-surface border border-amber-500/20 rounded-2xl p-5 shadow-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+              <Award className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-zinc-100 uppercase tracking-wider">
+                  Accountability Points
+                </h3>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold">
+                  +5 / -5 System
+                </span>
+              </div>
+              <p className="text-xs text-dark-muted mt-0.5">
+                Earn +5 points for completing habits on scheduled days. Missed scheduled habits incur -5 points.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-center bg-dark-bg/80 px-4 py-2 rounded-xl border border-amber-500/20">
+            <span className="text-xs text-dark-muted font-medium">Total Score:</span>
+            <span className="text-2xl font-black font-mono text-amber-400">
+              {(pointsStats?.totalPoints ?? user?.points ?? 0) > 0
+                ? `+${pointsStats?.totalPoints ?? user?.points ?? 0}`
+                : (pointsStats?.totalPoints ?? user?.points ?? 0)}
+            </span>
+            <span className="text-xs text-zinc-400 font-mono">pts</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-dark-border/60">
+          <div className="bg-dark-bg/60 rounded-xl p-3 border border-dark-border">
+            <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
+              Completed Scheduled Habits
+            </div>
+            <div className="text-lg font-black font-mono text-emerald-400 mt-1">
+              {pointsStats?.completedCount ?? 0} <span className="text-xs font-normal text-zinc-400">instances</span>
+            </div>
+            <div className="text-[10px] text-emerald-400/80 font-mono mt-0.5">
+              +{pointsStats?.netCompletedPoints ?? 0} pts earned
+            </div>
+          </div>
+
+          <div className="bg-dark-bg/60 rounded-xl p-3 border border-dark-border">
+            <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-400 inline-block"></span>
+              Missed Scheduled Habits
+            </div>
+            <div className="text-lg font-black font-mono text-rose-400 mt-1">
+              {pointsStats?.missedCount ?? 0} <span className="text-xs font-normal text-zinc-400">instances</span>
+            </div>
+            <div className="text-[10px] text-rose-400/80 font-mono mt-0.5">
+              -{pointsStats?.netMissedPoints ?? 0} pts deducted
+            </div>
+          </div>
+
+          <div className="bg-dark-bg/60 rounded-xl p-3 border border-dark-border">
+            <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
+              <Flame className="w-3.5 h-3.5 text-flame-400 inline-block" />
+              Consistency Ratio
+            </div>
+            <div className="text-lg font-black font-mono text-zinc-100 mt-1">
+              {(pointsStats?.completedCount ?? 0) + (pointsStats?.missedCount ?? 0) > 0
+                ? `${Math.round(((pointsStats?.completedCount ?? 0) / ((pointsStats?.completedCount ?? 0) + (pointsStats?.missedCount ?? 0))) * 100)}%`
+                : '100%'}
+            </div>
+            <div className="text-[10px] text-dark-muted font-mono mt-0.5">
+              Scheduled habit accuracy
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Overall Streak Freeze Status Banner (Requirement 8) */}
       <div className="p-4 bg-gradient-to-r from-cyan-950/20 via-dark-surface to-dark-bg border border-cyan-500/20 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
         <div className="flex items-center gap-3">
@@ -395,54 +472,8 @@ export const DashboardPage: React.FC = () => {
         )}
       </div>
 
-      {/* Activity Heatmap Section */}
-      <ActivityHeatmap
-        activity={activity}
-        daysToShow={70}
-        timezone={user?.timezone || 'Asia/Kolkata'}
-      />
-
-      {/* Quick Navigation Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Link
-          to="/tasks"
-          className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex items-center justify-between group"
-        >
-          <div>
-            <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors">
-              Task Manager
-            </h4>
-            <p className="text-xs text-dark-muted mt-0.5">Filter, sort, and organize habits</p>
-          </div>
-          <ArrowRight className="w-4 h-4 text-dark-muted group-hover:text-flame-400 group-hover:translate-x-1 transition-all" />
-        </Link>
-
-        <Link
-          to="/leaderboard/global"
-          className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex items-center justify-between group"
-        >
-          <div>
-            <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors">
-              Global Leaderboard
-            </h4>
-            <p className="text-xs text-dark-muted mt-0.5">See worldwide top streak holders</p>
-          </div>
-          <Globe2 className="w-4 h-4 text-dark-muted group-hover:text-flame-400 transition-colors" />
-        </Link>
-
-        <Link
-          to="/friends/tasks"
-          className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex items-center justify-between group"
-        >
-          <div>
-            <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors">
-              Friends' Tasks & Activity
-            </h4>
-            <p className="text-xs text-dark-muted mt-0.5">View study notes and habit streaks</p>
-          </div>
-          <Users2 className="w-4 h-4 text-dark-muted group-hover:text-flame-400 transition-colors" />
-        </Link>
-      </div>
+      {/* Activity Heatmap Section (Requirement 3 & 7) */}
+      <ActivityHeatmap timezone={user?.timezone || 'Asia/Kolkata'} />
 
       {/* Task Creation / Edit Modal */}
       <TaskModal

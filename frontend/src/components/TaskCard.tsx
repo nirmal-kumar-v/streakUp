@@ -153,11 +153,23 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.priority}
             </span>
 
-            {/* Recurrence */}
+            {/* Recurrence & Schedule */}
             <span className="inline-flex items-center gap-1 bg-dark-surface text-zinc-400 px-2 py-0.5 rounded-md border border-dark-border text-[11px]">
               {task.recurrence === 'DAILY' ? (
                 <>
-                  <Repeat className="w-3 h-3 text-flame-400" /> Daily
+                  <Repeat className="w-3 h-3 text-flame-400" />
+                  <span>
+                    {(() => {
+                      const days = task.scheduledDays || [0, 1, 2, 3, 4, 5, 6];
+                      if (days.length === 7) return 'Every day';
+                      const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                      const isWeekdays = days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d));
+                      if (isWeekdays) return 'Weekdays';
+                      const isWeekends = days.length === 2 && [0, 6].every((d) => days.includes(d));
+                      if (isWeekends) return 'Weekends';
+                      return days.map((d) => dayLabels[d]).join(', ');
+                    })()}
+                  </span>
                 </>
               ) : (
                 <>
@@ -165,6 +177,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 </>
               )}
             </span>
+
+            {/* Rest Day / Unscheduled Indicator */}
+            {task.recurrence === 'DAILY' && !task.completedToday && task.scheduledDays && !task.scheduledDays.includes(new Date().getDay()) && (
+              <span className="bg-zinc-800/80 text-zinc-400 px-2 py-0.5 rounded-md border border-zinc-700/60 text-[10px]">
+                Rest Day
+              </span>
+            )}
 
             {/* Due Time */}
             {task.dueTime && (

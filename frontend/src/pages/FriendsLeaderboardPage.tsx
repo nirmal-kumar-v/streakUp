@@ -5,14 +5,16 @@ import { Link } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
 
 export const FriendsLeaderboardPage: React.FC = () => {
+  const [activeType, setActiveType] = useState<'streak' | 'points'>('streak');
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadFriendsLeaderboard = async () => {
+      setIsLoading(true);
       try {
-        const res = await fetchFriendsLeaderboard();
+        const res = await fetchFriendsLeaderboard({ type: activeType });
         if (res.success) {
           setEntries(res.leaderboard);
           setCurrentUserEntry(res.currentUserEntry);
@@ -24,16 +26,22 @@ export const FriendsLeaderboardPage: React.FC = () => {
       }
     };
     loadFriendsLeaderboard();
-  }, []);
+  }, [activeType]);
 
   return (
     <div className="space-y-6 pb-20">
       <LeaderboardTable
         entries={entries}
         title="Friends Leaderboard"
-        subtitle="Exclusive rankings between you and your accepted friends"
+        subtitle={
+          activeType === 'streak'
+            ? 'Exclusive rankings between you and your accepted friends by streaks'
+            : 'Exclusive rankings between you and your accepted friends by accountability points'
+        }
         currentUserRankInfo={currentUserEntry}
         isLoading={isLoading}
+        activeType={activeType}
+        onTypeChange={setActiveType}
       />
 
       {/* If only current user is in leaderboard */}

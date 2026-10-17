@@ -97,8 +97,8 @@ export const TasksPage: React.FC = () => {
     }
   };
 
-  const handleCompleteSubmit = async (studyNote?: string) => {
-    if (!completingTask) return;
+  const handleCompleteSubmit = async (studyNote: string) => {
+    if (!completingTask || !studyNote) return;
     try {
       const res = await completeTask(completingTask.id, studyNote);
       if (res.success) {

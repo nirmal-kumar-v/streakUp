@@ -13,6 +13,7 @@ import {
   Clock,
   ArrowLeft,
   User as UserIcon,
+  Award,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { extractErrorMessage } from '../utils/error';
@@ -187,8 +188,8 @@ export const PublicProfilePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Stats Cards (Requirement 9) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {/* Current Streak */}
         <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center">
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
@@ -210,6 +211,26 @@ export const PublicProfilePage: React.FC = () => {
           <div className="text-3xl font-black font-mono text-zinc-100">
             {profile.longestStreak}
             <span className="text-xs font-normal text-dark-muted ml-1">days</span>
+          </div>
+        </div>
+
+        {/* Accountability Points */}
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center">
+          <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
+            <Award className="w-4 h-4 text-amber-400" />
+            <span>Total Points</span>
+          </div>
+          <div
+            className={`text-3xl font-black font-mono ${
+              (profile.points ?? 0) > 0
+                ? 'text-emerald-400'
+                : (profile.points ?? 0) < 0
+                ? 'text-rose-400'
+                : 'text-zinc-100'
+            }`}
+          >
+            {(profile.points ?? 0) > 0 ? `+${profile.points}` : (profile.points ?? 0)}
+            <span className="text-xs font-normal text-dark-muted ml-1">pts</span>
           </div>
         </div>
 

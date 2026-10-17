@@ -52,6 +52,13 @@ enum NotificationCategory {
   FRIEND_TASK_MILESTONE
   MY_MILESTONE
   SYSTEM
+  FRIEND_NUDGE
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
 }
 
 enum ReminderScope {
@@ -83,6 +90,7 @@ model User {
   timezone                String           @default("Asia/Kolkata")
   currentStreak           Int              @default(0)
   longestStreak           Int              @default(0)
+  points                  Int              @default(0)
   isEmailVerified         Boolean          @default(true) // Defaults to true so existing users remain verified
   lastUsernameChangeAt    DateTime?
   emailLastChangedAt      DateTime?        // Tracks last registered email change (14-day limit)
@@ -108,9 +116,14 @@ model User {
   emailDeliveries         EmailDelivery[]
   emailOtps               EmailOtp[]
   passwordResetTokens     PasswordResetToken[]
+  pointLedgers            PointLedger[]
+  ownedGroups             Group[]          @relation("OwnedGroups")
+  groupMemberships        GroupMember[]
+  noteReactions           StudyNoteReaction[]
 
   @@index([normalizedUsername])
   @@index([currentStreak(sort: Desc), longestStreak(sort: Desc)])
+  @@index([points(sort: Desc)])
 }
 
 model Task {
@@ -123,6 +136,7 @@ model Task {
   category             String           @default("General")
   priority             Priority         @default(MEDIUM)
   recurrence           Recurrence       @default(DAILY)
+  scheduledDays        Int[]            @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun, 1=Mon, ..., 6=Sat
   dueTime              String?          // e.g. "18:00"
   status               TaskStatus       @default(ACTIVE)
   isCompleted          Boolean          @default(false) // completed flag for one-time tasks
@@ -140,6 +154,7 @@ model Task {
   equivalencesAsFriendTask TaskEquivalence[] @relation("FriendTaskEquivalences")
   notifications        Notification[]
   reminderSchedules    ReminderSchedule[]
+  pointLedgers         PointLedger[]
 
   @@index([userId, status])
   @@index([userId, recurrence])
@@ -154,6 +169,8 @@ model TaskCompletion {
   completionDate String   // Local calendar date in format "YYYY-MM-DD"
   studyNote      String?
   completedAt    DateTime @default(now())
+
+  reactions      StudyNoteReaction[]
 
   // Prevent duplicate completion records for the same task and local date
   @@unique([taskId, completionDate])
@@ -349,6 +366,65 @@ model PasswordResetToken {
 
   @@index([userId, isUsed])
   @@index([expiresAt])
+}
+
+model PointLedger {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  points    Int      // +5 for completion, -5 for missed scheduled habit
+  reason    String   // 'COMPLETION' or 'MISSED_SCHEDULED'
+  date      String   // Local calendar date "YYYY-MM-DD"
+  createdAt DateTime @default(now())
+
+  @@unique([userId, taskId, date, reason])
+  @@index([userId, date])
+  @@index([userId, points])
+}
+
+model StudyNoteReaction {
+  id           String         @id @default(uuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completionId String
+  completion   TaskCompletion @relation(fields: [completionId], references: [id], onDelete: Cascade)
+  emoji        String         // 'FIRE', 'STRONG', 'CLAP', 'CELEBRATE'
+  createdAt    DateTime       @default(now())
+
+  @@unique([userId, completionId, emoji])
+  @@index([completionId])
+  @@index([userId])
+}
+
+model Group {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  joinCode    String        @unique
+  ownerId     String
+  owner       User          @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     GroupMember[]
+
+  @@index([joinCode])
+  @@index([ownerId])
+}
+
+model GroupMember {
+  id       String    @id @default(uuid())
+  groupId  String
+  group    Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  @@unique([groupId, userId])
+  @@index([userId])
+  @@index([groupId])
 }
 
 

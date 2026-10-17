@@ -9,6 +9,7 @@ export interface User {
   profileImage: string | null;
   currentStreak: number;
   longestStreak: number;
+  points?: number;
   isEmailVerified?: boolean;
   emailLastChangedAt?: string | null;
   createdAt?: string;

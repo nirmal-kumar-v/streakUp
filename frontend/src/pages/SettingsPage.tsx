@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   updateProfileSettings,
@@ -11,6 +11,7 @@ import {
   fetchEmailChangeStatus,
   requestChangeEmailOtp,
   verifyChangeEmailOtp,
+  deleteAccount,
   TimezoneOption,
 } from '../api/user';
 import { InitialsAvatar } from '../components/InitialsAvatar';
@@ -35,7 +36,15 @@ import {
 import { extractErrorMessage } from '../utils/error';
 
 export const SettingsPage: React.FC = () => {
-  const { user, updateUser } = useAuth();
+  const navigate = useNavigate();
+  const { user, updateUser, logout } = useAuth();
+
+  // Delete Account State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // Basic Profile & Timezone
   const [name, setName] = useState(user?.name || '');
@@ -925,6 +934,146 @@ export const SettingsPage: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {/* Danger Zone: Permanent Account Deletion (Requirement 4 & 8) */}
+      <div className="bg-rose-950/10 border border-rose-500/20 rounded-3xl p-6 sm:p-8 shadow-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-rose-400 font-bold text-base">
+              <ShieldAlert className="w-5 h-5 shrink-0" />
+              <span>Danger Zone: Permanent Account Deletion</span>
+            </div>
+            <p className="text-xs text-zinc-400 mt-1 max-w-xl">
+              Permanently delete your StreakUp account and all associated data including habits, completion history, streaks, points, study notes, group memberships, and friendships. This action is irreversible.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteConfirmationText('');
+              setDeletePassword('');
+              setDeleteError('');
+              setIsDeleteModalOpen(true);
+            }}
+            className="px-4 py-2.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/30 rounded-xl text-xs font-bold transition-all shrink-0 active:scale-95 flex items-center gap-2"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Delete Account</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Delete Account Confirmation Modal */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative my-8">
+            <div className="flex items-center gap-3 text-rose-400 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-zinc-100">Permanent Account Deletion</h3>
+                <p className="text-xs text-rose-400 font-medium">Irreversible action</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-rose-950/20 border border-rose-500/20 rounded-xl text-xs text-zinc-300 leading-relaxed mb-5">
+              <p className="font-semibold text-rose-300 mb-1">Are you absolutely sure?</p>
+              This will permanently delete your user profile, habits, completion logs, streaks, points, study notes, friend relationships, and group memberships. Any groups you own with active members will transfer ownership to the next earliest member.
+            </div>
+
+            {deleteError && (
+              <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (deleteConfirmationText !== 'DELETE') {
+                  setDeleteError('Please type "DELETE" exactly to confirm.');
+                  return;
+                }
+                setIsDeletingAccount(true);
+                setDeleteError('');
+                try {
+                  const res = await deleteAccount({
+                    confirmation: deleteConfirmationText,
+                    password: deletePassword || undefined,
+                  });
+                  if (res.success) {
+                    setIsDeleteModalOpen(false);
+                    await logout();
+                    navigate('/login?deleted=true');
+                  }
+                } catch (err: any) {
+                  setDeleteError(
+                    extractErrorMessage(err, 'Failed to delete account. Please verify your password.')
+                  );
+                } finally {
+                  setIsDeletingAccount(false);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                  Type <span className="text-rose-400 font-mono font-black">DELETE</span> to confirm
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={deleteConfirmationText}
+                  onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-rose-500/30 rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter your current password"
+                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  disabled={isDeletingAccount}
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleteConfirmationText !== 'DELETE' || isDeletingAccount}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-rose-600/30 flex items-center gap-2"
+                >
+                  {isDeletingAccount ? (
+                    <>
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <span>Permanently Delete</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

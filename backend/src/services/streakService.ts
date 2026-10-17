@@ -187,7 +187,7 @@ export async function recalculateTaskStreaks(
 ): Promise<TimelineStreakResult> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, recurrence: true }
+    select: { id: true, recurrence: true, scheduledDays: true }
   });
 
   if (!task || task.recurrence === 'ONE_TIME') {
@@ -226,7 +226,13 @@ export async function recalculateTaskStreaks(
   });
   const protectedDates = freezeLogs.map((l: { protectedDate: string }) => l.protectedDate);
 
-  const freezeResult = calculateStreakAndFreezes(completionDates, protectedDates, tz);
+  const freezeResult = calculateStreakAndFreezes(
+    completionDates,
+    protectedDates,
+    tz,
+    undefined,
+    task.scheduledDays || [0, 1, 2, 3, 4, 5, 6]
+  );
 
   if (freezeResult.newlyConsumedDates.length > 0) {
     for (const pDate of freezeResult.newlyConsumedDates) {

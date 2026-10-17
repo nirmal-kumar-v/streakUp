@@ -12,12 +12,23 @@ interface TaskModalProps {
     category?: string;
     priority: Priority;
     recurrence: Recurrence;
+    scheduledDays?: number[];
     dueTime?: string;
   }) => Promise<void>;
   editingTask?: Task | null;
 }
 
 const CATEGORY_PRESETS = ['General', 'Coding', 'Health', 'Fitness', 'Learning', 'Work', 'Reading', 'Personal'];
+
+const WEEKDAYS = [
+  { day: 0, label: 'Sun' },
+  { day: 1, label: 'Mon' },
+  { day: 2, label: 'Tue' },
+  { day: 3, label: 'Wed' },
+  { day: 4, label: 'Thu' },
+  { day: 5, label: 'Fri' },
+  { day: 6, label: 'Sat' },
+];
 
 export const TaskModal: React.FC<TaskModalProps> = ({
   isOpen,
@@ -30,6 +41,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [category, setCategory] = useState('General');
   const [priority, setPriority] = useState<Priority>('MEDIUM');
   const [recurrence, setRecurrence] = useState<Recurrence>('DAILY');
+  const [scheduleType, setScheduleType] = useState<'EVERY_DAY' | 'CUSTOM'>('EVERY_DAY');
+  const [scheduledDays, setScheduledDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [dueTime, setDueTime] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -41,6 +54,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setCategory(editingTask.category || 'General');
       setPriority(editingTask.priority);
       setRecurrence(editingTask.recurrence);
+      const days = editingTask.scheduledDays || [0, 1, 2, 3, 4, 5, 6];
+      setScheduledDays(days);
+      setScheduleType(days.length === 7 ? 'EVERY_DAY' : 'CUSTOM');
       setDueTime(editingTask.dueTime || '');
     } else {
       setTitle('');
@@ -48,6 +64,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setCategory('General');
       setPriority('MEDIUM');
       setRecurrence('DAILY');
+      setScheduleType('EVERY_DAY');
+      setScheduledDays([0, 1, 2, 3, 4, 5, 6]);
       setDueTime('');
     }
     setError('');
@@ -55,10 +73,37 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   if (!isOpen) return null;
 
+  const toggleDay = (day: number) => {
+    if (scheduledDays.includes(day)) {
+      if (scheduledDays.length <= 1) {
+        setError('At least one day must be scheduled');
+        return;
+      }
+      setScheduledDays(scheduledDays.filter((d) => d !== day));
+    } else {
+      setScheduledDays([...scheduledDays, day].sort());
+      setError('');
+    }
+  };
+
+  const handleScheduleTypeChange = (type: 'EVERY_DAY' | 'CUSTOM') => {
+    setScheduleType(type);
+    if (type === 'EVERY_DAY') {
+      setScheduledDays([0, 1, 2, 3, 4, 5, 6]);
+    } else if (scheduledDays.length === 7) {
+      setScheduledDays([1, 2, 3, 4, 5]);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       setError('Task title is required');
+      return;
+    }
+
+    if (recurrence === 'DAILY' && scheduledDays.length === 0) {
+      setError('Please select at least one day for this habit schedule.');
       return;
     }
 
@@ -72,6 +117,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         category: category.trim() || 'General',
         priority,
         recurrence,
+        scheduledDays: recurrence === 'DAILY' ? scheduledDays : undefined,
         dueTime: dueTime || undefined,
       });
       onClose();
@@ -202,6 +248,84 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Habit Schedule Selector (Requirement 2) */}
+          {recurrence === 'DAILY' && (
+            <div className="p-3.5 bg-dark-surface/70 border border-dark-border rounded-xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-200">Habit Schedule</label>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleScheduleTypeChange('EVERY_DAY')}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                      scheduleType === 'EVERY_DAY'
+                        ? 'bg-flame-500/20 text-flame-300 border-flame-500/30 font-bold'
+                        : 'bg-dark-surface text-zinc-400 border-dark-border hover:text-zinc-200'
+                    }`}
+                  >
+                    Every Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleScheduleTypeChange('CUSTOM')}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                      scheduleType === 'CUSTOM'
+                        ? 'bg-flame-500/20 text-flame-300 border-flame-500/30 font-bold'
+                        : 'bg-dark-surface text-zinc-400 border-dark-border hover:text-zinc-200'
+                    }`}
+                  >
+                    Custom Days
+                  </button>
+                </div>
+              </div>
+
+              {scheduleType === 'CUSTOM' && (
+                <div className="pt-1 space-y-2">
+                  <div className="grid grid-cols-7 gap-1">
+                    {WEEKDAYS.map((w) => {
+                      const isSelected = scheduledDays.includes(w.day);
+                      return (
+                        <button
+                          key={w.day}
+                          type="button"
+                          onClick={() => toggleDay(w.day)}
+                          className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                            isSelected
+                              ? 'bg-flame-500 text-zinc-950 border-flame-400 shadow-sm shadow-flame-500/20'
+                              : 'bg-dark-surface text-zinc-400 border-dark-border hover:border-zinc-600 hover:text-zinc-200'
+                          }`}
+                        >
+                          {w.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-dark-muted">
+                    <span>
+                      Active: <strong className="text-zinc-200">{scheduledDays.length} day{scheduledDays.length === 1 ? '' : 's'}/week</strong>
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScheduledDays([1, 2, 3, 4, 5])}
+                        className="text-flame-400 hover:text-flame-300 hover:underline"
+                      >
+                        Weekdays
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScheduledDays([0, 6])}
+                        className="text-flame-400 hover:text-flame-300 hover:underline"
+                      >
+                        Weekends
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Category & Due Time Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

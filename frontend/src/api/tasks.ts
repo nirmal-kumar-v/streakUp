@@ -13,6 +13,7 @@ export interface Task {
   category: string;
   priority: Priority;
   recurrence: Recurrence;
+  scheduledDays?: number[]; // 0=Sun, 1=Mon, ..., 6=Sat
   dueTime: string | null;
   status: TaskStatus;
   completedToday: boolean;
@@ -65,12 +66,20 @@ export interface DashboardSummaryResponse {
     overallFreezeRechargeDays?: number;
     protectedDates?: string[];
     timezone: string;
+    points?: number;
   };
   stats: {
     totalActiveTasks: number;
     completedTodayCount: number;
     pendingTodayCount: number;
     completionPercentage: number;
+  };
+  pointsStats?: {
+    totalPoints: number;
+    completedCount: number;
+    missedCount: number;
+    netCompletedPoints: number;
+    netMissedPoints: number;
   };
   todayTasks: Task[];
   clockInfo: ClockInfo;
@@ -160,6 +169,7 @@ export async function createTask(data: {
   category?: string;
   priority?: Priority;
   recurrence?: Recurrence;
+  scheduledDays?: number[];
   dueTime?: string;
 }) {
   const res = await apiClient.post<{ success: boolean; task: Task }>('/tasks', data);
@@ -174,6 +184,7 @@ export async function updateTask(
     category: string;
     priority: Priority;
     recurrence: Recurrence;
+    scheduledDays: number[];
     dueTime: string | null;
     status: TaskStatus;
   }>
@@ -192,14 +203,16 @@ export async function toggleArchiveTask(id: string) {
   return res.data;
 }
 
-export async function completeTask(id: string, studyNote?: string) {
+export async function completeTask(id: string, studyNote: string) {
   const res = await apiClient.post<{
     success: boolean;
     completedToday: boolean;
-    studyNote?: string | null;
+    studyNote: string;
     taskStreak?: any;
     overallStreak?: StreakInfo;
     streak: StreakInfo;
+    pointsAwarded?: number;
+    totalPoints?: number;
   }>(`/tasks/${id}/complete`, { studyNote });
   return res.data;
 }
@@ -211,6 +224,7 @@ export async function uncompleteTask(id: string) {
     taskStreak?: any;
     overallStreak?: StreakInfo;
     streak: StreakInfo;
+    totalPoints?: number;
   }>(`/tasks/${id}/uncomplete`);
   return res.data;
 }
@@ -255,12 +269,31 @@ export async function fetchDashboardSummary() {
   return res.data;
 }
 
-export async function fetchActivityHistory() {
-  const res = await apiClient.get<{
-    success: boolean;
-    activity: Array<{ date: string; count: number }>;
-    totalCompletions: number;
-  }>('/tasks/activity-history');
+export interface ActivityTaskInfo {
+  title: string;
+  note: string | null;
+}
+
+export interface ActivityDateItem {
+  date: string;
+  count: number;
+  tasks?: ActivityTaskInfo[];
+}
+
+export interface ActivityHistoryResponse {
+  success: boolean;
+  year?: number;
+  availableYears?: number[];
+  activity: ActivityDateItem[];
+  totalCompletions: number;
+  activeDaysCount?: number;
+}
+
+export async function fetchActivityHistory(year?: number) {
+  const res = await apiClient.get<ActivityHistoryResponse>('/tasks/activity-history', {
+    params: year ? { year } : undefined
+  });
   return res.data;
 }
+
 

@@ -8,6 +8,7 @@ export interface LeaderboardEntry {
   profileImage: string | null;
   currentStreak: number;
   longestStreak: number;
+  points?: number;
   totalCompletedTasks: number;
   tasksCompletedToday: number;
   isCurrentUser: boolean;
@@ -16,6 +17,7 @@ export interface LeaderboardEntry {
 
 export interface GlobalLeaderboardResponse {
   success: boolean;
+  type?: 'streak' | 'points';
   leaderboard: LeaderboardEntry[];
   pagination: {
     page: number;
@@ -28,17 +30,23 @@ export interface GlobalLeaderboardResponse {
 
 export interface FriendsLeaderboardResponse {
   success: boolean;
+  type?: 'streak' | 'points';
   leaderboard: LeaderboardEntry[];
   totalParticipants: number;
   currentUserEntry: LeaderboardEntry | null;
 }
 
-export async function fetchGlobalLeaderboard(params?: { page?: number; limit?: number; search?: string }) {
+export async function fetchGlobalLeaderboard(params?: {
+  page?: number;
+  limit?: number;
+  search?: string;
+  type?: 'streak' | 'points';
+}) {
   const res = await apiClient.get<GlobalLeaderboardResponse>('/leaderboard/global', { params });
   return res.data;
 }
 
-export async function fetchFriendsLeaderboard() {
-  const res = await apiClient.get<FriendsLeaderboardResponse>('/leaderboard/friends');
+export async function fetchFriendsLeaderboard(params?: { type?: 'streak' | 'points' }) {
+  const res = await apiClient.get<FriendsLeaderboardResponse>('/leaderboard/friends', { params });
   return res.data;
 }

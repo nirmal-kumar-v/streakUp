@@ -141,6 +141,10 @@ export interface StudyActivityItem {
     currentStreak: number;
     recurrence: string;
   };
+  reactionCounts?: Record<string, number>;
+  reactions?: Record<string, number>;
+  userReactions?: string[];
+  totalReactions?: number;
 }
 
 export async function fetchFriendsStudyActivity(page: number = 1, limit: number = 20) {
@@ -154,6 +158,15 @@ export async function fetchFriendsStudyActivity(page: number = 1, limit: number 
       totalPages: number;
     };
   }>('/friends/study-activity', { params: { page, limit } });
+  return res.data;
+}
+
+export async function nudgeFriend(friendUserId: string) {
+  const res = await apiClient.post<{
+    success: boolean;
+    message: string;
+    notificationId?: string;
+  }>(`/friends/${friendUserId}/nudge`);
   return res.data;
 }
 

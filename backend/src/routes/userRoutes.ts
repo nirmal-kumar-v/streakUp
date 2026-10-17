@@ -10,6 +10,7 @@ import {
   getEmailChangeStatus,
   requestChangeEmail,
   verifyChangeEmail,
+  deleteAccount,
 } from '../controllers/userController';
 import { requireAuth, optionalAuth } from '../middleware/authMiddleware';
 
@@ -37,6 +38,10 @@ router.get('/email-change-status', requireAuth, getEmailChangeStatus);
 router.post('/change-email/request', requireAuth, requestChangeEmail);
 router.post('/change-email/verify', requireAuth, verifyChangeEmail);
 
+// Permanent Account Deletion (Requirement 4)
+router.delete('/account', requireAuth, deleteAccount);
+
 export default router;
+
 
 

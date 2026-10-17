@@ -9,6 +9,7 @@ import {
   rejectFriendRequest,
   cancelFriendRequest,
   removeFriend,
+  nudgeFriend,
   FriendUser,
   FriendRequestItem,
 } from '../api/friends';
@@ -37,6 +38,7 @@ export const FriendsPage: React.FC = () => {
   const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FriendUser[]>([]);
+  const [nudgingFriendId, setNudgingFriendId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -158,6 +160,20 @@ export const FriendsPage: React.FC = () => {
       }
     } catch (err: any) {
       showFeedback(extractErrorMessage(err, 'Failed to remove friend.'), 'error');
+    }
+  };
+
+  const handleNudge = async (friend: FriendUser) => {
+    setNudgingFriendId(friend.id);
+    try {
+      const res = await nudgeFriend(friend.id);
+      if (res.success) {
+        showFeedback(res.message || `Nudged @${friend.username} to keep their streak blazing! 🔥`, 'success');
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to nudge friend. Please try again later.'), 'error');
+    } finally {
+      setNudgingFriendId(null);
     }
   };
 
@@ -287,6 +303,17 @@ export const FriendsPage: React.FC = () => {
                         {friend.tasksCompletedToday || 0} done today
                       </div>
                     </div>
+
+                    {/* Nudge Button (Requirement 5) */}
+                    <button
+                      onClick={() => handleNudge(friend)}
+                      disabled={nudgingFriendId === friend.id}
+                      title={`Nudge @${friend.username} to complete today's habits`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-flame-500/10 hover:bg-flame-500/20 active:scale-95 text-flame-400 border border-flame-500/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                    >
+                      <Flame className={`w-3.5 h-3.5 fill-flame-500 ${nudgingFriendId === friend.id ? 'animate-bounce' : ''}`} />
+                      <span>{nudgingFriendId === friend.id ? 'Nudging...' : 'Nudge'}</span>
+                    </button>
 
                     <button
                       onClick={() => handleRemoveFriend(friend)}

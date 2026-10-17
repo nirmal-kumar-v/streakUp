@@ -6,6 +6,7 @@ import { getLocalDateString, getLocalTimeInfo } from '../services/timezoneServic
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
 import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
 import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '../services/notificationService';
+import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
 import { FreezeScope } from '@prisma/client';
 
 // Task validation schemas
@@ -15,6 +16,7 @@ const createTaskSchema = z.object({
   category: z.string().max(30).optional().default('General'),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional().default('MEDIUM'),
   recurrence: z.enum(['DAILY', 'ONE_TIME']).optional().default('DAILY'),
+  scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional().default([0, 1, 2, 3, 4, 5, 6]),
   dueTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Due time must be in HH:MM format').optional().nullable(),
 });
 
@@ -24,6 +26,7 @@ const updateTaskSchema = z.object({
   category: z.string().max(30).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),
   recurrence: z.enum(['DAILY', 'ONE_TIME']).optional(),
+  scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
   dueTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional().nullable(),
   status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
 });
@@ -136,6 +139,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
         category: data.category?.trim() || 'General',
         priority: data.priority,
         recurrence: data.recurrence,
+        scheduledDays: data.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
         dueTime: data.dueTime || null,
         status: 'ACTIVE',
         isCompleted: false,
@@ -268,7 +272,7 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
 }
 
 /**
- * Mark a task as completed (Tick) with optional study note
+ * Mark a task as completed (Tick) with mandatory study note
  */
 export async function completeTask(req: AuthenticatedRequest, res: Response) {
   try {
@@ -288,14 +292,26 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
+    // Study note is strictly mandatory (Requirement 13)
+    if (!studyNote || typeof studyNote !== 'string' || studyNote.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'A meaningful study note (at least 3 characters) is required to complete this habit.'
+      });
+    }
+
+    const trimmedNote = studyNote.trim();
+    if (trimmedNote.length > 500) {
+      return res.status(400).json({
+        success: false,
+        error: 'Study note cannot exceed 500 characters.'
+      });
+    }
+
     const timezone = task.user?.timezone || 'Asia/Kolkata';
     const todayDateStr = getLocalDateString(timezone);
 
-    const sanitizedNote = typeof studyNote === 'string' && studyNote.trim()
-      ? studyNote.trim().slice(0, 500)
-      : null;
-
-    // Create completion record (upsert to prevent duplicate records on same date)
+    // Create or update completion record (upsert to prevent duplicate records on same date)
     const completion = await prisma.taskCompletion.upsert({
       where: {
         taskId_completionDate: {
@@ -305,13 +321,13 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       },
       update: {
         completedAt: new Date(),
-        ...(sanitizedNote !== undefined ? { studyNote: sanitizedNote } : {})
+        studyNote: trimmedNote
       },
       create: {
         taskId: id,
         userId,
         completionDate: todayDateStr,
-        studyNote: sanitizedNote
+        studyNote: trimmedNote
       }
     });
 
@@ -328,6 +344,25 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
 
     // Immediately recalculate overall streak
     const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+
+    // Award +5 points for scheduled habit completion (Requirement 9)
+    let pointsAwarded = 0;
+    let newTotalPoints = 0;
+    if (task.recurrence === 'DAILY') {
+      const pointsRes = await awardCompletionPoints(
+        prisma,
+        userId,
+        task.id,
+        todayDateStr,
+        task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+        timezone
+      );
+      pointsAwarded = pointsRes.pointsAwarded;
+      newTotalPoints = pointsRes.newTotalPoints;
+    } else {
+      const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
+      newTotalPoints = u?.points || 0;
+    }
 
     // Trigger milestone checks and friend activity alerts (non-blocking)
     checkAndTriggerMilestones({
@@ -361,7 +396,9 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       studyNote: completion.studyNote,
       taskStreak,
       overallStreak,
-      streak: overallStreak // backwards compatibility
+      streak: overallStreak, // backwards compatibility
+      pointsAwarded,
+      totalPoints: newTotalPoints
     });
   } catch (err: any) {
     console.error('completeTask error:', err);
@@ -400,6 +437,27 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       }
     });
 
+    // Remove any completion points awarded for today
+    await prisma.pointLedger.deleteMany({
+      where: {
+        userId,
+        taskId: id,
+        date: todayDateStr,
+        reason: 'COMPLETION'
+      }
+    });
+
+    // Recompute total user points from ledger
+    const aggregate = await prisma.pointLedger.aggregate({
+      where: { userId },
+      _sum: { points: true }
+    });
+    const updatedTotalPoints = aggregate._sum.points || 0;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { points: updatedTotalPoints }
+    });
+
     // If one-time task, revert isCompleted to false
     if (task.recurrence === 'ONE_TIME') {
       await prisma.task.update({
@@ -420,7 +478,8 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       completedToday: false,
       taskStreak,
       overallStreak,
-      streak: overallStreak
+      streak: overallStreak,
+      totalPoints: updatedTotalPoints
     });
   } catch (err: any) {
     console.error('uncompleteTask error:', err);
@@ -600,7 +659,7 @@ export async function getTaskDetails(req: AuthenticatedRequest, res: Response) {
 
 
 /**
- * Get dashboard summary: stats, checklist, clocks, completion rate
+ * Get dashboard summary: stats, checklist, clocks, completion rate, points
  */
 export async function getDashboardSummary(req: AuthenticatedRequest, res: Response) {
   try {
@@ -618,6 +677,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         longestStreak: true,
         overallFreezeBalance: true,
         overallFreezeRechargeDays: true,
+        points: true,
       }
     });
 
@@ -628,6 +688,14 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
     const timezone = user.timezone || 'Asia/Kolkata';
     const todayDateStr = getLocalDateString(timezone);
     const clockInfo = getLocalTimeInfo(timezone);
+
+    // Reconcile missed points for user asynchronously to keep points accurate
+    await reconcileMissedPointsForUser(prisma, userId, timezone).catch((e) =>
+      console.error('Missed points reconcile error:', e)
+    );
+
+    // Fetch points summary stats
+    const pointsStats = await getUserPointsStats(prisma, userId);
 
     // Fetch overall freeze logs for recent protected dates
     const overallFreezeLogs = await prisma.freezeLog.findMany({
@@ -664,6 +732,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         category: task.category,
         priority: task.priority,
         recurrence: task.recurrence,
+        scheduledDays: task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
         dueTime: task.dueTime,
         status: task.status,
         currentStreak: task.currentStreak,
@@ -694,7 +763,8 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         overallFreezeBalance: user.overallFreezeBalance,
         overallFreezeRechargeDays: user.overallFreezeRechargeDays,
         protectedDates: overallFreezeLogs.map(l => l.protectedDate),
-        timezone
+        timezone,
+        points: pointsStats.totalPoints,
       },
       stats: {
         totalActiveTasks,
@@ -702,6 +772,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         pendingTodayCount,
         completionPercentage,
       },
+      pointsStats,
       todayTasks: tasksWithStatus,
       clockInfo,
     });
@@ -712,32 +783,76 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
 }
 
 /**
- * Get daily activity history for calendar heatmap
+ * Get daily activity history for calendar heatmap with year filter and details
  */
 export async function getActivityHistory(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true }
+    });
+    const timezone = user?.timezone || 'Asia/Kolkata';
 
+    const currentYear = new Date().getFullYear();
+    const requestedYear = req.query.year ? parseInt(req.query.year as string, 10) : currentYear;
+    const targetYear = !isNaN(requestedYear) ? requestedYear : currentYear;
+
+    // Fetch completions for the requested year
     const completions = await prisma.taskCompletion.findMany({
-      where: { userId },
-      select: { completionDate: true },
+      where: {
+        userId,
+        completionDate: {
+          startsWith: `${targetYear}-`
+        }
+      },
+      include: {
+        task: {
+          select: { title: true, category: true }
+        }
+      },
+      orderBy: { completionDate: 'asc' }
     });
 
     // Group completions by date
-    const dateCounts: Record<string, number> = {};
+    const dateMap: Record<string, { count: number; tasks: Array<{ title: string; note: string | null }> }> = {};
     for (const c of completions) {
-      dateCounts[c.completionDate] = (dateCounts[c.completionDate] || 0) + 1;
+      if (!dateMap[c.completionDate]) {
+        dateMap[c.completionDate] = { count: 0, tasks: [] };
+      }
+      dateMap[c.completionDate].count += 1;
+      dateMap[c.completionDate].tasks.push({
+        title: c.task?.title || 'Habit',
+        note: c.studyNote
+      });
     }
 
-    const activityList = Object.entries(dateCounts).map(([date, count]) => ({
+    const activityList = Object.entries(dateMap).map(([date, data]) => ({
       date,
-      count
+      count: data.count,
+      tasks: data.tasks
     })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Determine available years from all user completions
+    const allCompletions = await prisma.taskCompletion.findMany({
+      where: { userId },
+      select: { completionDate: true }
+    });
+    const yearsSet = new Set<number>();
+    yearsSet.add(currentYear);
+    allCompletions.forEach((c) => {
+      const yr = parseInt(c.completionDate.split('-')[0], 10);
+      if (!isNaN(yr)) yearsSet.add(yr);
+    });
+    const availableYears = Array.from(yearsSet).sort((a, b) => a - b);
 
     return res.json({
       success: true,
+      year: targetYear,
+      availableYears,
       activity: activityList,
-      totalCompletions: completions.length
+      totalCompletions: completions.length,
+      activeDaysCount: activityList.filter((a) => a.count > 0).length
     });
   } catch (err: any) {
     console.error('getActivityHistory error:', err);

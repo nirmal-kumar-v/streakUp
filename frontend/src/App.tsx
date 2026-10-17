@@ -17,6 +17,8 @@ import { PublicProfilePage } from './pages/PublicProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
+import { GroupsPage } from './pages/GroupsPage';
+import { GroupDetailPage } from './pages/GroupDetailPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { apiClient } from './api/client';
 
@@ -112,6 +114,22 @@ export const AppContent: React.FC = () => {
             element={
               <ProtectedRoute>
                 <FriendsLeaderboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/groups"
+            element={
+              <ProtectedRoute>
+                <GroupsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/groups/:id"
+            element={
+              <ProtectedRoute>
+                <GroupDetailPage />
               </ProtectedRoute>
             }
           />

@@ -183,19 +183,40 @@ export async function getFriendsStudyActivity(req: AuthenticatedRequest, res: Re
             currentStreak: true,
             recurrence: true
           }
+        },
+        reactions: {
+          select: {
+            id: true,
+            userId: true,
+            emoji: true
+          }
         }
       }
     });
 
-    const activity = completions.map(c => ({
-      id: c.id,
-      studyNote: c.studyNote,
-      completionDate: c.completionDate,
-      completedAt: c.completedAt,
-      isCurrentUser: c.userId === userId,
-      user: c.user,
-      task: c.task
-    }));
+    const activity = completions.map(c => {
+      const counts: Record<string, number> = { FIRE: 0, STRONG: 0, CLAP: 0, CELEBRATE: 0 };
+      const userReactions: string[] = [];
+      for (const r of c.reactions) {
+        if (counts[r.emoji] !== undefined) counts[r.emoji]++;
+        if (r.userId === userId && !userReactions.includes(r.emoji)) {
+          userReactions.push(r.emoji);
+        }
+      }
+
+      return {
+        id: c.id,
+        studyNote: c.studyNote,
+        completionDate: c.completionDate,
+        completedAt: c.completedAt,
+        isCurrentUser: c.userId === userId,
+        user: c.user,
+        task: c.task,
+        reactionCounts: counts,
+        userReactions,
+        totalReactions: c.reactions.length
+      };
+    });
 
     return res.json({
       success: true,

@@ -479,3 +479,74 @@ export async function removeFriend(req: AuthenticatedRequest, res: Response) {
     return res.status(500).json({ success: false, error: 'Failed to remove friend.' });
   }
 }
+
+/**
+ * Send an in-app encouragement nudge to an accepted friend (Requirement 5)
+ */
+export async function nudgeFriend(req: AuthenticatedRequest, res: Response) {
+  try {
+    const senderId = req.user!.userId;
+    const { friendUserId } = req.params;
+
+    if (!friendUserId || senderId === friendUserId) {
+      return res.status(400).json({ success: false, error: 'You cannot nudge yourself.' });
+    }
+
+    // Verify friendship exists
+    const [u1, u2] = getCanonicalPair(senderId, friendUserId);
+    const friendship = await prisma.friendship.findUnique({
+      where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } }
+    });
+
+    if (!friendship) {
+      return res.status(403).json({ success: false, error: 'You can only nudge accepted friends.' });
+    }
+
+    // Sender details
+    const sender = await prisma.user.findUnique({
+      where: { id: senderId },
+      select: { name: true, username: true }
+    });
+
+    // Rate limit cooldown: check if nudged in the last 12 hours
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    const recentNudge = await prisma.notification.findFirst({
+      where: {
+        userId: friendUserId,
+        friendId: senderId,
+        category: 'FRIEND_NUDGE',
+        createdAt: { gte: twelveHoursAgo }
+      }
+    });
+
+    if (recentNudge) {
+      return res.status(429).json({
+        success: false,
+        error: 'You have already nudged this friend recently. Please wait before nudging again!'
+      });
+    }
+
+    // Create in-app notification (In-app only, NO email!)
+    const notification = await prisma.notification.create({
+      data: {
+        userId: friendUserId,
+        friendId: senderId,
+        category: 'FRIEND_NUDGE',
+        title: 'Streak Nudge 🔥',
+        message: `${sender?.name || 'Your friend'} nudged you to keep your streak going!`,
+        actionUrl: '/dashboard',
+        eventKey: `NUDGE:${senderId}:${friendUserId}:${Date.now()}`
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Nudge sent successfully! Your friend will see it in their notification center.',
+      notificationId: notification.id
+    });
+  } catch (err: any) {
+    console.error('nudgeFriend error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to send nudge.' });
+  }
+}
+

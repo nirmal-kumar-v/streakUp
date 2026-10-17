@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LeaderboardEntry } from '../api/leaderboard';
 import { Link } from 'react-router-dom';
-import { Flame, Trophy, Crown, Search, CheckCircle2 } from 'lucide-react';
+import { Flame, Trophy, Crown, Search, CheckCircle2, Award } from 'lucide-react';
 import { InitialsAvatar } from './InitialsAvatar';
 
 interface LeaderboardTableProps {
@@ -10,6 +10,8 @@ interface LeaderboardTableProps {
   subtitle?: string;
   currentUserRankInfo?: LeaderboardEntry | null;
   isLoading?: boolean;
+  activeType?: 'streak' | 'points';
+  onTypeChange?: (type: 'streak' | 'points') => void;
 }
 
 export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
@@ -18,6 +20,8 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
   subtitle,
   currentUserRankInfo,
   isLoading = false,
+  activeType = 'streak',
+  onTypeChange,
 }) => {
   const [search, setSearch] = useState('');
 
@@ -69,16 +73,48 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
             {subtitle && <p className="text-sm text-dark-muted mt-1">{subtitle}</p>}
           </div>
 
-          {/* Search Filter */}
-          <div className="relative min-w-[240px]">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-dark-muted" />
-            <input
-              type="text"
-              placeholder="Search by username..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80 transition-all"
-            />
+          <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+            {/* Rank Type Tabs (Requirement 11) */}
+            {onTypeChange && (
+              <div className="flex bg-dark-surface border border-dark-border p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => onTypeChange('streak')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                    activeType === 'streak'
+                      ? 'bg-flame-500 text-zinc-950 shadow-sm shadow-flame-500/20'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  <span>Streak Rank</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onTypeChange('points')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                    activeType === 'points'
+                      ? 'bg-amber-500 text-zinc-950 shadow-sm shadow-amber-500/20'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Points Rank</span>
+                </button>
+              </div>
+            )}
+
+            {/* Search Filter */}
+            <div className="relative min-w-[200px]">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-dark-muted" />
+              <input
+                type="text"
+                placeholder="Search by username..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-3.5 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80 transition-all"
+              />
+            </div>
           </div>
         </div>
 
@@ -100,7 +136,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-4 text-xs font-mono">
+            <div className="flex items-center gap-4 text-xs font-mono flex-wrap">
               <div className="flex items-center gap-1.5 text-flame-400">
                 <Flame className="w-4 h-4 fill-flame-500/30" />
                 <span className="font-bold">{currentUserRankInfo.currentStreak}d Streak</span>
@@ -109,6 +145,17 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                 <Trophy className="w-3.5 h-3.5" />
                 <span>Best: {currentUserRankInfo.longestStreak}d</span>
               </div>
+              {currentUserRankInfo.points !== undefined && (
+                <div className="flex items-center gap-1 text-emerald-400">
+                  <Award className="w-3.5 h-3.5" />
+                  <span>
+                    {currentUserRankInfo.points > 0
+                      ? `+${currentUserRankInfo.points}`
+                      : currentUserRankInfo.points}{' '}
+                    pts
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -200,11 +247,12 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-dark-border bg-dark-surface/60 text-[11px] font-bold text-dark-muted uppercase tracking-wider">
+              <tr className="border-b border-dark-border bg-dark-surface/60 text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
                 <th className="py-3.5 px-4 w-16 text-center">Rank</th>
                 <th className="py-3.5 px-4">User</th>
                 <th className="py-3.5 px-4 text-center">Current Streak</th>
                 <th className="py-3.5 px-4 text-center">Longest Streak</th>
+                <th className="py-3.5 px-4 text-center">Total Points</th>
                 <th className="py-3.5 px-4 text-center">Tasks Today</th>
                 <th className="py-3.5 px-4 text-center">Total Tasks</th>
               </tr>
@@ -212,7 +260,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
             <tbody className="divide-y divide-dark-border/60 text-sm">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-dark-muted">
+                  <td colSpan={7} className="py-12 text-center text-dark-muted">
                     <div className="inline-flex items-center gap-2">
                       <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
                       Loading rankings...
@@ -221,7 +269,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                 </tr>
               ) : filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-dark-muted">
+                  <td colSpan={7} className="py-12 text-center text-dark-muted">
                     No users found matching your criteria.
                   </td>
                 </tr>
@@ -280,6 +328,21 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                         <Trophy className="w-3.5 h-3.5 text-amber-400" />
                         <span>{entry.longestStreak}d</span>
                       </div>
+                    </td>
+
+                    {/* Total Points (Requirement 9 & 11) */}
+                    <td className="py-3.5 px-4 text-center">
+                      <span
+                        className={`font-mono font-bold text-xs ${
+                          (entry.points ?? 0) > 0
+                            ? 'text-emerald-400'
+                            : (entry.points ?? 0) < 0
+                            ? 'text-rose-400'
+                            : 'text-zinc-400'
+                        }`}
+                      >
+                        {(entry.points ?? 0) > 0 ? `+${entry.points}` : (entry.points ?? 0)} pts
+                      </span>
                     </td>
 
                     {/* Tasks Completed Today */}
