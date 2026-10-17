@@ -7,6 +7,7 @@ import friendRoutes from './routes/friendRoutes';
 import leaderboardRoutes from './routes/leaderboardRoutes';
 import userRoutes from './routes/userRoutes';
 import { getLocalTimeInfo } from './services/timezoneService';
+import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from './utils/dbError';
 
 dotenv.config();
 
@@ -61,8 +62,6 @@ app.use((req: Request, res: Response) => {
     error: `API route not found: ${req.method} ${req.originalUrl}`
   });
 });
-
-import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from './utils/dbError';
 
 // Global Error Handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

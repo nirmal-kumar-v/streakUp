@@ -12,6 +12,7 @@ const friendRoutes_1 = __importDefault(require("./routes/friendRoutes"));
 const leaderboardRoutes_1 = __importDefault(require("./routes/leaderboardRoutes"));
 const userRoutes_1 = __importDefault(require("./routes/userRoutes"));
 const timezoneService_1 = require("./services/timezoneService");
+const dbError_1 = require("./utils/dbError");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -57,7 +58,6 @@ app.use((req, res) => {
         error: `API route not found: ${req.method} ${req.originalUrl}`
     });
 });
-const dbError_1 = require("./utils/dbError");
 // Global Error Handler
 app.use((err, _req, res, _next) => {
     if ((0, dbError_1.isDatabaseConnectionError)(err)) {
