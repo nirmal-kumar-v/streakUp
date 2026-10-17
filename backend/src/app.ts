@@ -6,6 +6,7 @@ import taskRoutes from './routes/taskRoutes';
 import friendRoutes from './routes/friendRoutes';
 import leaderboardRoutes from './routes/leaderboardRoutes';
 import userRoutes from './routes/userRoutes';
+import notificationRoutes from './routes/notificationRoutes';
 import { getLocalTimeInfo } from './services/timezoneService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from './utils/dbError';
 
@@ -47,6 +48,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Also mount routes without /api prefix (fallback for serverless rewrites)
 app.use('/auth', authRoutes);
@@ -54,6 +56,7 @@ app.use('/tasks', taskRoutes);
 app.use('/friends', friendRoutes);
 app.use('/leaderboard', leaderboardRoutes);
 app.use('/users', userRoutes);
+app.use('/notifications', notificationRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

@@ -19,6 +19,8 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const streakService_1 = require("../services/streakService");
 const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
+const notificationService_1 = require("../services/notificationService");
+const client_1 = require("@prisma/client");
 // Task validation schemas
 const createTaskSchema = zod_1.z.object({
     title: zod_1.z.string().min(1, 'Task title is required').max(100),
@@ -304,6 +306,28 @@ async function completeTask(req, res) {
         const taskStreak = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, id, userId, timezone);
         // Immediately recalculate overall streak
         const overallStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone);
+        // Trigger milestone checks and friend activity alerts (non-blocking)
+        (0, notificationService_1.checkAndTriggerMilestones)({
+            userId,
+            scope: client_1.FreezeScope.OVERALL,
+            scopeId: 'OVERALL',
+            currentStreak: overallStreak.currentStreak,
+        }).catch((err) => console.error('[completeTask] Milestone check error:', err));
+        if (task.recurrence === 'DAILY') {
+            (0, notificationService_1.checkAndTriggerMilestones)({
+                userId,
+                scope: client_1.FreezeScope.TASK,
+                scopeId: id,
+                currentStreak: taskStreak.currentStreak,
+                taskTitle: task.title,
+            }).catch((err) => console.error('[completeTask] Task milestone check error:', err));
+            (0, notificationService_1.checkAndTriggerFriendActivityAlerts)({
+                completedUserId: userId,
+                completedTaskId: id,
+                completedTaskTitle: task.title,
+                studyNote: completion.studyNote,
+            }).catch((err) => console.error('[completeTask] Friend activity alert error:', err));
+        }
         return res.json({
             success: true,
             message: 'Task marked as completed.',

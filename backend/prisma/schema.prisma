@@ -43,6 +43,34 @@ enum EquivalenceStatus {
   REJECTED
 }
 
+enum NotificationCategory {
+  OVERALL_REMINDER
+  TASK_REMINDER
+  FRIEND_OVERALL_ACTIVITY
+  FRIEND_TASK_ACTIVITY
+  FRIEND_OVERALL_MILESTONE
+  FRIEND_TASK_MILESTONE
+  MY_MILESTONE
+  SYSTEM
+}
+
+enum ReminderScope {
+  OVERALL
+  TASK
+}
+
+enum EmailDeliveryStatus {
+  SENT
+  FAILED
+  PENDING
+}
+
+enum OtpPurpose {
+  SIGNUP
+  CHANGE_REGISTERED_EMAIL
+  VERIFY_NOTIFICATION_EMAIL
+}
+
 model User {
   id                      String           @id @default(uuid())
   name                    String
@@ -54,7 +82,9 @@ model User {
   timezone                String           @default("Asia/Kolkata")
   currentStreak           Int              @default(0)
   longestStreak           Int              @default(0)
+  isEmailVerified         Boolean          @default(true) // Defaults to true so existing users remain verified
   lastUsernameChangeAt    DateTime?
+  emailLastChangedAt      DateTime?        // Tracks last registered email change (14-day limit)
   overallFreezeBalance    Int              @default(0)
   overallFreezeRechargeDays Int            @default(0)
   lastOverallFreezeUsedAt DateTime?
@@ -69,6 +99,14 @@ model User {
   friendshipsAsUser2      Friendship[]     @relation("User2Friendships")
   freezeLogs              FreezeLog[]
   taskEquivalences        TaskEquivalence[]
+  notifications           Notification[]
+  friendNotifications     Notification[]   @relation("FriendNotifications")
+  notificationPreference  NotificationPreference?
+  reminderSchedules       ReminderSchedule[]
+  milestoneEvents         MilestoneEvent[]
+  emailDeliveries         EmailDelivery[]
+  emailOtps               EmailOtp[]
+  passwordResetTokens     PasswordResetToken[]
 
   @@index([normalizedUsername])
   @@index([currentStreak(sort: Desc), longestStreak(sort: Desc)])
@@ -99,6 +137,8 @@ model Task {
   freezeLogs           FreezeLog[]
   equivalencesAsUserTask   TaskEquivalence[] @relation("UserTaskEquivalences")
   equivalencesAsFriendTask TaskEquivalence[] @relation("FriendTaskEquivalences")
+  notifications        Notification[]
+  reminderSchedules    ReminderSchedule[]
 
   @@index([userId, status])
   @@index([userId, recurrence])
@@ -185,4 +225,130 @@ model Friendship {
   @@index([user1Id])
   @@index([user2Id])
 }
+
+model Notification {
+  id           String               @id @default(uuid())
+  userId       String
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     NotificationCategory
+  title        String
+  message      String
+  friendId     String?
+  friend       User?                @relation("FriendNotifications", fields: [friendId], references: [id], onDelete: SetNull)
+  taskId       String?
+  task         Task?                @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  actionUrl    String?
+  isRead       Boolean              @default(false)
+  readAt       DateTime?
+  isDismissed  Boolean              @default(false)
+  dismissedAt  DateTime?
+  eventKey     String?              // Idempotency / deduplication key
+  createdAt    DateTime             @default(now())
+
+  @@index([userId, isDismissed, isRead, createdAt(sort: Desc)])
+  @@index([userId, eventKey])
+  @@index([friendId])
+  @@index([taskId])
+}
+
+model NotificationPreference {
+  id                          String   @id @default(uuid())
+  userId                      String   @unique
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailNotificationsEnabled   Boolean  @default(true)
+  inAppNotificationsEnabled   Boolean  @default(true)
+  overallStreakRemindersEmail Boolean  @default(true)
+  taskRemindersEmail          Boolean  @default(true)
+  friendOverallActivityAlerts Boolean  @default(true)
+  friendTaskActivityAlerts    Boolean  @default(true)
+  friendOverallMilestones     Boolean  @default(true)
+  friendTaskMilestones        Boolean  @default(true)
+  myMilestonesEmail           Boolean  @default(true)
+  freezeStatusNotifications   Boolean  @default(true)
+  customNotificationEmail     String?
+  isCustomEmailVerified       Boolean  @default(false)
+  customEmailVerifyToken      String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+}
+
+model ReminderSchedule {
+  id        String        @id @default(uuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope     ReminderScope @default(OVERALL)
+  taskId    String?
+  task      Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  time      String        // Format: "HH:mm" in 24hr format, e.g. "08:00", "14:00"
+  isEnabled Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@unique([userId, scope, taskId, time])
+  @@index([userId, isEnabled])
+  @@index([scope, taskId])
+}
+
+model MilestoneEvent {
+  id         String      @id @default(uuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope      FreezeScope // OVERALL or TASK
+  scopeKey   String      // 'OVERALL' or 'TASK:<taskId>'
+  milestone  Int         // 5, 10, 25, 50, 100, 150...
+  achievedAt DateTime    @default(now())
+
+  @@unique([userId, scopeKey, milestone])
+  @@index([userId, scope])
+}
+
+model EmailDelivery {
+  id             String              @id @default(uuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipientEmail String
+  category       NotificationCategory
+  subject        String
+  idempotencyKey String              @unique
+  status         EmailDeliveryStatus @default(PENDING)
+  attemptCount   Int                 @default(1)
+  lastAttemptAt  DateTime            @default(now())
+  error          String?
+  createdAt      DateTime            @default(now())
+
+  @@index([userId, status])
+  @@index([createdAt])
+}
+
+model EmailOtp {
+  id         String     @id @default(uuid())
+  userId     String?
+  user       User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email      String
+  otpHash    String     // SHA-256 hash of the 6-digit code
+  purpose    OtpPurpose
+  targetData String?    // Holds pending payload JSON (e.g. signup name/password or new email address)
+  attempts   Int        @default(0)
+  expiresAt  DateTime
+  isUsed     Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+
+  @@index([email, purpose, isUsed])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique // SHA-256 hash of random reset token
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isUsed])
+  @@index([expiresAt])
+}
+
+
 

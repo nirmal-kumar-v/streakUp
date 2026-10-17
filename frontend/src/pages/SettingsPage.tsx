@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   updateProfileSettings,
@@ -7,6 +8,9 @@ import {
   changePassword,
   changeUsername,
   fetchTimezones,
+  fetchEmailChangeStatus,
+  requestChangeEmailOtp,
+  verifyChangeEmailOtp,
   TimezoneOption,
 } from '../api/user';
 import { InitialsAvatar } from '../components/InitialsAvatar';
@@ -23,6 +27,10 @@ import {
   KeyRound,
   AtSign,
   ShieldAlert,
+  Bell,
+  ArrowRight,
+  Mail,
+  RotateCw,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
@@ -57,6 +65,113 @@ export const SettingsPage: React.FC = () => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  // Registered Email Change (14-day restriction & OTP)
+  const [emailStatus, setEmailStatus] = useState<{
+    currentEmail: string;
+    emailLastChangedAt: string | null;
+    canChangeNow: boolean;
+    nextAllowedChangeDate: string | null;
+    daysRemaining: number;
+  } | null>(null);
+  const [emailChangeStep, setEmailChangeStep] = useState<'idle' | 'request' | 'verify'>('idle');
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailOtpInput, setEmailOtpInput] = useState('');
+  const [isEmailChanging, setIsEmailChanging] = useState(false);
+  const [emailChangeSuccess, setEmailChangeSuccess] = useState('');
+  const [emailChangeError, setEmailChangeError] = useState('');
+  const [emailOtpCooldown, setEmailOtpCooldown] = useState(0);
+
+  const loadEmailStatus = () => {
+    fetchEmailChangeStatus()
+      .then((res) => {
+        if (res.success) setEmailStatus(res);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadEmailStatus();
+  }, []);
+
+  useEffect(() => {
+    if (emailOtpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setEmailOtpCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [emailOtpCooldown]);
+
+  const handleRequestEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmailInput.trim()) return;
+    setIsEmailChanging(true);
+    setEmailChangeSuccess('');
+    setEmailChangeError('');
+
+    try {
+      const res = await requestChangeEmailOtp(newEmailInput.trim());
+      if (res.success) {
+        setEmailChangeStep('verify');
+        setEmailOtpCooldown(60);
+        setEmailChangeSuccess(res.message);
+      } else {
+        setEmailChangeError(res.error || 'Failed to request email change.');
+      }
+    } catch (err: any) {
+      setEmailChangeError(extractErrorMessage(err, 'Failed to request email change.'));
+    } finally {
+      setIsEmailChanging(false);
+    }
+  };
+
+  const handleVerifyEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (emailOtpInput.trim().length !== 6) {
+      setEmailChangeError('Please enter the 6-digit verification code.');
+      return;
+    }
+    setIsEmailChanging(true);
+    setEmailChangeSuccess('');
+    setEmailChangeError('');
+
+    try {
+      const res = await verifyChangeEmailOtp(newEmailInput.trim(), emailOtpInput.trim());
+      if (res.success && res.user) {
+        updateUser({ email: res.user.email });
+        setEmailChangeSuccess('Registered login email updated successfully!');
+        setEmailChangeStep('idle');
+        setNewEmailInput('');
+        setEmailOtpInput('');
+        loadEmailStatus();
+      } else {
+        setEmailChangeError(res.error || 'Verification failed. Please check the code.');
+      }
+    } catch (err: any) {
+      setEmailChangeError(extractErrorMessage(err, 'Failed to verify email change code.'));
+    } finally {
+      setIsEmailChanging(false);
+    }
+  };
+
+  const handleResendEmailOtp = async () => {
+    if (emailOtpCooldown > 0 || isEmailChanging) return;
+    setIsEmailChanging(true);
+    setEmailChangeError('');
+    try {
+      const res = await requestChangeEmailOtp(newEmailInput.trim());
+      if (res.success) {
+        setEmailOtpCooldown(60);
+        setEmailChangeSuccess(`A new verification code has been sent to ${newEmailInput.trim()}`);
+      } else {
+        setEmailChangeError(res.error || 'Failed to resend code.');
+      }
+    } catch (err: any) {
+      setEmailChangeError(extractErrorMessage(err, 'Failed to resend code.'));
+    } finally {
+      setIsEmailChanging(false);
+    }
+  };
 
   // Live preview time in the selected timezone
   const [previewTime, setPreviewTime] = useState('');
@@ -259,6 +374,32 @@ export const SettingsPage: React.FC = () => {
           Manage your device avatar, security credentials, and timezone
         </p>
       </div>
+
+      {/* Quick link to Notification Settings & Email Reminders */}
+      <Link
+        to="/settings/notifications"
+        className="block bg-gradient-to-r from-flame-500/15 via-dark-card to-dark-card border border-flame-500/30 hover:border-flame-500/60 rounded-2xl p-4 transition-all group shadow-panel"
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-flame-500/20 text-flame-400 border border-flame-500/30 flex items-center justify-center shrink-0">
+              <Bell className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors flex items-center gap-2">
+                Notification Preferences & Email Reminders
+                <span className="text-[10px] bg-flame-500 text-zinc-950 font-black px-1.5 py-0.2 rounded-full">
+                  NEW
+                </span>
+              </div>
+              <div className="text-xs text-dark-muted mt-0.5">
+                Configure up to 3 daily reminder times, friend alerts, and custom destination email
+              </div>
+            </div>
+          </div>
+          <ArrowRight className="w-4 h-4 text-flame-400 group-hover:translate-x-1 transition-transform shrink-0" />
+        </div>
+      </Link>
 
       {/* SECTION 1: PROFILE IMAGE UPLOAD */}
       <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-6">
@@ -519,7 +660,182 @@ export const SettingsPage: React.FC = () => {
         </div>
       </form>
 
-      {/* SECTION 4: CHANGE PASSWORD */}
+      {/* SECTION 4: REGISTERED LOGIN EMAIL (14-Day Rate Limit) */}
+      <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+              <Mail className="w-4 h-4 text-flame-400" />
+              Registered Login Email
+            </h2>
+            <p className="text-xs text-dark-muted mt-0.5">
+              Your primary login email address. For account security, this can only be changed once every 14 days.
+            </p>
+          </div>
+          <span
+            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+              emailStatus?.canChangeNow
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+            }`}
+          >
+            {emailStatus?.canChangeNow ? 'Available to Change' : `Cooldown Active (${emailStatus?.daysRemaining}d left)`}
+          </span>
+        </div>
+
+        {emailChangeSuccess && (
+          <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold rounded-xl">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{emailChangeSuccess}</span>
+          </div>
+        )}
+
+        {emailChangeError && (
+          <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{emailChangeError}</span>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs font-bold text-zinc-300 uppercase tracking-wider">
+            <span>Current Email: {user?.email}</span>
+            {emailStatus?.nextAllowedChangeDate && !emailStatus.canChangeNow && (
+              <span className="text-amber-400 normal-case font-medium">
+                Next change: {new Date(emailStatus.nextAllowedChangeDate).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+
+          {emailChangeStep === 'idle' ? (
+            <div className="flex items-center justify-between p-3.5 bg-dark-surface/60 rounded-xl border border-dark-border gap-3">
+              <div className="text-xs text-zinc-400 flex items-center gap-2">
+                <span className="font-mono text-zinc-200">{user?.email}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (emailStatus && !emailStatus.canChangeNow) {
+                    setEmailChangeError(`You can change your registered email once every 14 days. You can next change it on ${new Date(emailStatus.nextAllowedChangeDate || '').toLocaleDateString()}.`);
+                    return;
+                  }
+                  setEmailChangeStep('request');
+                  setEmailChangeError('');
+                  setEmailChangeSuccess('');
+                }}
+                disabled={emailStatus !== null && !emailStatus.canChangeNow}
+                className="px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-200 hover:text-flame-400 rounded-lg transition-colors disabled:opacity-40 disabled:hover:text-zinc-200"
+              >
+                Change Email
+              </button>
+            </div>
+          ) : emailChangeStep === 'request' ? (
+            <form onSubmit={handleRequestEmailChange} className="space-y-3 p-4 bg-dark-surface/40 rounded-2xl border border-dark-border">
+              <label className="block text-xs font-semibold text-zinc-300">
+                New Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-dark-muted" />
+                <input
+                  type="email"
+                  required
+                  placeholder="new-email@example.com"
+                  value={newEmailInput}
+                  onChange={(e) => setNewEmailInput(e.target.value)}
+                  className="w-full pl-10 pr-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEmailChangeStep('idle')}
+                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEmailChanging || !newEmailInput.trim()}
+                  className="px-4 py-1.5 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm disabled:opacity-50"
+                >
+                  {isEmailChanging ? 'Sending code...' : 'Send Verification Code'}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyEmailChange} className="space-y-4 p-4 bg-dark-surface/40 rounded-2xl border border-dark-border">
+              <div className="flex items-center justify-between text-xs text-zinc-300">
+                <span>Enter 6-digit code sent to <strong className="font-mono text-zinc-100">{newEmailInput}</strong>:</span>
+                <button
+                  type="button"
+                  onClick={() => setEmailChangeStep('request')}
+                  className="text-flame-400 hover:text-flame-300 text-xs font-semibold"
+                >
+                  Change email
+                </button>
+              </div>
+
+              <input
+                type="text"
+                required
+                maxLength={6}
+                placeholder="000000"
+                autoFocus
+                value={emailOtpInput}
+                onChange={(e) => setEmailOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="w-full py-2.5 text-center text-xl font-mono tracking-[0.4em] bg-dark-surface border border-dark-border rounded-xl text-zinc-100 font-bold focus:outline-none focus:border-flame-500"
+              />
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  disabled={emailOtpCooldown > 0 || isEmailChanging}
+                  onClick={handleResendEmailOtp}
+                  className="text-xs text-zinc-400 hover:text-flame-400 disabled:opacity-40 inline-flex items-center gap-1"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  {emailOtpCooldown > 0 ? `Resend in ${emailOtpCooldown}s` : 'Resend code'}
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEmailChangeStep('idle')}
+                    className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isEmailChanging || emailOtpInput.length !== 6}
+                    className="px-4 py-1.5 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm disabled:opacity-50"
+                  >
+                    {isEmailChanging ? 'Verifying...' : 'Confirm & Update Email'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          <div className="p-3 bg-zinc-900/80 rounded-xl border border-zinc-800 text-[11px] text-zinc-400 flex items-start justify-between gap-2">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>
+                Want to change where streak reminders and alerts are delivered without changing your login email?
+              </span>
+            </div>
+            <Link
+              to="/settings/notifications"
+              className="text-flame-400 hover:text-flame-300 font-semibold shrink-0 hover:underline flex items-center gap-1"
+            >
+              <span>Notification Settings</span>
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 5: CHANGE PASSWORD */}
       <form
         onSubmit={handleChangePassword}
         className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5"

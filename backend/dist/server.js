@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const app_1 = __importDefault(require("./app"));
 const path_1 = __importDefault(require("path"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
 dotenv_1.default.config();
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../.env') });
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../.env') });
@@ -21,6 +22,8 @@ if (!process.env.VERCEL) {
         console.log(`🕒 Health Check: http://localhost:${PORT}/api/health`);
         console.log(`🌐 Allowed Client: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
         console.log(`===============================================`);
+        // Start background reminder scheduler
+        (0, reminderSchedulerService_1.startReminderScheduler)();
     });
     process.on('SIGTERM', () => {
         server.close(() => process.exit(0));

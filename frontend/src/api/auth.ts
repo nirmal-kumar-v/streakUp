@@ -9,6 +9,8 @@ export interface User {
   profileImage: string | null;
   currentStreak: number;
   longestStreak: number;
+  isEmailVerified?: boolean;
+  emailLastChangedAt?: string | null;
   createdAt?: string;
 }
 
@@ -18,6 +20,10 @@ export interface AuthResponse {
   token?: string;
   user?: User;
   error?: string;
+  pendingVerification?: boolean;
+  requiresVerification?: boolean;
+  email?: string;
+  retryAfterSeconds?: number;
 }
 
 export async function registerUser(data: {
@@ -32,11 +38,51 @@ export async function registerUser(data: {
   return res.data;
 }
 
+export async function verifySignupOtp(data: {
+  email: string;
+  otp: string;
+}): Promise<AuthResponse> {
+  const res = await apiClient.post<AuthResponse>('/auth/verify-signup', data);
+  return res.data;
+}
+
+export async function resendSignupOtp(email: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  retryAfterSeconds?: number;
+}> {
+  const res = await apiClient.post('/auth/resend-signup-otp', { email });
+  return res.data;
+}
+
 export async function loginUser(data: {
   identifier: string;
   password: string;
 }): Promise<AuthResponse> {
   const res = await apiClient.post<AuthResponse>('/auth/login', data);
+  return res.data;
+}
+
+export async function forgotPassword(email: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const res = await apiClient.post('/auth/forgot-password', { email });
+  return res.data;
+}
+
+export async function resetPassword(data: {
+  token: string;
+  newPassword: string;
+  confirmPassword?: string;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  const res = await apiClient.post('/auth/reset-password', data);
   return res.data;
 }
 

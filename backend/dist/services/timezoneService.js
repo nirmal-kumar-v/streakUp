@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SUPPORTED_TIMEZONES = exports.DEFAULT_TIMEZONE = void 0;
+exports.getTodayInTimezone = exports.SUPPORTED_TIMEZONES = exports.DEFAULT_TIMEZONE = void 0;
 exports.isValidTimezone = isValidTimezone;
 exports.getLocalDateString = getLocalDateString;
 exports.getYesterdayDateString = getYesterdayDateString;
@@ -38,6 +38,7 @@ function getLocalDateString(timezone = exports.DEFAULT_TIMEZONE, date) {
     const dt = date ? luxon_1.DateTime.fromJSDate(date).setZone(zone) : luxon_1.DateTime.now().setZone(zone);
     return dt.toFormat('yyyy-MM-dd');
 }
+exports.getTodayInTimezone = getLocalDateString;
 /**
  * Gets yesterday's date string (YYYY-MM-DD) in the specified timezone.
  */

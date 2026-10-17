@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { loginUser } from '../api/auth';
 import { useAuth } from '../context/AuthContext';
-import { Flame, AlertCircle, ArrowRight, Lock, User as UserIcon } from 'lucide-react';
+import { Flame, AlertCircle, ArrowRight, Lock, User as UserIcon, CheckCircle2 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
 export const LoginPage: React.FC = () => {
@@ -13,25 +13,22 @@ export const LoginPage: React.FC = () => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [infoMessage, setInfoMessage] = useState('');
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('expired') === 'true') {
-      setInfoMessage('Your session has expired. Please log in again.');
-    }
-  }, [location.search]);
+  // Read any message passed via location state (e.g. after logout or reset password)
+  const infoMessage = (location.state as any)?.message;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!identifier.trim() || !password) {
-      setError('Please provide your username/email and password.');
+      setError('Please enter both identifier and password.');
       return;
     }
 
     setIsSubmitting(true);
     setError('');
+    setUnverifiedEmail(null);
 
     try {
       const res = await loginUser({
@@ -46,7 +43,13 @@ export const LoginPage: React.FC = () => {
         setError(res.error || 'Invalid credentials.');
       }
     } catch (err: any) {
-      setError(extractErrorMessage(err, 'Login failed. Please check your credentials.'));
+      const errorData = err?.response?.data;
+      if (errorData?.requiresVerification && errorData?.email) {
+        setUnverifiedEmail(errorData.email);
+        setError(errorData.error || 'Please verify your email address to log in.');
+      } else {
+        setError(extractErrorMessage(err, 'Login failed. Please check your credentials.'));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -66,15 +69,29 @@ export const LoginPage: React.FC = () => {
         </div>
 
         {infoMessage && (
-          <div className="mb-6 p-3 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-            {infoMessage}
+          <div className="mb-6 flex items-start gap-2.5 p-3.5 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <span>{infoMessage}</span>
           </div>
         )}
 
         {error && (
-          <div className="mb-6 flex items-start gap-2.5 p-3.5 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl">
-            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="mb-6 flex flex-col gap-2 p-3.5 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+            {unverifiedEmail && (
+              <div className="mt-1 pl-6">
+                <Link
+                  to={`/register?step=verify&email=${encodeURIComponent(unverifiedEmail)}`}
+                  className="inline-flex items-center gap-1 font-semibold text-flame-400 hover:text-flame-300 hover:underline"
+                >
+                  <span>Enter verification code</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
@@ -100,6 +117,12 @@ export const LoginPage: React.FC = () => {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-semibold text-zinc-300">Password</label>
+              <Link
+                to="/forgot-password"
+                className="text-xs text-flame-400 hover:text-flame-300 hover:underline font-medium"
+              >
+                Forgot password?
+              </Link>
             </div>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-dark-muted" />
@@ -118,24 +141,26 @@ export const LoginPage: React.FC = () => {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full mt-4 py-3 bg-flame-500 hover:bg-flame-400 active:scale-98 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-2 mt-6 py-2.5 px-4 bg-gradient-to-r from-flame-500 to-amber-500 hover:from-flame-600 hover:to-amber-600 text-zinc-950 font-bold rounded-xl shadow-lg shadow-flame-500/20 transition-all text-sm disabled:opacity-50"
           >
             {isSubmitting ? (
-              <span>Signing in...</span>
+              <div className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
             ) : (
               <>
-                <span>Sign In to StreakUp</span>
+                <span>Sign in</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-xs text-dark-muted">
-          Don't have an account yet?{' '}
-          <Link to="/register" className="text-flame-400 hover:text-flame-300 font-bold">
-            Sign Up Free
-          </Link>
+        <div className="mt-6 pt-6 border-t border-dark-border text-center">
+          <p className="text-xs text-dark-muted">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-flame-400 hover:text-flame-300 font-semibold hover:underline">
+              Create one now
+            </Link>
+          </p>
         </div>
       </div>
     </div>

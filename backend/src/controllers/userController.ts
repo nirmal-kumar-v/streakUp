@@ -4,6 +4,9 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { isValidTimezone, SUPPORTED_TIMEZONES, DEFAULT_TIMEZONE } from '../services/timezoneService';
 import { recalculateUserStreaks } from '../services/streakService';
+import { OtpPurpose, NotificationCategory } from '@prisma/client';
+import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
+import { sendEmail, buildChangeEmailOtpEmail } from '../services/emailService';
 
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(50).optional(),
@@ -447,4 +450,247 @@ export async function getTimezones(_req: any, res: Response) {
     defaultTimezone: DEFAULT_TIMEZONE
   });
 }
+
+/**
+ * Get 14-day email change status and next allowed change date
+ */
+export async function getEmailChangeStatus(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, emailLastChangedAt: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+    let canChangeNow = true;
+    let nextAllowedChangeDate: Date | null = null;
+    let daysRemaining = 0;
+
+    if (user.emailLastChangedAt) {
+      const msElapsed = Date.now() - new Date(user.emailLastChangedAt).getTime();
+      if (msElapsed < FOURTEEN_DAYS_MS) {
+        canChangeNow = false;
+        nextAllowedChangeDate = new Date(new Date(user.emailLastChangedAt).getTime() + FOURTEEN_DAYS_MS);
+        daysRemaining = Math.ceil((FOURTEEN_DAYS_MS - msElapsed) / (24 * 60 * 60 * 1000));
+      }
+    }
+
+    return res.json({
+      success: true,
+      currentEmail: user.email,
+      emailLastChangedAt: user.emailLastChangedAt,
+      canChangeNow,
+      nextAllowedChangeDate,
+      daysRemaining,
+    });
+  } catch (err: any) {
+    console.error('getEmailChangeStatus error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve email change status.' });
+  }
+}
+
+const requestChangeEmailSchema = z.object({
+  newEmail: z.string().email('Please enter a valid new email address'),
+});
+
+/**
+ * Request OTP to change registered email:
+ * Enforces 14-day restriction, validates uniqueness, and sends plain-text OTP to the new email.
+ */
+export async function requestChangeEmail(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const parseResult = requestChangeEmailSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: parseResult.error.errors[0]?.message || 'Invalid new email address',
+      });
+    }
+
+    const cleanNewEmail = parseResult.data.newEmail.trim().toLowerCase();
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    if (cleanNewEmail === user.email.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        error: 'The new email address cannot be the same as your current registered email.',
+      });
+    }
+
+    // Check 14-day restriction
+    const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+    if (user.emailLastChangedAt) {
+      const msElapsed = Date.now() - new Date(user.emailLastChangedAt).getTime();
+      if (msElapsed < FOURTEEN_DAYS_MS) {
+        const nextDate = new Date(new Date(user.emailLastChangedAt).getTime() + FOURTEEN_DAYS_MS);
+        const daysRemaining = Math.ceil((FOURTEEN_DAYS_MS - msElapsed) / (24 * 60 * 60 * 1000));
+        return res.status(400).json({
+          success: false,
+          error: `You can only change your registered email once every 14 days. You can next change it on ${nextDate.toISOString().split('T')[0]} (in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}).`,
+          nextAllowedChangeDate: nextDate,
+          daysRemaining,
+        });
+      }
+    }
+
+    // Check if new email is already in use by another user
+    const existing = await prisma.user.findUnique({
+      where: { email: cleanNewEmail },
+    });
+    if (existing && existing.id !== userId) {
+      return res.status(409).json({
+        success: false,
+        error: 'An account with this email address already exists. Please choose a different email.',
+      });
+    }
+
+    // Generate and store OTP
+    const otpResult = await createEmailOtp({
+      email: cleanNewEmail,
+      purpose: OtpPurpose.CHANGE_REGISTERED_EMAIL,
+      userId: user.id,
+      targetData: cleanNewEmail,
+    });
+
+    if (!otpResult.success) {
+      return res.status(429).json({
+        success: false,
+        error: otpResult.error,
+        retryAfterSeconds: otpResult.retryAfterSeconds,
+      });
+    }
+
+    // Dispatch plain-text verification email to the new address
+    const emailData = buildChangeEmailOtpEmail({
+      name: user.name,
+      newEmail: cleanNewEmail,
+      otp: otpResult.otp,
+    });
+
+    sendEmail({
+      userId: user.id,
+      recipientEmail: cleanNewEmail,
+      category: NotificationCategory.SYSTEM,
+      subject: emailData.subject,
+      text: emailData.text,
+      idempotencyKey: `CHANGE_EMAIL_OTP:${user.id}:${Date.now()}`,
+    }).catch((err) => {
+      console.error('[requestChangeEmail] Email dispatch error:', err);
+    });
+
+    return res.json({
+      success: true,
+      message: `A 6-digit verification code has been sent to ${cleanNewEmail}. Please enter the code to confirm the change.`,
+      newEmail: cleanNewEmail,
+    });
+  } catch (err: any) {
+    console.error('requestChangeEmail error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to request email change.' });
+  }
+}
+
+const verifyChangeEmailSchema = z.object({
+  newEmail: z.string().email('Please enter a valid new email address'),
+  otp: z.string().min(6).max(6, '6-digit OTP code required'),
+});
+
+/**
+ * Verify OTP to complete registered email change:
+ * Sets the new email and updates emailLastChangedAt to current timestamp.
+ */
+export async function verifyChangeEmail(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const parseResult = verifyChangeEmailSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: parseResult.error.errors[0]?.message || 'Invalid verification data',
+      });
+    }
+
+    const { newEmail, otp } = parseResult.data;
+    const cleanNewEmail = newEmail.trim().toLowerCase();
+
+    // Verify OTP
+    const verification = await verifyEmailOtp({
+      email: cleanNewEmail,
+      purpose: OtpPurpose.CHANGE_REGISTERED_EMAIL,
+      otp,
+      userId,
+    });
+
+    if (!verification.success) {
+      return res.status(400).json({
+        success: false,
+        error: verification.error,
+        maxAttemptsExceeded: verification.maxAttemptsExceeded,
+      });
+    }
+
+    // Double-check 14-day rule
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+    if (user.emailLastChangedAt) {
+      const msElapsed = Date.now() - new Date(user.emailLastChangedAt).getTime();
+      if (msElapsed < FOURTEEN_DAYS_MS) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email change cannot be completed because the 14-day restriction is currently in effect.',
+        });
+      }
+    }
+
+    // Double-check uniqueness
+    const conflict = await prisma.user.findUnique({ where: { email: cleanNewEmail } });
+    if (conflict && conflict.id !== userId) {
+      return res.status(409).json({
+        success: false,
+        error: 'This email address is already in use by another account.',
+      });
+    }
+
+    // Update user registered email and record timestamp
+    const now = new Date();
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: cleanNewEmail,
+        emailLastChangedAt: now,
+      },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        emailLastChangedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Your registered email address has been updated successfully.',
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    console.error('verifyChangeEmail error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to verify email change.' });
+  }
+}
+
 

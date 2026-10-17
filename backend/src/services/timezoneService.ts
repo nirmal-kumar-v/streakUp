@@ -35,6 +35,8 @@ export function getLocalDateString(timezone: string = DEFAULT_TIMEZONE, date?: D
   return dt.toFormat('yyyy-MM-dd');
 }
 
+export const getTodayInTimezone = getLocalDateString;
+
 /**
  * Gets yesterday's date string (YYYY-MM-DD) in the specified timezone.
  */

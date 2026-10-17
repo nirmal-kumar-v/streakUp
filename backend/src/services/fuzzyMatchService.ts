@@ -278,3 +278,25 @@ export function compareTaskTitles(title1: string, title2: string): TaskMatchResu
     reason,
   };
 }
+
+/**
+ * Finds the candidate task with the highest fuzzy match score above the match threshold
+ */
+export function findBestMatchingTask<T extends { title: string }>(
+  targetTitle: string,
+  candidates: T[]
+): { match: T | null; confidence: number } {
+  let bestMatch: T | null = null;
+  let highestConfidence = 0;
+
+  for (const candidate of candidates) {
+    const result = compareTaskTitles(targetTitle, candidate.title);
+    if (result.isMatch && result.confidence > highestConfidence) {
+      highestConfidence = result.confidence;
+      bestMatch = candidate;
+    }
+  }
+
+  return { match: bestMatch, confidence: highestConfidence };
+}
+

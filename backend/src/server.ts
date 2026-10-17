@@ -1,6 +1,7 @@
 import app from './app';
 import path from 'path';
 import dotenv from 'dotenv';
+import { startReminderScheduler } from './services/reminderSchedulerService';
 
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -19,6 +20,9 @@ if (!process.env.VERCEL) {
     console.log(`🕒 Health Check: http://localhost:${PORT}/api/health`);
     console.log(`🌐 Allowed Client: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
     console.log(`===============================================`);
+
+    // Start background reminder scheduler
+    startReminderScheduler();
   });
 
   process.on('SIGTERM', () => {

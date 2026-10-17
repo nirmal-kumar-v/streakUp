@@ -11,6 +11,7 @@ exports.levenshteinDistance = levenshteinDistance;
 exports.stringSimilarity = stringSimilarity;
 exports.tokenFuzzySimilarity = tokenFuzzySimilarity;
 exports.compareTaskTitles = compareTaskTitles;
+exports.findBestMatchingTask = findBestMatchingTask;
 // Common generic words that should not trigger false positives across unrelated tasks
 const GENERIC_STOP_WORDS = new Set([
     'daily',
@@ -253,4 +254,19 @@ function compareTaskTitles(title1, title2) {
         isMatch,
         reason,
     };
+}
+/**
+ * Finds the candidate task with the highest fuzzy match score above the match threshold
+ */
+function findBestMatchingTask(targetTitle, candidates) {
+    let bestMatch = null;
+    let highestConfidence = 0;
+    for (const candidate of candidates) {
+        const result = compareTaskTitles(targetTitle, candidate.title);
+        if (result.isMatch && result.confidence > highestConfidence) {
+            highestConfidence = result.confidence;
+            bestMatch = candidate;
+        }
+    }
+    return { match: bestMatch, confidence: highestConfidence };
 }

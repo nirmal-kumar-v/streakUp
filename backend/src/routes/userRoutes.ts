@@ -6,7 +6,10 @@ import {
   uploadProfileImage,
   removeProfileImage,
   changePassword,
-  changeUsername
+  changeUsername,
+  getEmailChangeStatus,
+  requestChangeEmail,
+  verifyChangeEmail,
 } from '../controllers/userController';
 import { requireAuth, optionalAuth } from '../middleware/authMiddleware';
 
@@ -29,5 +32,11 @@ router.delete('/profile-image', requireAuth, removeProfileImage);
 router.post('/change-password', requireAuth, changePassword);
 router.post('/change-username', requireAuth, changeUsername);
 
+// 14-day rate limited registered email change
+router.get('/email-change-status', requireAuth, getEmailChangeStatus);
+router.post('/change-email/request', requireAuth, requestChangeEmail);
+router.post('/change-email/verify', requireAuth, verifyChangeEmail);
+
 export default router;
+
 

@@ -104,3 +104,39 @@ export async function fetchTimezones() {
   }
 }
 
+export async function fetchEmailChangeStatus() {
+  const res = await apiClient.get<{
+    success: boolean;
+    currentEmail: string;
+    emailLastChangedAt: string | null;
+    canChangeNow: boolean;
+    nextAllowedChangeDate: string | null;
+    daysRemaining: number;
+    error?: string;
+  }>('/users/email-change-status');
+  return res.data;
+}
+
+export async function requestChangeEmailOtp(newEmail: string) {
+  const res = await apiClient.post<{
+    success: boolean;
+    message: string;
+    newEmail: string;
+    error?: string;
+    nextAllowedChangeDate?: string;
+    daysRemaining?: number;
+  }>('/users/change-email/request', { newEmail });
+  return res.data;
+}
+
+export async function verifyChangeEmailOtp(newEmail: string, otp: string) {
+  const res = await apiClient.post<{
+    success: boolean;
+    message: string;
+    user: any;
+    error?: string;
+  }>('/users/change-email/verify', { newEmail, otp });
+  return res.data;
+}
+
+

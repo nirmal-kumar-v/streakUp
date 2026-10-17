@@ -4,7 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.register = register;
+exports.verifySignup = verifySignup;
+exports.resendSignupOtp = resendSignupOtp;
 exports.login = login;
+exports.forgotPassword = forgotPassword;
+exports.resetPassword = resetPassword;
 exports.getMe = getMe;
 exports.logout = logout;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
@@ -13,6 +17,10 @@ const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const dbError_1 = require("../utils/dbError");
+const client_1 = require("@prisma/client");
+const otpService_1 = require("../services/otpService");
+const emailService_1 = require("../services/emailService");
+const notificationService_1 = require("../services/notificationService");
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
 const JWT_EXPIRES_IN = '7d';
 // Registration schema validation
@@ -36,8 +44,34 @@ const loginSchema = zod_1.z.object({
     identifier: zod_1.z.string().min(1, 'Username or email is required'),
     password: zod_1.z.string().min(1, 'Password is required'),
 });
+// Verify OTP schema
+const verifyOtpSchema = zod_1.z.object({
+    email: zod_1.z.string().email('Valid email address required'),
+    otp: zod_1.z.string().min(6, '6-digit OTP code required').max(6, '6-digit OTP code required'),
+});
+// Resend OTP schema
+const resendOtpSchema = zod_1.z.object({
+    email: zod_1.z.string().email('Valid email address required'),
+});
+// Forgot password schema
+const forgotPasswordSchema = zod_1.z.object({
+    email: zod_1.z.string().email('Valid email address required'),
+});
+// Reset password schema
+const resetPasswordSchema = zod_1.z.object({
+    token: zod_1.z.string().min(10, 'Valid reset token required'),
+    newPassword: zod_1.z.string().min(6, 'Password must be at least 6 characters long'),
+    confirmPassword: zod_1.z.string().optional(),
+}).refine(data => !data.confirmPassword || data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword']
+});
 /**
- * Register a new user
+ * Register a new user:
+ * - Creates unverified account record
+ * - Issues cryptographically secure 6-digit OTP
+ * - Dispatches plain-text verification email
+ * - Returns pendingVerification: true (no JWT token until verified)
  */
 async function register(req, res) {
     try {
@@ -50,21 +84,21 @@ async function register(req, res) {
         const cleanUsername = username.trim();
         const normalizedUsername = cleanUsername.toLowerCase();
         const cleanEmail = email.trim().toLowerCase();
-        // Check if email already registered
+        // Check if email already registered and verified
         const existingEmail = await prisma_1.default.user.findUnique({
             where: { email: cleanEmail }
         });
-        if (existingEmail) {
+        if (existingEmail && existingEmail.isEmailVerified) {
             return res.status(409).json({
                 success: false,
-                error: 'An account with this email address already exists.'
+                error: 'An account with this email address already exists. Please log in.'
             });
         }
-        // Check if username already taken (case-insensitive check)
+        // Check if username already taken by another verified user
         const existingUsername = await prisma_1.default.user.findUnique({
             where: { normalizedUsername }
         });
-        if (existingUsername) {
+        if (existingUsername && existingUsername.isEmailVerified && existingUsername.id !== existingEmail?.id) {
             return res.status(409).json({
                 success: false,
                 error: `Username "${cleanUsername}" is already taken. Please choose another.`
@@ -75,42 +109,69 @@ async function register(req, res) {
         const passwordHash = await bcryptjs_1.default.hash(password, salt);
         // Validate timezone or use default
         const userTimezone = timezone && (0, timezoneService_1.isValidTimezone)(timezone) ? timezone : timezoneService_1.DEFAULT_TIMEZONE;
-        // Create user
-        const user = await prisma_1.default.user.create({
-            data: {
-                name: name.trim(),
-                username: cleanUsername,
-                normalizedUsername,
-                email: cleanEmail,
-                passwordHash,
-                timezone: userTimezone,
-                currentStreak: 0,
-                longestStreak: 0,
-            },
-            select: {
-                id: true,
-                name: true,
-                username: true,
-                email: true,
-                timezone: true,
-                profileImage: true,
-                currentStreak: true,
-                longestStreak: true,
-                createdAt: true,
-            }
-        });
-        // Generate JWT token
-        const token = jsonwebtoken_1.default.sign({
+        // Create or update the pending unverified user record
+        let user;
+        if (existingEmail && !existingEmail.isEmailVerified) {
+            user = await prisma_1.default.user.update({
+                where: { id: existingEmail.id },
+                data: {
+                    name: name.trim(),
+                    username: cleanUsername,
+                    normalizedUsername,
+                    passwordHash,
+                    timezone: userTimezone,
+                    isEmailVerified: false,
+                },
+            });
+        }
+        else {
+            user = await prisma_1.default.user.create({
+                data: {
+                    name: name.trim(),
+                    username: cleanUsername,
+                    normalizedUsername,
+                    email: cleanEmail,
+                    passwordHash,
+                    timezone: userTimezone,
+                    currentStreak: 0,
+                    longestStreak: 0,
+                    isEmailVerified: false,
+                },
+            });
+        }
+        // Generate and store secure 6-digit OTP
+        const otpResult = await (0, otpService_1.createEmailOtp)({
+            email: cleanEmail,
+            purpose: client_1.OtpPurpose.SIGNUP,
             userId: user.id,
-            username: user.username,
-            email: user.email,
-            timezone: user.timezone
-        }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-        return res.status(201).json({
+        });
+        if (!otpResult.success) {
+            return res.status(429).json({
+                success: false,
+                error: otpResult.error,
+                retryAfterSeconds: otpResult.retryAfterSeconds,
+            });
+        }
+        // Dispatch plain-text verification email asynchronously
+        const emailData = (0, emailService_1.buildSignupOtpEmail)({
+            name: user.name,
+            otp: otpResult.otp,
+        });
+        (0, emailService_1.sendEmail)({
+            userId: user.id,
+            recipientEmail: cleanEmail,
+            category: client_1.NotificationCategory.SYSTEM,
+            subject: emailData.subject,
+            text: emailData.text,
+            idempotencyKey: `SIGNUP_OTP:${user.id}:${Date.now()}`,
+        }).catch((err) => {
+            console.error('[authController.register] Failed to dispatch verification email:', err);
+        });
+        return res.status(200).json({
             success: true,
-            message: 'Account registered successfully.',
-            token,
-            user
+            message: 'Verification code sent to your email. Please enter the 6-digit code to activate your account.',
+            pendingVerification: true,
+            email: cleanEmail,
         });
     }
     catch (err) {
@@ -125,6 +186,150 @@ async function register(req, res) {
         return res.status(500).json({
             success: false,
             error: 'Registration failed due to a server error. Please try again.'
+        });
+    }
+}
+/**
+ * Verify signup OTP and activate user account
+ */
+async function verifySignup(req, res) {
+    try {
+        const parseResult = verifyOtpSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                success: false,
+                error: parseResult.error.errors[0]?.message || 'Email and 6-digit code are required',
+            });
+        }
+        const { email, otp } = parseResult.data;
+        const cleanEmail = email.trim().toLowerCase();
+        // Verify OTP against hashed database record
+        const otpVerification = await (0, otpService_1.verifyEmailOtp)({
+            email: cleanEmail,
+            purpose: client_1.OtpPurpose.SIGNUP,
+            otp,
+        });
+        if (!otpVerification.success) {
+            return res.status(400).json({
+                success: false,
+                error: otpVerification.error,
+                maxAttemptsExceeded: otpVerification.maxAttemptsExceeded,
+            });
+        }
+        // Find and activate the user account
+        const user = await prisma_1.default.user.findUnique({
+            where: { email: cleanEmail },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User account not found. Please register again.',
+            });
+        }
+        // Activate user
+        const activatedUser = await prisma_1.default.user.update({
+            where: { id: user.id },
+            data: { isEmailVerified: true },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                email: true,
+                timezone: true,
+                profileImage: true,
+                currentStreak: true,
+                longestStreak: true,
+                createdAt: true,
+            },
+        });
+        // Initialize notification preferences
+        await (0, notificationService_1.getOrCreateNotificationPreferences)(activatedUser.id);
+        // Issue JWT token
+        const token = jsonwebtoken_1.default.sign({
+            userId: activatedUser.id,
+            username: activatedUser.username,
+            email: activatedUser.email,
+            timezone: activatedUser.timezone,
+        }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+        return res.json({
+            success: true,
+            message: 'Email verified successfully. Welcome to StreakUp!',
+            token,
+            user: activatedUser,
+        });
+    }
+    catch (err) {
+        console.error('verifySignup error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to verify code. Please try again.',
+        });
+    }
+}
+/**
+ * Resend signup verification OTP with cooldown check
+ */
+async function resendSignupOtp(req, res) {
+    try {
+        const parseResult = resendOtpSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                success: false,
+                error: 'Valid email address required',
+            });
+        }
+        const cleanEmail = parseResult.data.email.trim().toLowerCase();
+        const user = await prisma_1.default.user.findUnique({
+            where: { email: cleanEmail },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'No registration found with this email address.',
+            });
+        }
+        if (user.isEmailVerified) {
+            return res.status(400).json({
+                success: false,
+                error: 'This account is already verified. Please log in.',
+            });
+        }
+        const otpResult = await (0, otpService_1.createEmailOtp)({
+            email: cleanEmail,
+            purpose: client_1.OtpPurpose.SIGNUP,
+            userId: user.id,
+        });
+        if (!otpResult.success) {
+            return res.status(429).json({
+                success: false,
+                error: otpResult.error,
+                retryAfterSeconds: otpResult.retryAfterSeconds,
+            });
+        }
+        const emailData = (0, emailService_1.buildSignupOtpEmail)({
+            name: user.name,
+            otp: otpResult.otp,
+        });
+        (0, emailService_1.sendEmail)({
+            userId: user.id,
+            recipientEmail: cleanEmail,
+            category: client_1.NotificationCategory.SYSTEM,
+            subject: emailData.subject,
+            text: emailData.text,
+            idempotencyKey: `SIGNUP_OTP_RESEND:${user.id}:${Date.now()}`,
+        }).catch((err) => {
+            console.error('[authController.resendSignupOtp] Email error:', err);
+        });
+        return res.json({
+            success: true,
+            message: 'A new 6-digit verification code has been sent to your email.',
+        });
+    }
+    catch (err) {
+        console.error('resendSignupOtp error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to resend verification code.',
         });
     }
 }
@@ -166,6 +371,36 @@ async function login(req, res) {
                 error: 'Invalid username/email or password.'
             });
         }
+        // Require email verification before allowing login
+        if (!user.isEmailVerified) {
+            // Trigger new OTP if needed
+            await (0, otpService_1.createEmailOtp)({
+                email: user.email,
+                purpose: client_1.OtpPurpose.SIGNUP,
+                userId: user.id,
+            }).then(async (otpResult) => {
+                if (otpResult.success) {
+                    const emailData = (0, emailService_1.buildSignupOtpEmail)({
+                        name: user.name,
+                        otp: otpResult.otp,
+                    });
+                    (0, emailService_1.sendEmail)({
+                        userId: user.id,
+                        recipientEmail: user.email,
+                        category: client_1.NotificationCategory.SYSTEM,
+                        subject: emailData.subject,
+                        text: emailData.text,
+                        idempotencyKey: `SIGNUP_OTP_LOGIN_PROMPT:${user.id}:${Date.now()}`,
+                    }).catch(console.error);
+                }
+            }).catch(console.error);
+            return res.status(403).json({
+                success: false,
+                error: 'Please verify your email address before logging in. A verification code has been sent to your email.',
+                requiresVerification: true,
+                email: user.email,
+            });
+        }
         // Generate JWT
         const token = jsonwebtoken_1.default.sign({
             userId: user.id,
@@ -205,6 +440,115 @@ async function login(req, res) {
     }
 }
 /**
+ * Forgot password:
+ * Dispatches a password reset link to the registered email address.
+ * Returns a consistent response that does not reveal whether the account exists.
+ */
+async function forgotPassword(req, res) {
+    try {
+        const parseResult = forgotPasswordSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                success: false,
+                error: 'Valid email address is required',
+            });
+        }
+        const cleanEmail = parseResult.data.email.trim().toLowerCase();
+        // Look up user
+        const user = await prisma_1.default.user.findUnique({
+            where: { email: cleanEmail },
+        });
+        if (user && user.isEmailVerified) {
+            const tokenResult = await (0, otpService_1.createPasswordResetToken)(user.id);
+            if (tokenResult.success) {
+                const resetUrl = `${(0, emailService_1.getAppBaseUrl)()}/reset-password?token=${tokenResult.rawToken}`;
+                const emailContent = (0, emailService_1.buildPasswordResetLinkEmail)({
+                    name: user.name,
+                    resetUrl,
+                });
+                (0, emailService_1.sendEmail)({
+                    userId: user.id,
+                    recipientEmail: user.email,
+                    category: client_1.NotificationCategory.SYSTEM,
+                    subject: emailContent.subject,
+                    text: emailContent.text,
+                    idempotencyKey: `PASSWORD_RESET:${user.id}:${Date.now()}`,
+                }).catch((err) => {
+                    console.error('[forgotPassword] Error dispatching reset email:', err);
+                });
+            }
+        }
+        // Always return a consistent response to prevent email enumeration
+        return res.json({
+            success: true,
+            message: 'If an account exists with this email address, a password reset link has been sent.',
+        });
+    }
+    catch (err) {
+        console.error('forgotPassword error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to process password reset request.',
+        });
+    }
+}
+/**
+ * Reset password using the one-time link token:
+ * Updates the user's password and invalidates the reset token.
+ */
+async function resetPassword(req, res) {
+    try {
+        const parseResult = resetPasswordSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            const errorMsg = parseResult.error.errors[0]?.message || 'Invalid reset data';
+            return res.status(400).json({ success: false, error: errorMsg });
+        }
+        const { token, newPassword } = parseResult.data;
+        // Verify token validity and expiration
+        const verification = await (0, otpService_1.verifyPasswordResetToken)(token);
+        if (!verification.success) {
+            return res.status(400).json({
+                success: false,
+                error: verification.error,
+            });
+        }
+        // Hash new password
+        const salt = await bcryptjs_1.default.genSalt(10);
+        const passwordHash = await bcryptjs_1.default.hash(newPassword, salt);
+        // Update user password
+        const user = await prisma_1.default.user.update({
+            where: { id: verification.userId },
+            data: { passwordHash },
+            select: { id: true, name: true, email: true },
+        });
+        // Mark token as used
+        await (0, otpService_1.markPasswordResetTokenUsed)(verification.tokenId);
+        // Send confirmation plain-text email asynchronously
+        const confirmEmail = (0, emailService_1.buildPasswordChangedConfirmationEmail)({
+            name: user.name,
+        });
+        (0, emailService_1.sendEmail)({
+            userId: user.id,
+            recipientEmail: user.email,
+            category: client_1.NotificationCategory.SYSTEM,
+            subject: confirmEmail.subject,
+            text: confirmEmail.text,
+            idempotencyKey: `PASSWORD_CONFIRM:${user.id}:${Date.now()}`,
+        }).catch(console.error);
+        return res.json({
+            success: true,
+            message: 'Your password has been reset successfully. You can now log in with your new password.',
+        });
+    }
+    catch (err) {
+        console.error('resetPassword error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to reset password. Please try again.',
+        });
+    }
+}
+/**
  * Get current authenticated user details
  */
 async function getMe(req, res) {
@@ -224,6 +568,8 @@ async function getMe(req, res) {
                 profileImage: true,
                 currentStreak: true,
                 longestStreak: true,
+                isEmailVerified: true,
+                emailLastChangedAt: true,
                 createdAt: true,
             }
         });

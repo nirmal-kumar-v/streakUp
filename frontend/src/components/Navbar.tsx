@@ -14,8 +14,10 @@ import {
   Menu,
   X,
   Trophy,
+  Bell,
 } from 'lucide-react';
 import { InitialsAvatar } from './InitialsAvatar';
+import { fetchNotifications } from '../api/notifications';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -24,27 +26,36 @@ export const Navbar: React.FC = () => {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
 
-  // Poll or fetch pending friend requests for badge
+  // Poll or fetch pending friend requests and unread notifications for badge
   useEffect(() => {
     if (!isAuthenticated) {
       setPendingRequestsCount(0);
+      setUnreadNotificationsCount(0);
       return;
     }
 
-    const loadRequestsCount = async () => {
+    const loadBadgeCounts = async () => {
       try {
-        const res = await fetchFriendRequests();
-        if (res.success) {
-          setPendingRequestsCount(res.pendingCount || 0);
+        const [friendsRes, notifsRes] = await Promise.all([
+          fetchFriendRequests(),
+          fetchNotifications({ status: 'unread', limit: 1 }),
+        ]);
+
+        if (friendsRes.success) {
+          setPendingRequestsCount(friendsRes.pendingCount || 0);
+        }
+        if (notifsRes.success) {
+          setUnreadNotificationsCount(notifsRes.unreadCount || 0);
         }
       } catch {
         // Ignore background badge error
       }
     };
 
-    loadRequestsCount();
-    const interval = setInterval(loadRequestsCount, 30000);
+    loadBadgeCounts();
+    const interval = setInterval(loadBadgeCounts, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, location.pathname]);
 
@@ -64,6 +75,12 @@ export const Navbar: React.FC = () => {
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
         { label: 'My Tasks', path: '/tasks', icon: CheckSquare },
         { label: "Friends' Tasks", path: '/friends/tasks', icon: Users2 },
+        {
+          label: 'Notifications',
+          path: '/notifications',
+          icon: Bell,
+          badge: unreadNotificationsCount > 0 ? unreadNotificationsCount : undefined,
+        },
         { label: 'Global', path: '/leaderboard/global', icon: Globe2 },
         { label: 'Friends Rank', path: '/leaderboard/friends', icon: Trophy },
         {

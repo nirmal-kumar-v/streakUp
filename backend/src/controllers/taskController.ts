@@ -5,6 +5,8 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString, getLocalTimeInfo } from '../services/timezoneService';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
 import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
+import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '../services/notificationService';
+import { FreezeScope } from '@prisma/client';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -326,6 +328,31 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
 
     // Immediately recalculate overall streak
     const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+
+    // Trigger milestone checks and friend activity alerts (non-blocking)
+    checkAndTriggerMilestones({
+      userId,
+      scope: FreezeScope.OVERALL,
+      scopeId: 'OVERALL',
+      currentStreak: overallStreak.currentStreak,
+    }).catch((err) => console.error('[completeTask] Milestone check error:', err));
+
+    if (task.recurrence === 'DAILY') {
+      checkAndTriggerMilestones({
+        userId,
+        scope: FreezeScope.TASK,
+        scopeId: id,
+        currentStreak: taskStreak.currentStreak,
+        taskTitle: task.title,
+      }).catch((err) => console.error('[completeTask] Task milestone check error:', err));
+
+      checkAndTriggerFriendActivityAlerts({
+        completedUserId: userId,
+        completedTaskId: id,
+        completedTaskTitle: task.title,
+        studyNote: completion.studyNote,
+      }).catch((err) => console.error('[completeTask] Friend activity alert error:', err));
+    }
 
     return res.json({
       success: true,
