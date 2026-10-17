@@ -1,5 +1,6 @@
 import app from './src/app';
 
-export default app;
-module.exports = app;
-module.exports.default = app;
+const handler = (app as any).default || app;
+export default handler;
+module.exports = handler;
+module.exports.default = handler;

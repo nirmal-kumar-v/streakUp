@@ -20,9 +20,30 @@
       }
     },
     {
+      "source": "/api",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": {
+        "service": "frontend",
+        "path": "/assets/$1"
+      }
+    },
+    {
+      "source": "/(.*\\.[a-zA-Z0-9]+)",
+      "destination": {
+        "service": "frontend",
+        "path": "/$1"
+      }
+    },
+    {
       "source": "/(.*)",
       "destination": {
-        "service": "frontend"
+        "service": "frontend",
+        "path": "/index.html"
       }
     }
   ]
