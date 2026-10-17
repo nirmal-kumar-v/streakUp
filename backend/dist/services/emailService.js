@@ -39,7 +39,11 @@ catch {
  */
 function getSmtpConfig() {
     const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    let port = parseInt(process.env.SMTP_PORT || '465', 10);
+    // Default to 465 SSL for Gmail to guarantee instant delivery without STARTTLS timeout
+    if (host.includes('gmail') && (port === 587 || !process.env.SMTP_PORT)) {
+        port = 465;
+    }
     const secure = process.env.SMTP_SECURE === 'true' || port === 465;
     const user = process.env.SMTP_USER || '';
     const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');

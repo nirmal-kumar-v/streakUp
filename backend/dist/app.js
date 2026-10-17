@@ -24,6 +24,7 @@ app.use((0, cors_1.default)({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express_1.default.json());
+const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
 // Health & Info endpoint (accessible at both /api/health and /health)
 const handleHealth = (_req, res) => {
     res.json({
@@ -40,6 +41,25 @@ app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
 app.get('/api', handleHealth);
 app.get('/', handleHealth);
+// Cron / Automated Reminders Trigger (accessible via GET/POST on both /api/cron/reminders and /cron/reminders)
+const handleCronReminders = async (_req, res) => {
+    try {
+        const result = await (0, reminderSchedulerService_1.runReminderCheck)();
+        return res.json({
+            success: true,
+            timestamp: new Date().toISOString(),
+            ...result,
+        });
+    }
+    catch (err) {
+        console.error('[cron/reminders] Error running reminder check:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
+app.get('/api/cron/reminders', handleCronReminders);
+app.get('/cron/reminders', handleCronReminders);
+app.post('/api/cron/reminders', handleCronReminders);
+app.post('/cron/reminders', handleCronReminders);
 // Mount Routes with /api prefix (for standard and local requests)
 app.use('/api/auth', authRoutes_1.default);
 app.use('/api/tasks', taskRoutes_1.default);

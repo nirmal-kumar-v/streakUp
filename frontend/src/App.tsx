@@ -18,6 +18,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { apiClient } from './api/client';
 
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -42,6 +43,23 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 export const AppContent: React.FC = () => {
+  const { isAuthenticated } = useAuth();
+
+  // Periodically trigger serverless reminder check while user is active
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Check immediately on load/mount
+    apiClient.get('/cron/reminders').catch(() => {});
+
+    // Periodic check every 60 seconds
+    const timer = setInterval(() => {
+      apiClient.get('/cron/reminders').catch(() => {});
+    }, 60000);
+
+    return () => clearInterval(timer);
+  }, [isAuthenticated]);
+
   return (
     <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100">
       <Navbar />

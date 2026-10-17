@@ -89,25 +89,23 @@ export async function createNotification(params: CreateNotificationParams) {
     emailText,
   } = params;
 
-  // 1. Idempotency Check on eventKey
-  if (eventKey) {
-    const existing = await prisma.notification.findFirst({
-      where: { userId, eventKey },
-    });
-    if (existing) {
-      return existing; // Duplicate prevented!
-    }
-  }
-
-  // 2. Fetch User & Preferences
+  // 1. Fetch User & Preferences
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return null;
 
   const pref = await getOrCreateNotificationPreferences(userId);
 
-  // 3. Create In-App Notification (if in-app channel enabled)
-  let notification = null;
-  if (pref.inAppNotificationsEnabled) {
+  // 2. Check if an in-app notification already exists for this eventKey
+  let existingNotification = null;
+  if (eventKey) {
+    existingNotification = await prisma.notification.findFirst({
+      where: { userId, eventKey },
+    });
+  }
+
+  // 3. Create In-App Notification (if in-app channel enabled and not already recorded)
+  let notification = existingNotification;
+  if (!existingNotification && pref.inAppNotificationsEnabled) {
     notification = await prisma.notification.create({
       data: {
         userId,

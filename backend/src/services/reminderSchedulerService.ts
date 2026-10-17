@@ -61,8 +61,26 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
     const currentLocalHourMinute = userLocalTime.toFormat('HH:mm'); // e.g. "08:00"
     const localDate = userLocalTime.toFormat('yyyy-MM-dd');
 
-    // Only process if current user local minute matches the scheduled time
-    if (currentLocalHourMinute !== schedule.time) {
+    // Only process if current user local time has reached or passed the scheduled time
+    if (currentLocalHourMinute < schedule.time) {
+      continue;
+    }
+
+    // Check if this reminder was ALREADY successfully delivered via email today
+    const eventKey =
+      schedule.scope === ReminderScope.OVERALL
+        ? `REMINDER:OVERALL:${user.id}:${localDate}:${schedule.time}`
+        : `REMINDER:TASK:${schedule.taskId}:${localDate}:${schedule.time}`;
+
+    const alreadyDelivered = await prisma.emailDelivery.findFirst({
+      where: {
+        idempotencyKey: `EMAIL:${eventKey}`,
+        status: 'SENT',
+      },
+    });
+
+    if (alreadyDelivered) {
+      skipped++;
       continue;
     }
 
@@ -89,7 +107,6 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
       }
 
       // User has not completed any task today. Dispatch overall reminder.
-      const eventKey = `REMINDER:OVERALL:${user.id}:${localDate}:${schedule.time}`;
       const emailContent = buildOverallReminderEmail({
         name: user.name,
         currentStreak: user.currentStreak,
@@ -131,7 +148,6 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
       }
 
       // Task is incomplete. Dispatch task reminder.
-      const eventKey = `REMINDER:TASK:${task.id}:${localDate}:${schedule.time}`;
       const emailContent = buildTaskReminderEmail({
         name: user.name,
         taskTitle: task.title,
