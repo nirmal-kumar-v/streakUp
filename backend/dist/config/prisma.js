@@ -12,11 +12,23 @@ dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../.env') 
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../.env') });
 dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), 'backend/.env') });
 dotenv_1.default.config({ path: path_1.default.resolve(process.cwd(), '.env') });
-// Global singleton pattern to prevent multiple PrismaClient instances in serverless/Vercel environments
 const globalForPrisma = globalThis;
-exports.prisma = globalForPrisma.prisma ||
-    new client_1.PrismaClient({
+function createPrismaClient() {
+    return new client_1.PrismaClient({
         log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
     });
-globalForPrisma.prisma = exports.prisma;
+}
+// Lazy-initialized Prisma instance prevents serverless crash if DB environment variables are missing during cold start
+exports.prisma = new Proxy({}, {
+    get(_target, prop) {
+        if (!globalForPrisma.prisma) {
+            globalForPrisma.prisma = createPrismaClient();
+        }
+        const val = globalForPrisma.prisma[prop];
+        if (typeof val === 'function') {
+            return val.bind(globalForPrisma.prisma);
+        }
+        return val;
+    }
+});
 exports.default = exports.prisma;
