@@ -1,4 +1,4 @@
-const app = require('../backend/dist/server');
+const app = require('../backend/dist/app');
 
 const handler = app.default || app;
 export default handler;

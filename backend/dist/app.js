@@ -29,7 +29,9 @@ const handleHealth = (_req, res) => {
         app: 'StreakUp API',
         timestamp: new Date().toISOString(),
         systemClock: (0, timezoneService_1.getLocalTimeInfo)('Asia/Kolkata'),
-        environment: process.env.VERCEL ? 'vercel-serverless' : 'local-node'
+        environment: process.env.VERCEL ? 'vercel-serverless' : 'local-node',
+        hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+        hasJwtSecret: Boolean(process.env.JWT_SECRET)
     });
 };
 app.get('/api/health', handleHealth);

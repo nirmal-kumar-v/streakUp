@@ -2,7 +2,7 @@
   "name": "streakup-backend",
   "version": "1.0.0",
   "description": "StreakUp Productivity & Streak Tracker Backend",
-  "main": "dist/server.js",
+  "main": "dist/app.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc",
