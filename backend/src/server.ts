@@ -5,33 +5,27 @@ dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-const server = app.listen(PORT, () => {
-  console.log(`===============================================`);
-  console.log(`🚀 StreakUp Backend Server Running`);
-  console.log(`📡 URL: http://localhost:${PORT}`);
-  console.log(`🕒 Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`🌐 Allowed Client: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('YOUR_POSTGRESQL_CONNECTION_STRING_HERE')) {
-    console.log(`⚠️  Notice: DATABASE_URL is set to a placeholder in .env.`);
-    console.log(`👉 Update backend/.env with your PostgreSQL database URL, then run:`);
-    console.log(`   npx prisma migrate dev (or npx prisma db push)`);
-  }
-  console.log(`===============================================`);
-});
-
-// Graceful shutdown handling
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received. Closing HTTP server.');
-  server.close(() => {
-    console.log('HTTP server closed.');
-    process.exit(0);
+// Only start the HTTP listener if running directly as a standalone server (not on Vercel)
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  const server = app.listen(PORT, () => {
+    console.log(`===============================================`);
+    console.log(`🚀 StreakUp Backend Server Running`);
+    console.log(`📡 URL: http://localhost:${PORT}`);
+    console.log(`🕒 Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`🌐 Allowed Client: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+    console.log(`===============================================`);
   });
-});
 
-process.on('SIGINT', () => {
-  console.log('SIGINT signal received. Closing HTTP server.');
-  server.close(() => {
-    console.log('HTTP server closed.');
-    process.exit(0);
+  process.on('SIGTERM', () => {
+    server.close(() => process.exit(0));
   });
-});
+
+  process.on('SIGINT', () => {
+    server.close(() => process.exit(0));
+  });
+}
+
+// Export for Vercel Express service (supports both ESM and CJS loaders)
+export default app;
+module.exports = app;
+module.exports.default = app;

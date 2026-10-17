@@ -4,6 +4,7 @@ import { registerUser } from '../api/auth';
 import { fetchTimezones, TimezoneOption } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 import { Flame, AlertCircle, ArrowRight, Lock, User as UserIcon, Mail, Globe } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
@@ -62,7 +63,7 @@ export const RegisterPage: React.FC = () => {
         setError(res.error || 'Registration failed.');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'An error occurred during registration.');
+      setError(extractErrorMessage(err, 'An error occurred during registration.'));
     } finally {
       setIsSubmitting(false);
     }

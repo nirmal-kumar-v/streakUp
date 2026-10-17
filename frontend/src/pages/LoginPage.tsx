@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { loginUser } from '../api/auth';
 import { useAuth } from '../context/AuthContext';
 import { Flame, AlertCircle, ArrowRight, Lock, User as UserIcon } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ export const LoginPage: React.FC = () => {
         setError(res.error || 'Invalid credentials.');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Login failed. Please check your credentials.');
+      setError(extractErrorMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setIsSubmitting(false);
     }

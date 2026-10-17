@@ -26,6 +26,7 @@ import {
   Clock,
   User as UserIcon,
 } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 export const FriendsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
@@ -105,7 +106,7 @@ export const FriendsPage: React.FC = () => {
         loadData();
       }
     } catch (err: any) {
-      showFeedback(err.response?.data?.error || 'Failed to send friend request.', 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to send friend request.'), 'error');
     }
   };
 
@@ -117,7 +118,7 @@ export const FriendsPage: React.FC = () => {
         loadData();
       }
     } catch (err: any) {
-      showFeedback(err.response?.data?.error || 'Failed to accept request.', 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to accept request.'), 'error');
     }
   };
 
@@ -129,7 +130,7 @@ export const FriendsPage: React.FC = () => {
         loadData();
       }
     } catch (err: any) {
-      showFeedback(err.response?.data?.error || 'Failed to reject request.', 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to reject request.'), 'error');
     }
   };
 
@@ -141,7 +142,7 @@ export const FriendsPage: React.FC = () => {
         loadData();
       }
     } catch (err: any) {
-      showFeedback(err.response?.data?.error || 'Failed to cancel request.', 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to cancel request.'), 'error');
     }
   };
 
@@ -156,7 +157,7 @@ export const FriendsPage: React.FC = () => {
         loadData();
       }
     } catch (err: any) {
-      showFeedback(err.response?.data?.error || 'Failed to remove friend.', 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to remove friend.'), 'error');
     }
   };
 

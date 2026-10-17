@@ -11,6 +11,7 @@ import {
   Save,
   Clock,
 } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 const AVATAR_PRESETS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -91,7 +92,7 @@ export const SettingsPage: React.FC = () => {
         setSuccessMessage('Profile and timezone settings updated successfully!');
       }
     } catch (err: any) {
-      setErrorMessage(err.response?.data?.error || 'Failed to update profile.');
+      setErrorMessage(extractErrorMessage(err, 'Failed to update profile.'));
     } finally {
       setIsSubmitting(false);
     }

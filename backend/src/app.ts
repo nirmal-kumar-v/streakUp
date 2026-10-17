@@ -35,6 +35,8 @@ const handleHealth = (_req: Request, res: Response) => {
 };
 app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
+app.get('/api', handleHealth);
+app.get('/', handleHealth);
 
 // Mount Routes with /api prefix (for standard and local requests)
 app.use('/api/auth', authRoutes);
@@ -51,7 +53,7 @@ app.use('/leaderboard', leaderboardRoutes);
 app.use('/users', userRoutes);
 
 // 404 Handler
-app.use('/api/*', (req: Request, res: Response) => {
+app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     error: `API route not found: ${req.method} ${req.originalUrl}`

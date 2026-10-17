@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Priority, Recurrence } from '../api/tasks';
 import { X, Clock, Tag, AlertCircle, Sparkles } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -75,7 +76,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Failed to save task.');
+      setError(extractErrorMessage(err, 'Failed to save task.'));
     } finally {
       setIsSubmitting(false);
     }

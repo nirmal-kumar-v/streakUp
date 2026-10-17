@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   User as UserIcon,
 } from 'lucide-react';
+import { extractErrorMessage } from '../utils/error';
 
 export const PublicProfilePage: React.FC = () => {
   const { username } = useParams<{ username: string }>();
@@ -34,7 +35,7 @@ export const PublicProfilePage: React.FC = () => {
         setProfile(res.profile);
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || `User @${username} was not found.`);
+      setError(extractErrorMessage(err, `User @${username} was not found.`));
     } finally {
       setIsLoading(false);
     }
