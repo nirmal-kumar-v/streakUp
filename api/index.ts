@@ -1,5 +1,6 @@
-import app from '../backend/src/app';
+const app = require('../backend/dist/server');
 
-export default app;
-module.exports = app;
-module.exports.default = app;
+const handler = app.default || app;
+export default handler;
+module.exports = handler;
+module.exports.default = handler;

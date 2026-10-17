@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "prisma generate && tsc",
+    "postinstall": "prisma generate",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -22,6 +23,8 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.5.0",
+    "prisma": "^6.3.1",
+    "typescript": "^5.7.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -31,9 +34,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.10.7",
-    "prisma": "^6.3.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
     "vitest": "^3.0.4"
   }
 }

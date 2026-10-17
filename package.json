@@ -4,6 +4,7 @@
   "description": "StreakUp Full-Stack Task, Streak and Friends Platform",
   "scripts": {
     "build": "npm run vercel-build",
+    "postinstall": "prisma generate --schema=./backend/prisma/schema.prisma",
     "vercel-build": "npx prisma generate --schema=./backend/prisma/schema.prisma && npm --prefix frontend install && npm --prefix frontend run build",
     "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"amber,emerald\" \"npm run dev:backend\" \"npm run dev:frontend\"",
@@ -19,6 +20,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.5.0",
+    "prisma": "^6.3.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -29,7 +31,6 @@
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.10.7",
     "concurrently": "^9.1.2",
-    "prisma": "^6.3.1",
     "typescript": "^5.7.3"
   }
 }
