@@ -37,11 +37,34 @@ export async function updateProfileSettings(data: {
   return res.data;
 }
 
+export const DEFAULT_FALLBACK_TIMEZONES: TimezoneOption[] = [
+  { value: 'Asia/Kolkata', label: 'India Standard Time (IST) - Asia/Kolkata' },
+  { value: 'UTC', label: 'Coordinated Universal Time (UTC)' },
+  { value: 'America/New_York', label: 'Eastern Time (ET) - America/New_York' },
+  { value: 'America/Chicago', label: 'Central Time (CT) - America/Chicago' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT) - America/Los_Angeles' },
+  { value: 'Europe/London', label: 'Greenwich Mean Time (GMT) - Europe/London' },
+  { value: 'Europe/Paris', label: 'Central European Time (CET) - Europe/Paris' },
+  { value: 'Asia/Dubai', label: 'Gulf Standard Time (GST) - Asia/Dubai' },
+  { value: 'Asia/Singapore', label: 'Singapore Time (SGT) - Asia/Singapore' },
+  { value: 'Asia/Tokyo', label: 'Japan Standard Time (JST) - Asia/Tokyo' },
+  { value: 'Australia/Sydney', label: 'Australian Eastern Time (AET) - Australia/Sydney' },
+];
+
 export async function fetchTimezones() {
-  const res = await apiClient.get<{
-    success: boolean;
-    timezones: TimezoneOption[];
-    defaultTimezone: string;
-  }>('/users/timezones');
-  return res.data;
+  try {
+    const res = await apiClient.get<{
+      success: boolean;
+      timezones: TimezoneOption[];
+      defaultTimezone: string;
+    }>('/users/timezones');
+    return res.data;
+  } catch (err) {
+    console.warn('Could not load timezones from API, using fallback timezones list:', err);
+    return {
+      success: true,
+      timezones: DEFAULT_FALLBACK_TIMEZONES,
+      defaultTimezone: 'Asia/Kolkata'
+    };
+  }
 }

@@ -91,6 +91,7 @@ export const LoginPage: React.FC = () => {
                 placeholder="username or user@example.com"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
                 className="w-full pl-10 pr-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80 transition-all"
               />
             </div>
@@ -108,6 +109,7 @@ export const LoginPage: React.FC = () => {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
                 className="w-full pl-10 pr-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80 transition-all"
               />
             </div>
