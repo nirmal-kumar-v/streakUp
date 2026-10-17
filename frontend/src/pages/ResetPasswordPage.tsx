@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { resetPassword } from '../api/auth';
 import { Flame, Lock, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
@@ -8,6 +8,10 @@ export const ResetPasswordPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') || '';
+
+  if (!token) {
+    return <Navigate to="/forgot-password" replace />;
+  }
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

@@ -67,20 +67,34 @@ export async function loginUser(data: {
 export async function forgotPassword(email: string): Promise<{
   success: boolean;
   message?: string;
+  email?: string;
   error?: string;
 }> {
   const res = await apiClient.post('/auth/forgot-password', { email });
   return res.data;
 }
 
+export async function resendPasswordResetOtp(email: string): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  retryAfterSeconds?: number;
+}> {
+  const res = await apiClient.post('/auth/resend-reset-otp', { email });
+  return res.data;
+}
+
 export async function resetPassword(data: {
-  token: string;
+  email?: string;
+  otp?: string;
+  token?: string;
   newPassword: string;
   confirmPassword?: string;
 }): Promise<{
   success: boolean;
   message?: string;
   error?: string;
+  maxAttemptsExceeded?: boolean;
 }> {
   const res = await apiClient.post('/auth/reset-password', data);
   return res.data;

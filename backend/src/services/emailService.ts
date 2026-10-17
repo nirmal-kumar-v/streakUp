@@ -493,7 +493,36 @@ export function buildVerifyNotificationEmailOtpEmail(data: {
 }
 
 /**
- * Plain-text password reset link email (Section 8 per user requirement)
+ * Plain-text password reset OTP email
+ */
+export function buildPasswordResetOtpEmail(data: {
+  name: string;
+  otp: string;
+}) {
+  const subject = `Your StreakUp password reset code: ${data.otp}`;
+  const text = [
+    `Hi ${data.name},`,
+    '',
+    `We received a request to reset the password for your StreakUp account.`,
+    '',
+    `Your 6-digit password reset code is:`,
+    '',
+    `    ${data.otp}`,
+    '',
+    `This verification code will expire in 5 minutes.`,
+    '',
+    `For security reasons, never share this code with anyone.`,
+    `If you did not request a password reset, you can safely ignore this email and your account remains secure.`,
+    '',
+    `—`,
+    `StreakUp Security`,
+  ].join('\n');
+
+  return { subject, text };
+}
+
+/**
+ * Plain-text password reset link email (backward compatibility)
  */
 export function buildPasswordResetLinkEmail(data: {
   name: string;

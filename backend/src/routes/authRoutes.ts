@@ -5,6 +5,7 @@ import {
   resendSignupOtp,
   login,
   forgotPassword,
+  resendPasswordResetOtp,
   resetPassword,
   getMe,
   logout,
@@ -23,8 +24,9 @@ router.post('/login', login);
 router.get('/me', requireAuth, getMe);
 router.post('/logout', logout);
 
-// Password recovery via reset link
+// Password recovery via OTP
 router.post('/forgot-password', forgotPassword);
+router.post('/resend-reset-otp', resendPasswordResetOtp);
 router.post('/reset-password', resetPassword);
 
 export default router;

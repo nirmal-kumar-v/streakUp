@@ -5,6 +5,7 @@ import {
   buildSignupOtpEmail,
   buildChangeEmailOtpEmail,
   buildVerifyNotificationEmailOtpEmail,
+  buildPasswordResetOtpEmail,
   buildPasswordResetLinkEmail,
   buildPasswordChangedConfirmationEmail,
   buildFriendTaskActivityEmail,
@@ -84,6 +85,21 @@ describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
       expect(confirmation.text).toContain('Hi Nirmal,');
       expect(confirmation.text).toContain('password for your StreakUp account was recently changed');
       expect(confirmation.text).not.toContain('<html>');
+    });
+
+    it('builds password reset OTP email containing 6-digit code and no links', () => {
+      const resetOtpEmail = buildPasswordResetOtpEmail({
+        name: 'Nirmal',
+        otp: '918273',
+      });
+
+      expect(resetOtpEmail.subject).toBe('Your StreakUp password reset code: 918273');
+      expect(resetOtpEmail.text).toContain('Hi Nirmal,');
+      expect(resetOtpEmail.text).toContain('918273');
+      expect(resetOtpEmail.text).toContain('5 minutes');
+      expect(resetOtpEmail.text).not.toContain('http://');
+      expect(resetOtpEmail.text).not.toContain('https://');
+      expect(resetOtpEmail.text).not.toContain('<html>');
     });
   });
 
