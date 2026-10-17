@@ -30,6 +30,7 @@ const handleHealth = (_req, res) => {
     res.json({
         status: 'healthy',
         app: 'StreakUp API',
+        version: '1.1.0-reminders-v2',
         timestamp: new Date().toISOString(),
         systemClock: (0, timezoneService_1.getLocalTimeInfo)('Asia/Kolkata'),
         environment: process.env.VERCEL ? 'vercel-serverless' : 'local-node',
