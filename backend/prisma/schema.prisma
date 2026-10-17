@@ -1,0 +1,120 @@
+// StreakUp Prisma Schema for PostgreSQL
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Recurrence {
+  DAILY
+  ONE_TIME
+}
+
+enum TaskStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id                 String           @id @default(uuid())
+  name               String
+  username           String           @unique
+  normalizedUsername String           @unique // lowercased username for case-insensitive uniqueness
+  email              String           @unique
+  passwordHash       String
+  profileImage       String?
+  timezone           String           @default("Asia/Kolkata")
+  currentStreak      Int              @default(0)
+  longestStreak      Int              @default(0)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  tasks              Task[]
+  taskCompletions    TaskCompletion[]
+  sentFriendRequests FriendRequest[]  @relation("SentFriendRequests")
+  receivedFriendReqs FriendRequest[]  @relation("ReceivedFriendRequests")
+  friendshipsAsUser1 Friendship[]     @relation("User1Friendships")
+  friendshipsAsUser2 Friendship[]     @relation("User2Friendships")
+
+  @@index([normalizedUsername])
+  @@index([currentStreak(sort: Desc), longestStreak(sort: Desc)])
+}
+
+model Task {
+  id          String           @id @default(uuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  category    String           @default("General")
+  priority    Priority         @default(MEDIUM)
+  recurrence  Recurrence       @default(DAILY)
+  dueTime     String?          // e.g. "18:00"
+  status      TaskStatus       @default(ACTIVE)
+  isCompleted Boolean          @default(false) // completed flag for one-time tasks
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  completions TaskCompletion[]
+
+  @@index([userId, status])
+}
+
+model TaskCompletion {
+  id             String   @id @default(uuid())
+  taskId         String
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completionDate String   // Local calendar date in format "YYYY-MM-DD"
+  completedAt    DateTime @default(now())
+
+  // Prevent duplicate completion records for the same task and local date
+  @@unique([taskId, completionDate])
+  @@index([userId, completionDate])
+}
+
+model FriendRequest {
+  id         String              @id @default(uuid())
+  senderId   String
+  sender     User                @relation("SentFriendRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User                @relation("ReceivedFriendRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
+}
+
+model Friendship {
+  id        String   @id @default(uuid())
+  user1Id   String
+  user1     User     @relation("User1Friendships", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id   String
+  user2     User     @relation("User2Friendships", fields: [user2Id], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  // user1Id < user2Id enforced by application logic ensures exactly 1 row per friendship
+  @@unique([user1Id, user2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+}
