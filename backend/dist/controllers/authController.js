@@ -8,6 +8,7 @@ exports.verifySignup = verifySignup;
 exports.resendSignupOtp = resendSignupOtp;
 exports.login = login;
 exports.forgotPassword = forgotPassword;
+exports.resendPasswordResetOtp = resendPasswordResetOtp;
 exports.resetPassword = resetPassword;
 exports.getMe = getMe;
 exports.logout = logout;
@@ -47,7 +48,7 @@ const loginSchema = zod_1.z.object({
 // Verify OTP schema
 const verifyOtpSchema = zod_1.z.object({
     email: zod_1.z.string().email('Valid email address required'),
-    otp: zod_1.z.string().min(6, '6-digit OTP code required').max(6, '6-digit OTP code required'),
+    otp: zod_1.z.string().trim().min(6, '6-digit OTP code required').max(6, '6-digit OTP code required'),
 });
 // Resend OTP schema
 const resendOtpSchema = zod_1.z.object({
@@ -57,14 +58,19 @@ const resendOtpSchema = zod_1.z.object({
 const forgotPasswordSchema = zod_1.z.object({
     email: zod_1.z.string().email('Valid email address required'),
 });
-// Reset password schema
+// Reset password schema (supports OTP or token)
 const resetPasswordSchema = zod_1.z.object({
-    token: zod_1.z.string().min(10, 'Valid reset token required'),
+    email: zod_1.z.string().email('Valid email address required').optional(),
+    otp: zod_1.z.string().trim().min(6, '6-digit OTP code required').max(6, '6-digit OTP code required').optional(),
+    token: zod_1.z.string().optional(),
     newPassword: zod_1.z.string().min(6, 'Password must be at least 6 characters long'),
     confirmPassword: zod_1.z.string().optional(),
 }).refine(data => !data.confirmPassword || data.newPassword === data.confirmPassword, {
     message: 'Passwords do not match',
     path: ['confirmPassword']
+}).refine(data => (data.email && data.otp) || Boolean(data.token), {
+    message: 'Email and 6-digit verification code are required',
+    path: ['otp']
 });
 /**
  * Register a new user:
@@ -441,7 +447,7 @@ async function login(req, res) {
 }
 /**
  * Forgot password:
- * Dispatches a password reset link to the registered email address.
+ * Generates a 6-digit OTP and sends it to the user's email address.
  * Returns a consistent response that does not reveal whether the account exists.
  */
 async function forgotPassword(req, res) {
@@ -459,12 +465,15 @@ async function forgotPassword(req, res) {
             where: { email: cleanEmail },
         });
         if (user && user.isEmailVerified) {
-            const tokenResult = await (0, otpService_1.createPasswordResetToken)(user.id);
-            if (tokenResult.success) {
-                const resetUrl = `${(0, emailService_1.getAppBaseUrl)()}/reset-password?token=${tokenResult.rawToken}`;
-                const emailContent = (0, emailService_1.buildPasswordResetLinkEmail)({
+            const otpResult = await (0, otpService_1.createEmailOtp)({
+                email: cleanEmail,
+                purpose: client_1.OtpPurpose.PASSWORD_RESET,
+                userId: user.id,
+            });
+            if (otpResult.success) {
+                const emailContent = (0, emailService_1.buildPasswordResetOtpEmail)({
                     name: user.name,
-                    resetUrl,
+                    otp: otpResult.otp,
                 });
                 (0, emailService_1.sendEmail)({
                     userId: user.id,
@@ -472,16 +481,24 @@ async function forgotPassword(req, res) {
                     category: client_1.NotificationCategory.SYSTEM,
                     subject: emailContent.subject,
                     text: emailContent.text,
-                    idempotencyKey: `PASSWORD_RESET:${user.id}:${Date.now()}`,
+                    idempotencyKey: `PASSWORD_RESET_OTP:${user.id}:${Date.now()}`,
                 }).catch((err) => {
-                    console.error('[forgotPassword] Error dispatching reset email:', err);
+                    console.error('[forgotPassword] Error dispatching reset OTP email:', err);
+                });
+            }
+            else {
+                return res.status(429).json({
+                    success: false,
+                    error: otpResult.error,
+                    retryAfterSeconds: otpResult.retryAfterSeconds,
                 });
             }
         }
         // Always return a consistent response to prevent email enumeration
         return res.json({
             success: true,
-            message: 'If an account exists with this email address, a password reset link has been sent.',
+            message: 'If an account exists with this email address, a 6-digit verification code has been sent.',
+            email: cleanEmail,
         });
     }
     catch (err) {
@@ -493,8 +510,67 @@ async function forgotPassword(req, res) {
     }
 }
 /**
- * Reset password using the one-time link token:
- * Updates the user's password and invalidates the reset token.
+ * Resend password reset OTP
+ */
+async function resendPasswordResetOtp(req, res) {
+    try {
+        const parseResult = resendOtpSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                success: false,
+                error: 'Valid email address required',
+            });
+        }
+        const cleanEmail = parseResult.data.email.trim().toLowerCase();
+        const user = await prisma_1.default.user.findUnique({
+            where: { email: cleanEmail },
+        });
+        if (!user || !user.isEmailVerified) {
+            return res.json({
+                success: true,
+                message: 'If an account exists with this email address, a new verification code has been sent.',
+            });
+        }
+        const otpResult = await (0, otpService_1.createEmailOtp)({
+            email: cleanEmail,
+            purpose: client_1.OtpPurpose.PASSWORD_RESET,
+            userId: user.id,
+        });
+        if (!otpResult.success) {
+            return res.status(429).json({
+                success: false,
+                error: otpResult.error,
+                retryAfterSeconds: otpResult.retryAfterSeconds,
+            });
+        }
+        const emailContent = (0, emailService_1.buildPasswordResetOtpEmail)({
+            name: user.name,
+            otp: otpResult.otp,
+        });
+        (0, emailService_1.sendEmail)({
+            userId: user.id,
+            recipientEmail: user.email,
+            category: client_1.NotificationCategory.SYSTEM,
+            subject: emailContent.subject,
+            text: emailContent.text,
+            idempotencyKey: `PASSWORD_RESET_OTP_RESEND:${user.id}:${Date.now()}`,
+        }).catch(console.error);
+        return res.json({
+            success: true,
+            message: 'A new 6-digit verification code has been sent to your email.',
+        });
+    }
+    catch (err) {
+        console.error('resendPasswordResetOtp error:', err);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to resend reset code.',
+        });
+    }
+}
+/**
+ * Reset password using 6-digit OTP (or token for backward compatibility):
+ * Updates the user's password and invalidates the reset code.
  */
 async function resetPassword(req, res) {
     try {
@@ -503,26 +579,51 @@ async function resetPassword(req, res) {
             const errorMsg = parseResult.error.errors[0]?.message || 'Invalid reset data';
             return res.status(400).json({ success: false, error: errorMsg });
         }
-        const { token, newPassword } = parseResult.data;
-        // Verify token validity and expiration
-        const verification = await (0, otpService_1.verifyPasswordResetToken)(token);
-        if (!verification.success) {
-            return res.status(400).json({
-                success: false,
-                error: verification.error,
+        const { email, otp, token, newPassword } = parseResult.data;
+        let targetUserId = null;
+        if (otp && email) {
+            const cleanEmail = email.trim().toLowerCase();
+            const verification = await (0, otpService_1.verifyEmailOtp)({
+                email: cleanEmail,
+                purpose: client_1.OtpPurpose.PASSWORD_RESET,
+                otp,
             });
+            if (!verification.success) {
+                return res.status(400).json({
+                    success: false,
+                    error: verification.error,
+                    maxAttemptsExceeded: verification.maxAttemptsExceeded,
+                });
+            }
+            const user = await prisma_1.default.user.findUnique({ where: { email: cleanEmail } });
+            if (!user) {
+                return res.status(404).json({ success: false, error: 'User account not found.' });
+            }
+            targetUserId = user.id;
         }
-        // Hash new password
+        else if (token) {
+            const verification = await (0, otpService_1.verifyPasswordResetToken)(token);
+            if (!verification.success) {
+                return res.status(400).json({
+                    success: false,
+                    error: verification.error,
+                });
+            }
+            targetUserId = verification.userId;
+            await (0, otpService_1.markPasswordResetTokenUsed)(verification.tokenId);
+        }
+        else {
+            return res.status(400).json({ success: false, error: 'Email and 6-digit verification code are required.' });
+        }
+        // Hash new password securely
         const salt = await bcryptjs_1.default.genSalt(10);
         const passwordHash = await bcryptjs_1.default.hash(newPassword, salt);
         // Update user password
         const user = await prisma_1.default.user.update({
-            where: { id: verification.userId },
+            where: { id: targetUserId },
             data: { passwordHash },
             select: { id: true, name: true, email: true },
         });
-        // Mark token as used
-        await (0, otpService_1.markPasswordResetTokenUsed)(verification.tokenId);
         // Send confirmation plain-text email asynchronously
         const confirmEmail = (0, emailService_1.buildPasswordChangedConfirmationEmail)({
             name: user.name,

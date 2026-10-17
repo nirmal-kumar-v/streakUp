@@ -6,7 +6,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const app_1 = __importDefault(require("./app"));
 const path_1 = __importDefault(require("path"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const dns_1 = __importDefault(require("dns"));
 const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
+// Force Node.js DNS to prefer IPv4 (fixes Render/cloud outbound IPv6 connection timeouts)
+try {
+    dns_1.default.setDefaultResultOrder('ipv4first');
+}
+catch {
+    // Ignore on older Node runtimes
+}
 dotenv_1.default.config();
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../.env') });
 dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../.env') });

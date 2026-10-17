@@ -1,7 +1,15 @@
 import app from './app';
 import path from 'path';
 import dotenv from 'dotenv';
+import dns from 'dns';
 import { startReminderScheduler } from './services/reminderSchedulerService';
+
+// Force Node.js DNS to prefer IPv4 (fixes Render/cloud outbound IPv6 connection timeouts)
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore on older Node runtimes
+}
 
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });

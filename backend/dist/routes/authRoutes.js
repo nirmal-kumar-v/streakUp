@@ -12,7 +12,8 @@ router.post('/resend-signup-otp', authController_1.resendSignupOtp);
 router.post('/login', authController_1.login);
 router.get('/me', authMiddleware_1.requireAuth, authController_1.getMe);
 router.post('/logout', authController_1.logout);
-// Password recovery via reset link
+// Password recovery via OTP
 router.post('/forgot-password', authController_1.forgotPassword);
+router.post('/resend-reset-otp', authController_1.resendPasswordResetOtp);
 router.post('/reset-password', authController_1.resetPassword);
 exports.default = router;

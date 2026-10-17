@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getSmtpConfig = getSmtpConfig;
 exports.getAppBaseUrl = getAppBaseUrl;
 exports.isSmtpConfigured = isSmtpConfigured;
 exports.verifySmtpConnection = verifySmtpConnection;
@@ -17,19 +18,35 @@ exports.buildMyMilestoneEmail = buildMyMilestoneEmail;
 exports.buildSignupOtpEmail = buildSignupOtpEmail;
 exports.buildChangeEmailOtpEmail = buildChangeEmailOtpEmail;
 exports.buildVerifyNotificationEmailOtpEmail = buildVerifyNotificationEmailOtpEmail;
+exports.buildPasswordResetOtpEmail = buildPasswordResetOtpEmail;
 exports.buildPasswordResetLinkEmail = buildPasswordResetLinkEmail;
 exports.buildPasswordChangedConfirmationEmail = buildPasswordChangedConfirmationEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
+const dns_1 = __importDefault(require("dns"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const client_1 = require("@prisma/client");
-// SMTP credentials strictly loaded from environment variables
-const SMTP_HOST = process.env.SMTP_HOST || '';
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || '587', 10);
-const SMTP_SECURE = process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465';
-const SMTP_USER = process.env.SMTP_USER || '';
-const SMTP_PASS = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
-const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || 'no-reply@streakup.app';
-const MAIL_FROM_NAME = process.env.MAIL_FROM_NAME || 'StreakUp';
+// Force Node.js DNS to prioritize IPv4 over IPv6.
+// Cloud environments like Render lack outbound IPv6 routing, which causes smtp.gmail.com to hang on IPv6.
+try {
+    dns_1.default.setDefaultResultOrder('ipv4first');
+}
+catch {
+    // Ignore on older Node runtimes
+}
+/**
+ * Dynamically resolves SMTP credentials from environment variables.
+ * Avoids stale configuration if environment variables are loaded asynchronously.
+ */
+function getSmtpConfig() {
+    const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+    const user = process.env.SMTP_USER || '';
+    const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
+    const mailFrom = process.env.MAIL_FROM || user || 'no-reply@streakup.app';
+    const mailFromName = process.env.MAIL_FROM_NAME || 'StreakUp';
+    return { host, port, secure, user, pass, mailFrom, mailFromName };
+}
 /**
  * Returns the canonical hosted frontend URL for all email links.
  * Always resolves to the production URL in deployed environments.
@@ -48,7 +65,33 @@ function getAppBaseUrl() {
  * Checks if SMTP transport has been configured with host and authentication
  */
 function isSmtpConfigured() {
-    return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+    const config = getSmtpConfig();
+    return Boolean(config.host && config.user && config.pass);
+}
+/**
+ * Creates a Nodemailer transport with family: 4 (IPv4) and cloud-resilient timeouts.
+ */
+function createTransporter(portOverride, secureOverride) {
+    const config = getSmtpConfig();
+    const port = portOverride ?? config.port;
+    const secure = secureOverride ?? (port === 465 || config.secure);
+    return nodemailer_1.default.createTransport({
+        host: config.host,
+        port,
+        secure,
+        auth: {
+            user: config.user,
+            pass: config.pass,
+        },
+        tls: {
+            rejectUnauthorized: false,
+            minVersion: 'TLSv1.2',
+        },
+        family: 4, // CRITICAL FOR RENDER: Force IPv4 connection to prevent IPv6 silent timeout on cloud containers
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 20000,
+    });
 }
 /**
  * Diagnostic test to verify SMTP connectivity without exposing passwords or secrets
@@ -57,51 +100,52 @@ async function verifySmtpConnection() {
     if (!isSmtpConfigured()) {
         return {
             success: false,
-            message: 'SMTP is not configured. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in backend/.env',
+            message: 'SMTP is not configured. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in backend environment variables.',
         };
     }
+    const config = getSmtpConfig();
     try {
         const transporter = createTransporter();
         await transporter.verify();
         return {
             success: true,
             message: 'SMTP transport connection successfully verified.',
-            host: SMTP_HOST,
-            port: SMTP_PORT,
+            host: config.host,
+            port: config.port,
         };
     }
     catch (err) {
+        // If primary port failed and wasn't 465, test fallback port 465
+        if (config.port !== 465) {
+            try {
+                const fallbackTransporter = createTransporter(465, true);
+                await fallbackTransporter.verify();
+                return {
+                    success: true,
+                    message: 'SMTP connection verified via fallback port 465 (SSL).',
+                    host: config.host,
+                    port: 465,
+                };
+            }
+            catch (fallbackErr) {
+                // Fallback also failed
+            }
+        }
         return {
             success: false,
             message: `SMTP connection verification failed: ${err.message || 'Connection timeout or authentication error'}`,
-            host: SMTP_HOST,
-            port: SMTP_PORT,
+            host: config.host,
+            port: config.port,
         };
     }
 }
-function createTransporter() {
-    return nodemailer_1.default.createTransport({
-        host: SMTP_HOST,
-        port: SMTP_PORT,
-        secure: SMTP_SECURE,
-        auth: {
-            user: SMTP_USER,
-            pass: SMTP_PASS,
-        },
-        tls: {
-            rejectUnauthorized: false,
-        },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 15000,
-    });
-}
 /**
  * Sends a natural plain-text email with full idempotency, audit logging in EmailDelivery,
- * and graceful fallback (never crashes caller on SMTP errors).
+ * resilient cloud IPv4 routing, automatic port 465 SSL fallback, and graceful error handling.
  */
 async function sendEmail(options) {
     const { userId, recipientEmail, category, subject, text, idempotencyKey } = options;
+    const config = getSmtpConfig();
     // 1. Idempotency Check
     const existingDelivery = await prisma_1.default.emailDelivery.findUnique({
         where: { idempotencyKey },
@@ -155,7 +199,7 @@ async function sendEmail(options) {
     try {
         const transporter = createTransporter();
         await transporter.sendMail({
-            from: `"${MAIL_FROM_NAME}" <${MAIL_FROM}>`,
+            from: `"${config.mailFromName}" <${config.mailFrom}>`,
             to: recipientEmail,
             subject,
             text, // Natural, accessible plain-text body with zero color or styling conflict
@@ -172,21 +216,48 @@ async function sendEmail(options) {
         return { success: true, deliveryId: deliveryRecord?.id };
     }
     catch (err) {
-        const sanitizedError = err.message || 'SMTP delivery failed';
-        console.error(`[EmailService] Failed to send email to ${recipientEmail}:`, sanitizedError);
+        const initialError = err.message || 'SMTP delivery failed';
+        console.warn(`[EmailService] Attempt on port ${config.port} failed (${initialError}). Testing cloud-resilient fallback to port 465 (SSL + IPv4)...`);
+        // 4. Cloud Fallback: If port 587 timed out or failed on Render, retry immediately via port 465 SSL
+        if (config.port !== 465) {
+            try {
+                const fallbackTransporter = createTransporter(465, true);
+                await fallbackTransporter.sendMail({
+                    from: `"${config.mailFromName}" <${config.mailFrom}>`,
+                    to: recipientEmail,
+                    subject,
+                    text,
+                });
+                console.log(`[EmailService] Fallback to port 465 succeeded for ${recipientEmail}!`);
+                if (deliveryRecord) {
+                    await prisma_1.default.emailDelivery.update({
+                        where: { id: deliveryRecord.id },
+                        data: {
+                            status: client_1.EmailDeliveryStatus.SENT,
+                            error: null,
+                        },
+                    });
+                }
+                return { success: true, deliveryId: deliveryRecord?.id };
+            }
+            catch (fallbackErr) {
+                console.error(`[EmailService] Fallback to port 465 also failed:`, fallbackErr.message);
+            }
+        }
+        console.error(`[EmailService] Failed to send email to ${recipientEmail}:`, initialError);
         if (deliveryRecord) {
             await prisma_1.default.emailDelivery.update({
                 where: { id: deliveryRecord.id },
                 data: {
                     status: client_1.EmailDeliveryStatus.FAILED,
-                    error: sanitizedError.slice(0, 500),
+                    error: initialError.slice(0, 500),
                 },
             });
         }
         return {
             success: false,
             deliveryId: deliveryRecord?.id,
-            error: sanitizedError,
+            error: initialError,
         };
     }
 }
@@ -409,7 +480,31 @@ function buildVerifyNotificationEmailOtpEmail(data) {
     return { subject, text };
 }
 /**
- * Plain-text password reset link email (Section 8 per user requirement)
+ * Plain-text password reset OTP email
+ */
+function buildPasswordResetOtpEmail(data) {
+    const subject = `Your StreakUp password reset code: ${data.otp}`;
+    const text = [
+        `Hi ${data.name},`,
+        '',
+        `We received a request to reset the password for your StreakUp account.`,
+        '',
+        `Your 6-digit password reset code is:`,
+        '',
+        `    ${data.otp}`,
+        '',
+        `This verification code will expire in 5 minutes.`,
+        '',
+        `For security reasons, never share this code with anyone.`,
+        `If you did not request a password reset, you can safely ignore this email and your account remains secure.`,
+        '',
+        `—`,
+        `StreakUp Security`,
+    ].join('\n');
+    return { subject, text };
+}
+/**
+ * Plain-text password reset link email (backward compatibility)
  */
 function buildPasswordResetLinkEmail(data) {
     const url = data.resetUrl || `${getAppBaseUrl()}/reset-password?token=${data.resetToken || ''}`;
