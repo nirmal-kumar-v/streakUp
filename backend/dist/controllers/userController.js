@@ -567,15 +567,13 @@ async function requestChangeEmail(req, res) {
             newEmail: cleanNewEmail,
             otp: otpResult.otp,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: cleanNewEmail,
             category: client_1.NotificationCategory.SYSTEM,
             subject: emailData.subject,
             text: emailData.text,
             idempotencyKey: `CHANGE_EMAIL_OTP:${user.id}:${Date.now()}`,
-        }).catch((err) => {
-            console.error('[requestChangeEmail] Email dispatch error:', err);
         });
         return res.json({
             success: true,

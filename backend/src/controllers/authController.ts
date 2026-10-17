@@ -183,15 +183,13 @@ export async function register(req: Request, res: Response) {
       otp: otpResult.otp,
     });
 
-    sendEmail({
+    await sendEmail({
       userId: user.id,
       recipientEmail: cleanEmail,
       category: NotificationCategory.SYSTEM,
       subject: emailData.subject,
       text: emailData.text,
       idempotencyKey: `SIGNUP_OTP:${user.id}:${Date.now()}`,
-    }).catch((err) => {
-      console.error('[authController.register] Failed to dispatch verification email:', err);
     });
 
     return res.status(200).json({
@@ -358,15 +356,13 @@ export async function resendSignupOtp(req: Request, res: Response) {
       otp: otpResult.otp,
     });
 
-    sendEmail({
+    await sendEmail({
       userId: user.id,
       recipientEmail: cleanEmail,
       category: NotificationCategory.SYSTEM,
       subject: emailData.subject,
       text: emailData.text,
       idempotencyKey: `SIGNUP_OTP_RESEND:${user.id}:${Date.now()}`,
-    }).catch((err) => {
-      console.error('[authController.resendSignupOtp] Email error:', err);
     });
 
     return res.json({
@@ -428,26 +424,26 @@ export async function login(req: Request, res: Response) {
     // Require email verification before allowing login
     if (!user.isEmailVerified) {
       // Trigger new OTP if needed
-      await createEmailOtp({
+      const otpResult = await createEmailOtp({
         email: user.email,
         purpose: OtpPurpose.SIGNUP,
         userId: user.id,
-      }).then(async (otpResult) => {
-        if (otpResult.success) {
-          const emailData = buildSignupOtpEmail({
-            name: user.name,
-            otp: otpResult.otp,
-          });
-          sendEmail({
-            userId: user.id,
-            recipientEmail: user.email,
-            category: NotificationCategory.SYSTEM,
-            subject: emailData.subject,
-            text: emailData.text,
-            idempotencyKey: `SIGNUP_OTP_LOGIN_PROMPT:${user.id}:${Date.now()}`,
-          }).catch(console.error);
-        }
-      }).catch(console.error);
+      });
+
+      if (otpResult.success) {
+        const emailData = buildSignupOtpEmail({
+          name: user.name,
+          otp: otpResult.otp,
+        });
+        await sendEmail({
+          userId: user.id,
+          recipientEmail: user.email,
+          category: NotificationCategory.SYSTEM,
+          subject: emailData.subject,
+          text: emailData.text,
+          idempotencyKey: `SIGNUP_OTP_LOGIN_PROMPT:${user.id}:${Date.now()}`,
+        });
+      }
 
       return res.status(403).json({
         success: false,
@@ -535,15 +531,13 @@ export async function forgotPassword(req: Request, res: Response) {
           otp: otpResult.otp,
         });
 
-        sendEmail({
+        await sendEmail({
           userId: user.id,
           recipientEmail: user.email,
           category: NotificationCategory.SYSTEM,
           subject: emailContent.subject,
           text: emailContent.text,
           idempotencyKey: `PASSWORD_RESET_OTP:${user.id}:${Date.now()}`,
-        }).catch((err) => {
-          console.error('[forgotPassword] Error dispatching reset OTP email:', err);
         });
       } else {
         return res.status(429).json({
@@ -613,14 +607,14 @@ export async function resendPasswordResetOtp(req: Request, res: Response) {
       otp: otpResult.otp,
     });
 
-    sendEmail({
+    await sendEmail({
       userId: user.id,
       recipientEmail: user.email,
       category: NotificationCategory.SYSTEM,
       subject: emailContent.subject,
       text: emailContent.text,
       idempotencyKey: `PASSWORD_RESET_OTP_RESEND:${user.id}:${Date.now()}`,
-    }).catch(console.error);
+    });
 
     return res.json({
       success: true,
@@ -702,14 +696,14 @@ export async function resetPassword(req: Request, res: Response) {
       name: user.name,
     });
 
-    sendEmail({
+    await sendEmail({
       userId: user.id,
       recipientEmail: user.email,
       category: NotificationCategory.SYSTEM,
       subject: confirmEmail.subject,
       text: confirmEmail.text,
       idempotencyKey: `PASSWORD_CONFIRM:${user.id}:${Date.now()}`,
-    }).catch(console.error);
+    });
 
     return res.json({
       success: true,

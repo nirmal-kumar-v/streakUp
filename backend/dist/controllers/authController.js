@@ -163,15 +163,13 @@ async function register(req, res) {
             name: user.name,
             otp: otpResult.otp,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: cleanEmail,
             category: client_1.NotificationCategory.SYSTEM,
             subject: emailData.subject,
             text: emailData.text,
             idempotencyKey: `SIGNUP_OTP:${user.id}:${Date.now()}`,
-        }).catch((err) => {
-            console.error('[authController.register] Failed to dispatch verification email:', err);
         });
         return res.status(200).json({
             success: true,
@@ -316,15 +314,13 @@ async function resendSignupOtp(req, res) {
             name: user.name,
             otp: otpResult.otp,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: cleanEmail,
             category: client_1.NotificationCategory.SYSTEM,
             subject: emailData.subject,
             text: emailData.text,
             idempotencyKey: `SIGNUP_OTP_RESEND:${user.id}:${Date.now()}`,
-        }).catch((err) => {
-            console.error('[authController.resendSignupOtp] Email error:', err);
         });
         return res.json({
             success: true,
@@ -380,26 +376,25 @@ async function login(req, res) {
         // Require email verification before allowing login
         if (!user.isEmailVerified) {
             // Trigger new OTP if needed
-            await (0, otpService_1.createEmailOtp)({
+            const otpResult = await (0, otpService_1.createEmailOtp)({
                 email: user.email,
                 purpose: client_1.OtpPurpose.SIGNUP,
                 userId: user.id,
-            }).then(async (otpResult) => {
-                if (otpResult.success) {
-                    const emailData = (0, emailService_1.buildSignupOtpEmail)({
-                        name: user.name,
-                        otp: otpResult.otp,
-                    });
-                    (0, emailService_1.sendEmail)({
-                        userId: user.id,
-                        recipientEmail: user.email,
-                        category: client_1.NotificationCategory.SYSTEM,
-                        subject: emailData.subject,
-                        text: emailData.text,
-                        idempotencyKey: `SIGNUP_OTP_LOGIN_PROMPT:${user.id}:${Date.now()}`,
-                    }).catch(console.error);
-                }
-            }).catch(console.error);
+            });
+            if (otpResult.success) {
+                const emailData = (0, emailService_1.buildSignupOtpEmail)({
+                    name: user.name,
+                    otp: otpResult.otp,
+                });
+                await (0, emailService_1.sendEmail)({
+                    userId: user.id,
+                    recipientEmail: user.email,
+                    category: client_1.NotificationCategory.SYSTEM,
+                    subject: emailData.subject,
+                    text: emailData.text,
+                    idempotencyKey: `SIGNUP_OTP_LOGIN_PROMPT:${user.id}:${Date.now()}`,
+                });
+            }
             return res.status(403).json({
                 success: false,
                 error: 'Please verify your email address before logging in. A verification code has been sent to your email.',
@@ -475,15 +470,13 @@ async function forgotPassword(req, res) {
                     name: user.name,
                     otp: otpResult.otp,
                 });
-                (0, emailService_1.sendEmail)({
+                await (0, emailService_1.sendEmail)({
                     userId: user.id,
                     recipientEmail: user.email,
                     category: client_1.NotificationCategory.SYSTEM,
                     subject: emailContent.subject,
                     text: emailContent.text,
                     idempotencyKey: `PASSWORD_RESET_OTP:${user.id}:${Date.now()}`,
-                }).catch((err) => {
-                    console.error('[forgotPassword] Error dispatching reset OTP email:', err);
                 });
             }
             else {
@@ -547,14 +540,14 @@ async function resendPasswordResetOtp(req, res) {
             name: user.name,
             otp: otpResult.otp,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: user.email,
             category: client_1.NotificationCategory.SYSTEM,
             subject: emailContent.subject,
             text: emailContent.text,
             idempotencyKey: `PASSWORD_RESET_OTP_RESEND:${user.id}:${Date.now()}`,
-        }).catch(console.error);
+        });
         return res.json({
             success: true,
             message: 'A new 6-digit verification code has been sent to your email.',
@@ -628,14 +621,14 @@ async function resetPassword(req, res) {
         const confirmEmail = (0, emailService_1.buildPasswordChangedConfirmationEmail)({
             name: user.name,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: user.email,
             category: client_1.NotificationCategory.SYSTEM,
             subject: confirmEmail.subject,
             text: confirmEmail.text,
             idempotencyKey: `PASSWORD_CONFIRM:${user.id}:${Date.now()}`,
-        }).catch(console.error);
+        });
         return res.json({
             success: true,
             message: 'Your password has been reset successfully. You can now log in with your new password.',

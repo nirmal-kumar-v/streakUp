@@ -539,15 +539,13 @@ async function requestNotificationEmailOtp(req, res) {
             notificationEmail: cleanEmail,
             otp: otpResult.otp,
         });
-        (0, emailService_1.sendEmail)({
+        await (0, emailService_1.sendEmail)({
             userId: user.id,
             recipientEmail: cleanEmail,
             category: client_1.NotificationCategory.SYSTEM,
             subject: emailData.subject,
             text: emailData.text,
             idempotencyKey: `NOTIF_EMAIL_OTP:${user.id}:${Date.now()}`,
-        }).catch((err) => {
-            console.error('[requestNotificationEmailOtp] Email error:', err);
         });
         return res.json({
             success: true,

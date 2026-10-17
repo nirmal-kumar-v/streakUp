@@ -156,16 +156,13 @@ export async function createNotification(params: CreateNotificationParams) {
 
     const emailIdempotencyKey = eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`;
 
-    // Dispatch plain-text email asynchronously without blocking the response
-    sendEmail({
+    await sendEmail({
       userId,
       recipientEmail: destinationEmail,
       category,
       subject: emailSubject,
       text: emailText,
       idempotencyKey: emailIdempotencyKey,
-    }).catch((err) => {
-      console.error('[NotificationService] Email dispatch error:', err);
     });
   }
 

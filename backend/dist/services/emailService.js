@@ -56,10 +56,10 @@ function getAppBaseUrl() {
     if (configured && !configured.includes('localhost')) {
         return configured.replace(/\/+$/, '');
     }
-    if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-        return 'https://streakup-karo.onrender.com';
+    if (process.env.VERCEL_URL) {
+        return `https://${process.env.VERCEL_URL}`;
     }
-    return (configured || 'https://streakup-karo.onrender.com').replace(/\/+$/, '');
+    return (configured || 'https://streak-up-karo.vercel.app').replace(/\/+$/, '');
 }
 /**
  * Checks if SMTP transport has been configured with host and authentication
