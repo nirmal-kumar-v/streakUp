@@ -5,6 +5,7 @@ import { ReminderScope, NotificationCategory } from '@prisma/client';
 import { getTodayInTimezone } from './timezoneService';
 import { createNotification } from './notificationService';
 import { buildOverallReminderEmail, buildTaskReminderEmail } from './emailService';
+import { cleanupOldAuditLogs } from '../controllers/adminController';
 
 const MAX_REMINDERS_PER_SCOPE = 3;
 
@@ -169,6 +170,11 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
 
       if (notif) sent++;
     }
+  // Automatically purge admin audit logs older than 15 days
+  try {
+    await cleanupOldAuditLogs();
+  } catch (err) {
+    // Non-blocking cleanup
   }
 
   return { processed, sent, skipped };

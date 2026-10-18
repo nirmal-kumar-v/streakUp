@@ -25,12 +25,17 @@ import {
   MessageSquare,
   Award,
   Tag,
+  Eye,
+  EyeOff,
+  Mail,
 } from 'lucide-react';
 import {
   adminLogin,
   fetchAdminProfile,
   changeAdminCredentials,
   fetchAdminAuditLogs,
+  deleteAdminAuditLog,
+  clearAdminAuditLogs,
   searchAdminUsers,
   fetchAdminUserDetails,
   overrideUsernameCooldown,
@@ -38,6 +43,7 @@ import {
   toggleUserEmailVerification,
   updateUserTimezone,
   correctUserStreak,
+  grantDayStreak,
   adjustUserFreezes,
   adjustUserPoints,
   overrideUserLimit15,
@@ -94,6 +100,26 @@ export const AdminControlPage: React.FC = () => {
   const [pinInput, setPinInput] = useState('');
   const [pendingPinAction, setPendingPinAction] = useState<((pin: string) => Promise<void>) | null>(null);
   const [isSubmittingPinAction, setIsSubmittingPinAction] = useState(false);
+  const [showPinPassword, setShowPinPassword] = useState(false);
+
+  // ------------------------------------------
+  // User Notification Dispatch Options
+  // ------------------------------------------
+  const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [notifyIncludeReason, setNotifyIncludeReason] = useState(true);
+  const [notifyIncludeChanges, setNotifyIncludeChanges] = useState(true);
+
+  // ------------------------------------------
+  // Heatmap Day Activity & Streak Control Modal
+  // ------------------------------------------
+  const [dayModalOpen, setDayModalOpen] = useState(false);
+  const [dayModalDate, setDayModalDate] = useState('');
+  const [dayModalMode, setDayModalMode] = useState<'STREAK' | 'FREEZE'>('STREAK');
+  const [dayModalTaskId, setDayModalTaskId] = useState('');
+  const [dayModalNote, setDayModalNote] = useState('');
+  const [dayModalReason, setDayModalReason] = useState('');
+  const [isSubmittingDayAction, setIsSubmittingDayAction] = useState(false);
 
   // ------------------------------------------
   // Form States for Controls
@@ -124,7 +150,6 @@ export const AdminControlPage: React.FC = () => {
   const [newFreezeBalance, setNewFreezeBalance] = useState<number>(0);
   const [newFreezeRechargeDays, setNewFreezeRechargeDays] = useState<number>(0);
   const [historicalFreezeDate, setHistoricalFreezeDate] = useState('');
-  const [historicalFreezeScope, setHistoricalFreezeScope] = useState<'OVERALL' | 'TASK'>('OVERALL');
   const [historicalFreezeTaskId, setHistoricalFreezeTaskId] = useState('');
   const [freezeReason, setFreezeReason] = useState('');
   const [isSubmittingFreeze, setIsSubmittingFreeze] = useState(false);
@@ -373,7 +398,7 @@ export const AdminControlPage: React.FC = () => {
   };
 
   // ------------------------------------------
-  // Action Handlers
+  // Action Handlers (Protected with Sensitive Password)
   // ------------------------------------------
 
   // A. Username Cooldown & Override
@@ -388,24 +413,33 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingUsername(true);
-    try {
-      const res = await overrideUsernameCooldown(selectedUserId, {
-        resetCooldownOnly: resetOnly,
-        newUsername: !resetOnly ? overrideNewUsername.trim() : undefined,
-        reason: usernameReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setUsernameReason('');
-        setOverrideNewUsername('');
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Username Cooldown Override',
+      'Enter Super Admin Sensitive Password to execute username cooldown/override.',
+      async (pin) => {
+        setIsSubmittingUsername(true);
+        try {
+          const res = await overrideUsernameCooldown(selectedUserId, {
+            resetCooldownOnly: resetOnly,
+            newUsername: !resetOnly ? overrideNewUsername.trim() : undefined,
+            reason: usernameReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setUsernameReason('');
+            setOverrideNewUsername('');
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingUsername(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to override username restriction.'));
-    } finally {
-      setIsSubmittingUsername(false);
-    }
+    );
   };
 
   // B. Email Cooldown & Override
@@ -420,24 +454,33 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingEmail(true);
-    try {
-      const res = await overrideEmailCooldown(selectedUserId, {
-        resetCooldownOnly: resetOnly,
-        newEmail: !resetOnly ? overrideNewEmail.trim() : undefined,
-        reason: emailReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setEmailReason('');
-        setOverrideNewEmail('');
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Email Cooldown Override',
+      'Enter Super Admin Sensitive Password to execute email cooldown/override.',
+      async (pin) => {
+        setIsSubmittingEmail(true);
+        try {
+          const res = await overrideEmailCooldown(selectedUserId, {
+            resetCooldownOnly: resetOnly,
+            newEmail: !resetOnly ? overrideNewEmail.trim() : undefined,
+            reason: emailReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setEmailReason('');
+            setOverrideNewEmail('');
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingEmail(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to override email restriction.'));
-    } finally {
-      setIsSubmittingEmail(false);
-    }
+    );
   };
 
   // C. Toggle Email Verification
@@ -496,28 +539,37 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingStreak(true);
-    try {
-      const res = await correctUserStreak(selectedUserId, {
-        type: streakTargetType,
-        taskId: streakTargetType === 'TASK' ? selectedTaskId : undefined,
-        currentStreak: Number(newCurrentStreak),
-        longestStreak: Number(newLongestStreak),
-        reason: streakReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setStreakReason('');
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Streak Correction',
+      'Enter Super Admin Sensitive Password to modify streak records.',
+      async (pin) => {
+        setIsSubmittingStreak(true);
+        try {
+          const res = await correctUserStreak(selectedUserId, {
+            type: streakTargetType,
+            taskId: streakTargetType === 'TASK' ? selectedTaskId : undefined,
+            currentStreak: Number(newCurrentStreak),
+            longestStreak: Number(newLongestStreak),
+            reason: streakReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setStreakReason('');
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingStreak(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to correct streak.'));
-    } finally {
-      setIsSubmittingStreak(false);
-    }
+    );
   };
 
-  // F. Freeze Adjustment & Historical Freeze Injection
+  // F. Freeze Adjustment & Shield Count (0 to 7)
   const handleFreezeAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
@@ -526,26 +578,35 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingFreeze(true);
-    try {
-      const res = await adjustUserFreezes(selectedUserId, {
-        overallFreezeBalance: Number(newFreezeBalance),
-        overallFreezeRechargeDays: Number(newFreezeRechargeDays),
-        historicalFreezeDate: historicalFreezeDate.trim() || undefined,
-        taskId: historicalFreezeScope === 'TASK' && historicalFreezeTaskId ? historicalFreezeTaskId : undefined,
-        reason: freezeReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setFreezeReason('');
-        setHistoricalFreezeDate('');
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Freeze Adjustment',
+      `Enter Super Admin Sensitive Password to update shield count to ${newFreezeBalance}/7 or freeze date.`,
+      async (pin) => {
+        setIsSubmittingFreeze(true);
+        try {
+          const res = await adjustUserFreezes(selectedUserId, {
+            overallFreezeBalance: Number(newFreezeBalance),
+            overallFreezeRechargeDays: Number(newFreezeRechargeDays),
+            historicalFreezeDate: historicalFreezeDate.trim() || undefined,
+            taskId: historicalFreezeTaskId.trim() || undefined,
+            reason: freezeReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setFreezeReason('');
+            setHistoricalFreezeDate('');
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingFreeze(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to adjust freeze values.'));
-    } finally {
-      setIsSubmittingFreeze(false);
-    }
+    );
   };
 
   // G. Points Adjustment
@@ -561,23 +622,32 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingPoints(true);
-    try {
-      const res = await adjustUserPoints(selectedUserId, {
-        pointsDelta: Number(pointsDelta),
-        reason: pointsReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setPointsReason('');
-        setPointsDelta(0);
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Points Adjustment',
+      `Enter Super Admin Sensitive Password to adjust points by ${pointsDelta > 0 ? '+' : ''}${pointsDelta}.`,
+      async (pin) => {
+        setIsSubmittingPoints(true);
+        try {
+          const res = await adjustUserPoints(selectedUserId, {
+            pointsDelta: Number(pointsDelta),
+            reason: pointsReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setPointsReason('');
+            setPointsDelta(0);
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingPoints(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to adjust points.'));
-    } finally {
-      setIsSubmittingPoints(false);
-    }
+    );
   };
 
   // H. Limit of 15 (Starred Notifications) Override
@@ -589,22 +659,119 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    setIsSubmittingLimit(true);
-    try {
-      const res = await overrideUserLimit15(selectedUserId, {
-        maxStarredNotifications: Number(newStarredLimit),
-        reason: limitReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setLimitReason('');
-        refreshCurrentUser();
+    openPinPrompt(
+      'Authorize Notification Limit Override',
+      `Enter Super Admin Sensitive Password to set starred notifications limit to ${newStarredLimit}.`,
+      async (pin) => {
+        setIsSubmittingLimit(true);
+        try {
+          const res = await overrideUserLimit15(selectedUserId, {
+            maxStarredNotifications: Number(newStarredLimit),
+            reason: limitReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setLimitReason('');
+            refreshCurrentUser();
+          }
+        } finally {
+          setIsSubmittingLimit(false);
+        }
       }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to override starred limit.'));
-    } finally {
-      setIsSubmittingLimit(false);
+    );
+  };
+
+  // Heatmap Day Action Submission (Streak or Freeze on any particular day)
+  const handleDayActionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId || !dayModalDate) return;
+    if (!dayModalReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
     }
+
+    openPinPrompt(
+      dayModalMode === 'STREAK' ? 'Authorize Day Streak Grant' : 'Authorize Day Freeze Protection',
+      `Enter Super Admin Sensitive Password to apply ${dayModalMode === 'STREAK' ? 'streak completion' : 'freeze'} on ${dayModalDate}.`,
+      async (pin) => {
+        setIsSubmittingDayAction(true);
+        try {
+          if (dayModalMode === 'STREAK') {
+            const res = await grantDayStreak(selectedUserId, {
+              date: dayModalDate,
+              taskId: dayModalTaskId || undefined,
+              studyNote: dayModalNote.trim() || undefined,
+              reason: dayModalReason.trim(),
+              sensitivePin: pin,
+              sendInApp: notifyInApp,
+              sendEmail: notifyEmail,
+              includeReason: notifyIncludeReason,
+              includeChanges: notifyIncludeChanges,
+            });
+            if (res.success) {
+              toast.info(res.message);
+              setDayModalOpen(false);
+              refreshCurrentUser();
+            }
+          } else {
+            const res = await adjustUserFreezes(selectedUserId, {
+              historicalFreezeDate: dayModalDate,
+              reason: dayModalReason.trim(),
+              sensitivePin: pin,
+              sendInApp: notifyInApp,
+              sendEmail: notifyEmail,
+              includeReason: notifyIncludeReason,
+              includeChanges: notifyIncludeChanges,
+            });
+            if (res.success) {
+              toast.info(res.message);
+              setDayModalOpen(false);
+              refreshCurrentUser();
+            }
+          }
+        } finally {
+          setIsSubmittingDayAction(false);
+        }
+      }
+    );
+  };
+
+  // Delete Individual Audit Log
+  const handleDeleteAuditLog = (logId: string) => {
+    openPinPrompt(
+      'Authorize Audit Log Deletion',
+      'Enter Super Admin Sensitive Password to permanently purge this audit entry.',
+      async (pin) => {
+        const res = await deleteAdminAuditLog(logId, pin);
+        if (res.success) {
+          toast.info(res.message);
+          loadAuditLogs(auditPage);
+        }
+      }
+    );
+  };
+
+  // Clear All Audit Logs
+  const handleClearAllAuditLogs = () => {
+    openPinPrompt(
+      'Authorize Clear All Audit Logs',
+      'Enter Super Admin Sensitive Password to permanently purge audit log records.',
+      async (pin) => {
+        const res = await clearAdminAuditLogs({
+          targetUserId: auditFilterUser.trim() || undefined,
+          sensitivePin: pin,
+        });
+        if (res.success) {
+          toast.info(res.message);
+          loadAuditLogs(1);
+        }
+      }
+    );
   };
 
   // I. Reset Nudge Cooldown
@@ -838,12 +1005,75 @@ export const AdminControlPage: React.FC = () => {
     return days;
   }, [selectedUserDetails]);
 
-  // Click on heatmap cell opens Historical Freeze modal pre-filled
+  // Click on heatmap cell opens Day Activity & Streak Control modal
   const handleHeatmapCellClick = (dateStr: string) => {
-    setHistoricalFreezeDate(dateStr);
-    setUserTab('freezes');
-    toast.info(`Selected date ${dateStr} for historical freeze override.`);
+    setDayModalDate(dateStr);
+    setDayModalMode('STREAK');
+    setDayModalReason(`Administrative activity granted for ${dateStr}`);
+    setDayModalNote('');
+    if (selectedUserDetails?.tasks && selectedUserDetails.tasks.length > 0) {
+      setDayModalTaskId(selectedUserDetails.tasks[0].id);
+    }
+    setDayModalOpen(true);
   };
+
+  // ------------------------------------------
+  // Reusable Notification & Changes Option Dispatch Component
+  // ------------------------------------------
+  const renderNotificationOptions = () => (
+    <div className="p-3.5 bg-dark-surface/90 rounded-xl border border-dark-border/80 space-y-2.5 my-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+          <Bell className="w-3.5 h-3.5 text-flame-400" />
+          <span>User Notification Dispatch</span>
+        </span>
+        <span className="text-[10px] text-zinc-500">Send in-app & email notices</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <label className="flex items-center gap-2 cursor-pointer text-zinc-300 select-none">
+          <input
+            type="checkbox"
+            checked={notifyInApp}
+            onChange={(e) => setNotifyInApp(e.target.checked)}
+            className="rounded border-dark-border text-flame-500 focus:ring-flame-500/20"
+          />
+          <span className="text-[11px]">In-App Notice</span>
+        </label>
+
+        <label className="flex items-center gap-2 cursor-pointer text-zinc-300 select-none">
+          <input
+            type="checkbox"
+            checked={notifyEmail}
+            onChange={(e) => setNotifyEmail(e.target.checked)}
+            className="rounded border-dark-border text-flame-500 focus:ring-flame-500/20"
+          />
+          <Mail className="w-3.5 h-3.5 text-zinc-400" />
+          <span className="text-[11px]">Email Notice</span>
+        </label>
+
+        <label className="flex items-center gap-2 cursor-pointer text-zinc-400 select-none">
+          <input
+            type="checkbox"
+            checked={notifyIncludeReason}
+            onChange={(e) => setNotifyIncludeReason(e.target.checked)}
+            className="rounded border-dark-border text-flame-500 focus:ring-flame-500/20"
+          />
+          <span className="text-[10px]">Include Reason</span>
+        </label>
+
+        <label className="flex items-center gap-2 cursor-pointer text-zinc-400 select-none">
+          <input
+            type="checkbox"
+            checked={notifyIncludeChanges}
+            onChange={(e) => setNotifyIncludeChanges(e.target.checked)}
+            className="rounded border-dark-border text-flame-500 focus:ring-flame-500/20"
+          />
+          <span className="text-[10px]">Include Changes Diff</span>
+        </label>
+      </div>
+    </div>
+  );
 
   // ==========================================
   // RENDER: LOGIN FORM (If not authenticated)
@@ -870,7 +1100,7 @@ export const AdminControlPage: React.FC = () => {
                 type="text"
                 value={adminUsername}
                 onChange={(e) => setAdminUsername(e.target.value)}
-                placeholder="e.g. admin"
+                placeholder="admin"
                 className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
                 required
               />
@@ -881,7 +1111,7 @@ export const AdminControlPage: React.FC = () => {
                 type="password"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="••••••••••••"
+                placeholder="Admin@123"
                 className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
                 required
               />
@@ -906,8 +1136,9 @@ export const AdminControlPage: React.FC = () => {
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-dark-border text-[11px] text-zinc-500 text-center leading-relaxed">
-            All administrative actions are authenticated with root privileges and cryptographically signed into the immutable audit ledger.
+          <div className="mt-6 pt-4 border-t border-dark-border text-[11px] text-zinc-400 text-center leading-relaxed space-y-1">
+            <p className="font-semibold text-zinc-300">Credentials: admin / Admin@123</p>
+            <p className="text-zinc-500 text-[10px]">Sensitive Password: Nirmal@31/08/2006</p>
           </div>
         </div>
       </div>
@@ -1533,6 +1764,7 @@ export const AdminControlPage: React.FC = () => {
                           Allows the user to pick their own new username directly from their settings page without
                           waiting 14 days.
                         </p>
+                        {renderNotificationOptions()}
                         <div className="flex gap-2">
                           <input
                             type="text"
@@ -1624,6 +1856,7 @@ export const AdminControlPage: React.FC = () => {
                           Allows the user to initiate their own email change with OTP verification without waiting
                           14 days.
                         </p>
+                        {renderNotificationOptions()}
                         <div className="flex gap-2">
                           <input
                             type="text"
@@ -1693,7 +1926,7 @@ export const AdminControlPage: React.FC = () => {
                             <span>Interactive 365-Day Activity & Freeze Heatmap</span>
                           </h3>
                           <p className="text-[11px] text-zinc-400">
-                            Click any past date to apply an authoritative historical freeze directly to that day.
+                            Click any day to Grant a Streak (with study note/points) or apply a Freeze directly to that day.
                           </p>
                         </div>
                         {/* Legend */}
@@ -1726,7 +1959,7 @@ export const AdminControlPage: React.FC = () => {
                                   : d.isCompleted
                                   ? 'Habit Completed'
                                   : 'No Completion'
-                              } — Click to freeze`}
+                              } — Click to Grant Streak or Freeze`}
                               className={`w-3.5 h-3.5 rounded-sm cursor-pointer transition-all hover:scale-125 ${
                                 d.isFrozen
                                   ? 'bg-sky-400 hover:ring-2 hover:ring-sky-300'
@@ -1881,6 +2114,8 @@ export const AdminControlPage: React.FC = () => {
                           />
                         </div>
 
+                        {renderNotificationOptions()}
+
                         <button
                           type="submit"
                           disabled={isSubmittingStreak}
@@ -1898,116 +2133,128 @@ export const AdminControlPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB D: FREEZE MANAGEMENT */}
+                {/* SUB-TAB D: SIMPLIFIED FREEZE MANAGEMENT */}
                 {userTab === 'freezes' && (
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Ordinary Freeze Balance Adjustment */}
+                      {/* 1. Change Freeze Shield Count (0 to 7) */}
                       <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                          <Snowflake className="w-4 h-4 text-sky-400" />
-                          <span>Ordinary Freeze Shield Capacity</span>
-                        </h3>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                            <Snowflake className="w-4 h-4 text-sky-400" />
+                            <span>Current Freeze Shields (Out of 7)</span>
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 font-extrabold text-xs">
+                            {newFreezeBalance} / 7 Shields
+                          </span>
+                        </div>
                         <p className="text-xs text-zinc-400">
-                          Configure the user's available shield balance and recharge progress counter.
+                          Directly set the user's active freeze shield count (0 to 7).
                         </p>
 
-                        <div className="space-y-3">
-                          <div>
-                            <div className="flex justify-between text-xs font-semibold text-zinc-300 mb-1">
-                              <span>Shield Balance (Max 7)</span>
-                              <span className="text-sky-400 font-bold">{newFreezeBalance}/7</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="7"
-                              value={newFreezeBalance}
-                              onChange={(e) => setNewFreezeBalance(parseInt(e.target.value, 10))}
-                              className="w-full accent-sky-400"
-                            />
-                          </div>
+                        {/* Visual 7-Shield Row */}
+                        <div className="flex items-center justify-center gap-2 p-3 bg-dark-surface rounded-xl border border-dark-border">
+                          {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => setNewFreezeBalance(num === newFreezeBalance ? num - 1 : num)}
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold transition-all ${
+                                num <= newFreezeBalance
+                                  ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/30 scale-105'
+                                  : 'bg-dark-card border border-dark-border text-zinc-600 hover:text-zinc-400'
+                              }`}
+                              title={`Set to ${num} shields`}
+                            >
+                              <Snowflake className="w-4 h-4" />
+                            </button>
+                          ))}
+                        </div>
 
-                          <div>
-                            <div className="flex justify-between text-xs font-semibold text-zinc-300 mb-1">
-                              <span>Recharge Progress Counter (0 to 7 Days)</span>
-                              <span className="text-sky-400 font-bold">{newFreezeRechargeDays}/7 days</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="0"
-                              max="7"
-                              value={newFreezeRechargeDays}
-                              onChange={(e) => setNewFreezeRechargeDays(parseInt(e.target.value, 10))}
-                              className="w-full accent-sky-400"
-                            />
-                            <p className="text-[10px] text-zinc-500 mt-1">
-                              Setting recharge counter to 7 fast-forwards the 7-day requirement and awards a free
-                              shield.
-                            </p>
-                          </div>
+                        {/* Stepper & Slider */}
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setNewFreezeBalance(Math.max(0, newFreezeBalance - 1))}
+                            className="w-10 h-10 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold flex items-center justify-center"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="range"
+                            min="0"
+                            max="7"
+                            value={newFreezeBalance}
+                            onChange={(e) => setNewFreezeBalance(parseInt(e.target.value, 10))}
+                            className="flex-1 accent-sky-400 cursor-pointer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setNewFreezeBalance(Math.min(7, newFreezeBalance + 1))}
+                            className="w-10 h-10 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold flex items-center justify-center"
+                          >
+                            +
+                          </button>
                         </div>
                       </div>
 
-                      {/* Historical Date Freeze Injection */}
+                      {/* 2. Freeze Any Day */}
                       <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-flame-400" />
-                          <span>Historical Date Freeze Override</span>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-sky-400" />
+                          <span>Freeze Any Day</span>
                         </h3>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          Inserts an authoritative row into <code className="text-flame-400">FreezeLog</code> for
-                          the specified calendar date, bridging gaps permanently against recalculation resets.
+                        <p className="text-xs text-zinc-400">
+                          Pick any calendar day to protect the user's streak against gaps.
                         </p>
 
                         <div className="space-y-3">
                           <div>
                             <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                              Protected Calendar Date (YYYY-MM-DD)
+                              Select Date to Freeze
                             </label>
                             <input
                               type="date"
                               value={historicalFreezeDate}
                               onChange={(e) => setHistoricalFreezeDate(e.target.value)}
-                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
                             />
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-xs font-semibold text-zinc-300 mb-1">Scope</label>
-                              <select
-                                value={historicalFreezeScope}
-                                onChange={(e) => setHistoricalFreezeScope(e.target.value as any)}
-                                className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setHistoricalFreezeDate(new Date().toISOString().slice(0, 10))}
+                              className="px-3 py-1 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-lg text-[11px] text-zinc-300"
+                            >
+                              Today
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const y = new Date();
+                                y.setDate(y.getDate() - 1);
+                                setHistoricalFreezeDate(y.toISOString().slice(0, 10));
+                              }}
+                              className="px-3 py-1 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-lg text-[11px] text-zinc-300"
+                            >
+                              Yesterday
+                            </button>
+                            {historicalFreezeDate && (
+                              <button
+                                type="button"
+                                onClick={() => setHistoricalFreezeDate('')}
+                                className="px-3 py-1 text-[11px] text-zinc-500 hover:text-zinc-300"
                               >
-                                <option value="OVERALL">Overall Streak</option>
-                                <option value="TASK">Individual Task</option>
-                              </select>
-                            </div>
-
-                            {historicalFreezeScope === 'TASK' && (
-                              <div>
-                                <label className="block text-xs font-semibold text-zinc-300 mb-1">Task</label>
-                                <select
-                                  value={historicalFreezeTaskId}
-                                  onChange={(e) => setHistoricalFreezeTaskId(e.target.value)}
-                                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                                >
-                                  {selectedUserDetails?.tasks?.map((t: any) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.title}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                                Clear Date
+                              </button>
                             )}
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Common Reason & Submit for Freeze Adjustments */}
+                    {/* Common Reason, Notifications, and Save */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
                       <div>
                         <label className="block text-xs font-semibold text-zinc-300 mb-1">
@@ -2017,11 +2264,14 @@ export const AdminControlPage: React.FC = () => {
                           type="text"
                           value={freezeReason}
                           onChange={(e) => setFreezeReason(e.target.value)}
-                          placeholder="e.g. Granted bonus freeze shield for system downtime compensation"
-                          className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                          placeholder="e.g. Set freeze shields to 7/7 and protected 2026-10-15"
+                          className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
                           required
                         />
                       </div>
+
+                      {renderNotificationOptions()}
+
                       <button
                         type="button"
                         onClick={handleFreezeAdjustment}
@@ -2033,13 +2283,13 @@ export const AdminControlPage: React.FC = () => {
                         ) : (
                           <CheckCircle2 className="w-4 h-4" />
                         )}
-                        <span>Save Freeze Settings & Historical Overrides</span>
+                        <span>Save Freeze Settings ({newFreezeBalance}/7 Shields{historicalFreezeDate ? ` + Date ${historicalFreezeDate}` : ''})</span>
                       </button>
                     </div>
 
-                    {/* Recent Freeze History Table */}
+                    {/* Authoritative FreezeLog Table */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
-                      <h4 className="text-xs font-bold text-zinc-200">Authoritative FreezeLog Records</h4>
+                      <h4 className="text-xs font-bold text-zinc-200">Active Protected Dates ({selectedUserDetails?.freezeLogs?.length || 0})</h4>
                       {selectedUserDetails?.freezeLogs?.length === 0 ? (
                         <p className="text-xs text-zinc-500">No freeze log records found for this user.</p>
                       ) : (
@@ -2047,19 +2297,19 @@ export const AdminControlPage: React.FC = () => {
                           <table className="w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-dark-border text-zinc-400">
-                                <th className="py-2">Protected Date</th>
-                                <th className="py-2">Scope Key</th>
-                                <th className="py-2">Scope</th>
-                                <th className="py-2">Logged At</th>
+                                <th className="py-2 px-3">Protected Date</th>
+                                <th className="py-2 px-3">Scope Key</th>
+                                <th className="py-2 px-3">Scope</th>
+                                <th className="py-2 px-3">Logged At</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-dark-border">
                               {selectedUserDetails?.freezeLogs?.map((f: any) => (
                                 <tr key={f.id} className="text-zinc-300">
-                                  <td className="py-2 font-mono text-sky-400 font-bold">{f.protectedDate}</td>
-                                  <td className="py-2 font-mono">{f.scopeKey}</td>
-                                  <td className="py-2">{f.scope}</td>
-                                  <td className="py-2 text-zinc-500">
+                                  <td className="py-2 px-3 font-mono text-sky-400 font-bold">{f.protectedDate}</td>
+                                  <td className="py-2 px-3 font-mono">{f.scopeKey}</td>
+                                  <td className="py-2 px-3">{f.scope}</td>
+                                  <td className="py-2 px-3 text-zinc-500">
                                     {new Date(f.usedAt).toLocaleString()}
                                   </td>
                                 </tr>
@@ -2129,6 +2379,8 @@ export const AdminControlPage: React.FC = () => {
                             required
                           />
                         </div>
+
+                        {renderNotificationOptions()}
 
                         <button
                           type="submit"
@@ -2251,6 +2503,8 @@ export const AdminControlPage: React.FC = () => {
                             required
                           />
                         </div>
+
+                        {renderNotificationOptions()}
 
                         <button
                           type="submit"
@@ -2680,11 +2934,11 @@ export const AdminControlPage: React.FC = () => {
                   Immutable Administrative Audit Ledger
                 </h2>
                 <p className="text-xs text-zinc-400">
-                  Total Records: {auditTotal} • Every privileged action is cryptographically signed and stored.
+                  Total Records: {auditTotal} • Every privileged action is signed, verified, and logged.
                 </p>
               </div>
 
-              {/* Filters */}
+              {/* Filters & Actions */}
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
@@ -2704,9 +2958,12 @@ export const AdminControlPage: React.FC = () => {
                   <option value="EMAIL_COOLDOWN_OVERRIDE">Email Override</option>
                   <option value="OVERALL_STREAK_CORRECTION">Overall Streak</option>
                   <option value="TASK_STREAK_CORRECTION">Task Streak</option>
+                  <option value="GRANT_DAY_STREAK">Grant Day Streak</option>
                   <option value="FREEZE_ADJUSTMENT">Freeze Adjustment</option>
                   <option value="POINTS_ADJUSTMENT">Points Adjustment</option>
                   <option value="OVERRIDE_LIMIT_15">Starred Limit Override</option>
+                  <option value="DELETE_ADMIN_AUDIT_LOG">Delete Audit Log</option>
+                  <option value="CLEAR_ADMIN_AUDIT_LOGS">Clear All Audit Logs</option>
                   <option value="TRANSFER_GROUP_OWNERSHIP">Transfer Group Ownership</option>
                   <option value="MODERATE_STUDY_NOTE">Study Note Moderation</option>
                   <option value="DELETE_USER_ACCOUNT">Delete User Account</option>
@@ -2722,6 +2979,24 @@ export const AdminControlPage: React.FC = () => {
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />
                 </button>
               </div>
+            </div>
+
+            {/* 15-Day Auto-Purge Banner & Clear All Button */}
+            <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-200">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>15-Day Auto-Purge Policy Active:</strong> All audit records older than 15 days are automatically purged daily to protect database performance and privacy.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearAllAuditLogs}
+                className="px-3.5 py-1.5 bg-rose-600/80 hover:bg-rose-600 text-zinc-100 font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 shrink-0 text-xs shadow"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear All Logs</span>
+              </button>
             </div>
 
             {/* Audit Table */}
@@ -2742,7 +3017,7 @@ export const AdminControlPage: React.FC = () => {
                       <th className="py-2.5 px-3">Action</th>
                       <th className="py-2.5 px-3">Target User</th>
                       <th className="py-2.5 px-3">Reason</th>
-                      <th className="py-2.5 px-3 text-right">Details</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-dark-border">
@@ -2767,13 +3042,23 @@ export const AdminControlPage: React.FC = () => {
                             {log.reason}
                           </td>
                           <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
-                              className="text-[11px] text-flame-400 font-semibold hover:underline"
-                            >
-                              {expandedLogId === log.id ? 'Hide' : 'View Diff'}
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
+                                className="text-[11px] text-flame-400 font-semibold hover:underline"
+                              >
+                                {expandedLogId === log.id ? 'Hide' : 'View Diff'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAuditLog(log.id)}
+                                className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                                title="Delete this audit log (Requires Sensitive Password)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {expandedLogId === log.id && (
@@ -2810,18 +3095,17 @@ export const AdminControlPage: React.FC = () => {
         )}
 
         {/* ======================================================== */}
-        {/* PRIMARY TAB 3: ADMIN SECURITY & PIN                      */}
+        {/* PRIMARY TAB 3: ADMIN SECURITY & SENSITIVE PASSWORD       */}
         {/* ======================================================== */}
         {primaryTab === 'security' && (
           <div className="max-w-2xl mx-auto bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-6">
             <div>
               <h2 className="text-sm font-extrabold text-zinc-100 tracking-tight flex items-center gap-2">
                 <Lock className="w-4 h-4 text-flame-400" />
-                <span>Super Admin Credentials & Sensitive Action PIN</span>
+                <span>Super Admin Credentials & Sensitive Password</span>
               </h2>
               <p className="text-xs text-zinc-400 mt-1">
-                Update the primary Super Admin password or the secondary Sensitive PIN required for irreversible
-                actions like permanent account deletion.
+                Update the primary Super Admin login password (default: <code className="text-flame-400">Admin@123</code>) or the secondary Sensitive Action Password (default: <code className="text-flame-400">Nirmal@31/08/2006</code>) required for sensitive overrides.
               </p>
             </div>
 
@@ -2834,7 +3118,7 @@ export const AdminControlPage: React.FC = () => {
                   type="password"
                   value={currentAdminPassword}
                   onChange={(e) => setCurrentAdminPassword(e.target.value)}
-                  placeholder="Enter current password to verify identity"
+                  placeholder="Enter current password (Admin@123)"
                   className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   required
                 />
@@ -2849,24 +3133,24 @@ export const AdminControlPage: React.FC = () => {
                     type="password"
                     value={newAdminPassword}
                     onChange={(e) => setNewAdminPassword(e.target.value)}
-                    placeholder="Leave blank to keep unchanged"
+                    placeholder="Leave blank to keep current password"
                     className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   />
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    New Sensitive Action PIN (optional, min 4 digits)
+                    New Sensitive Action Password (optional)
                   </label>
                   <input
                     type="password"
                     value={newAdminSensitivePin}
                     onChange={(e) => setNewAdminSensitivePin(e.target.value)}
-                    placeholder="e.g. 1234"
+                    placeholder="e.g. Nirmal@31/08/2006"
                     className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1">
-                    This PIN is prompted for destructive operations like permanent account deletion.
+                    This password is required for streak corrections, freezes, limit changes, and log deletions.
                   </p>
                 </div>
               </div>
@@ -2884,7 +3168,187 @@ export const AdminControlPage: React.FC = () => {
       </main>
 
       {/* ======================================================== */}
-      {/* SENSITIVE ACTION PIN MODAL                               */}
+      {/* HEATMAP DAY ACTIVITY & STREAK CONTROL MODAL             */}
+      {/* ======================================================== */}
+      {dayModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                    dayModalMode === 'STREAK'
+                      ? 'bg-flame-500/10 border border-flame-500/30 text-flame-400'
+                      : 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
+                  }`}
+                >
+                  {dayModalMode === 'STREAK' ? (
+                    <Flame className="w-5 h-5" />
+                  ) : (
+                    <Snowflake className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-zinc-100">
+                    Day Activity Control: {dayModalDate}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Target User: @{selectedUserDetails?.username}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDayModalOpen(false)}
+                className="w-8 h-8 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-400 hover:text-zinc-200 flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-dark-surface rounded-2xl border border-dark-border">
+              <button
+                type="button"
+                onClick={() => {
+                  setDayModalMode('STREAK');
+                  setDayModalReason(`Administrative streak completion granted for ${dayModalDate}`);
+                }}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                  dayModalMode === 'STREAK'
+                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Flame className="w-4 h-4" />
+                <span>Grant Streak Completion</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDayModalMode('FREEZE');
+                  setDayModalReason(`Historical freeze applied for ${dayModalDate}`);
+                }}
+                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                  dayModalMode === 'FREEZE'
+                    ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Snowflake className="w-4 h-4" />
+                <span>Freeze This Day</span>
+              </button>
+            </div>
+
+            {/* Mode Description Banner */}
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                dayModalMode === 'STREAK'
+                  ? 'bg-flame-500/10 border-flame-500/30 text-amber-200'
+                  : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
+              }`}
+            >
+              {dayModalMode === 'STREAK' ? (
+                <span>
+                  🔥 <strong>Grant Streak:</strong> Records habit completion on <strong>{dayModalDate}</strong>. Automatically awards 10 points to PointLedger, recalculates personal & group streaks, and updates heatmaps everywhere in the app.
+                </span>
+              ) : (
+                <span>
+                  ❄️ <strong>Freeze Day:</strong> Applies streak freeze protection on <strong>{dayModalDate}</strong>. Bridges missed habit days without breaking active streaks.
+                </span>
+              )}
+            </div>
+
+            <form onSubmit={handleDayActionSubmit} className="space-y-3 text-xs">
+              {dayModalMode === 'STREAK' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Associate Task (Optional)
+                    </label>
+                    <select
+                      value={dayModalTaskId}
+                      onChange={(e) => setDayModalTaskId(e.target.value)}
+                      className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                    >
+                      <option value="">General User Streak (First Active Task)</option>
+                      {selectedUserDetails?.tasks?.map((t: any) => (
+                        <option key={t.id} value={t.id}>
+                          {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal] '}
+                          {t.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Optional Study Note / Journal Entry
+                    </label>
+                    <input
+                      type="text"
+                      value={dayModalNote}
+                      onChange={(e) => setDayModalNote(e.target.value)}
+                      placeholder="e.g. Completed targeted learning modules"
+                      className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Mandatory Administrative Reason
+                </label>
+                <input
+                  type="text"
+                  value={dayModalReason}
+                  onChange={(e) => setDayModalReason(e.target.value)}
+                  placeholder="e.g. Administrative retroactive credit"
+                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  required
+                />
+              </div>
+
+              {renderNotificationOptions()}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDayModalOpen(false)}
+                  className="flex-1 py-2.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDayAction}
+                  className={`flex-1 py-2.5 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-1.5 ${
+                    dayModalMode === 'STREAK'
+                      ? 'bg-flame-500 hover:bg-flame-400 text-zinc-950'
+                      : 'bg-sky-500 hover:bg-sky-400 text-zinc-950'
+                  }`}
+                >
+                  {isSubmittingDayAction ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : dayModalMode === 'STREAK' ? (
+                    <Flame className="w-3.5 h-3.5" />
+                  ) : (
+                    <Snowflake className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    Authorize & Apply {dayModalMode === 'STREAK' ? 'Streak' : 'Freeze'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* SENSITIVE ACTION PASSWORD CONFIRMATION MODAL             */}
       {/* ======================================================== */}
       {pinModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2895,7 +3359,7 @@ export const AdminControlPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-extrabold text-zinc-100">{pinModalTitle}</h3>
-                <p className="text-[11px] text-zinc-400">Sensitive PIN Authentication Required</p>
+                <p className="text-[11px] text-zinc-400">Secondary Sensitive Password Required</p>
               </div>
             </div>
 
@@ -2903,18 +3367,32 @@ export const AdminControlPage: React.FC = () => {
 
             <form onSubmit={executePinAction} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Sensitive Action PIN
-                </label>
-                <input
-                  type="password"
-                  value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Enter 4-digit PIN..."
-                  className="w-full px-4 py-2.5 bg-dark-surface border border-rose-500/30 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400"
-                  autoFocus
-                  required
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-zinc-300">
+                    Super Admin Sensitive Password
+                  </label>
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    Nirmal@31/08/2006
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPinPassword ? 'text' : 'password'}
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    placeholder="Enter sensitive password (e.g. Nirmal@31/08/2006)"
+                    className="w-full px-4 py-2.5 pr-10 bg-dark-surface border border-rose-500/30 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400"
+                    autoFocus
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPinPassword(!showPinPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                  >
+                    {showPinPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 pt-2">
@@ -2935,7 +3413,7 @@ export const AdminControlPage: React.FC = () => {
                   ) : (
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   )}
-                  <span>Confirm Action</span>
+                  <span>Authorize & Proceed</span>
                 </button>
               </div>
             </form>

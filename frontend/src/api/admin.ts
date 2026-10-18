@@ -128,6 +128,28 @@ export async function fetchAdminAuditLogs(params?: {
   return res.data;
 }
 
+export async function deleteAdminAuditLog(logId: string, sensitivePin?: string) {
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
+    `/admin/audit-logs/${logId}`,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function clearAdminAuditLogs(params?: { targetUserId?: string; sensitivePin?: string }) {
+  const { sensitivePin, ...queryParams } = params || {};
+  const res = await adminApiClient.delete<{ success: boolean; message: string; count: number }>(
+    '/admin/audit-logs',
+    {
+      params: queryParams,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function searchAdminUsers(q: string = '') {
   const res = await adminApiClient.get<{
     success: boolean;
@@ -144,13 +166,29 @@ export async function fetchAdminUserDetails(userId: string) {
   return res.data;
 }
 
+export interface AdminNotificationPayload {
+  sendInApp?: boolean;
+  sendEmail?: boolean;
+  includeReason?: boolean;
+  includeChanges?: boolean;
+  sensitivePin?: string;
+}
+
 export async function overrideUsernameCooldown(
   userId: string,
-  data: { newUsername?: string; resetCooldownOnly?: boolean; reason: string }
+  data: {
+    newUsername?: string;
+    resetCooldownOnly?: boolean;
+    reason: string;
+  } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-username-cooldown`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
   return res.data;
 }
@@ -163,12 +201,37 @@ export async function correctUserStreak(
     currentStreak: number;
     longestStreak?: number;
     reason: string;
-  }
+  } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; user?: any; task?: any }>(
     `/admin/users/${userId}/correct-streak`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
+  return res.data;
+}
+
+export async function grantDayStreak(
+  userId: string,
+  data: {
+    date: string;
+    taskId?: string;
+    studyNote?: string;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    user: any;
+    completion: any;
+  }>(`/admin/users/${userId}/grant-day-streak`, body, {
+    headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+  });
   return res.data;
 }
 
@@ -180,33 +243,45 @@ export async function adjustUserFreezes(
     historicalFreezeDate?: string;
     taskId?: string;
     reason: string;
-  }
+  } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; user: any; historicalFreezeApplied: boolean }>(
     `/admin/users/${userId}/adjust-freezes`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
   return res.data;
 }
 
 export async function adjustUserPoints(
   userId: string,
-  data: { pointsDelta: number; reason: string }
+  data: { pointsDelta: number; reason: string } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; points: number }>(
     `/admin/users/${userId}/adjust-points`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
   return res.data;
 }
 
 export async function overrideUserLimit15(
   userId: string,
-  data: { maxStarredNotifications: number; reason: string }
+  data: { maxStarredNotifications: number; reason: string } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-starred-limit`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
   return res.data;
 }
@@ -227,11 +302,15 @@ export async function deleteUserAccountByAdmin(
 
 export async function overrideEmailCooldown(
   userId: string,
-  data: { newEmail?: string; resetCooldownOnly?: boolean; reason: string }
+  data: { newEmail?: string; resetCooldownOnly?: boolean; reason: string } & AdminNotificationPayload
 ) {
+  const { sensitivePin, ...body } = data;
   const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-email-cooldown`,
-    data
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
   );
   return res.data;
 }

@@ -5,21 +5,32 @@ import { z } from 'zod';
 import prisma from '../config/prisma';
 import { AdminAuthenticatedRequest } from '../middleware/adminAuthMiddleware';
 import { getTodayInTimezone } from '../services/timezoneService';
+import { NotificationCategory } from '@prisma/client';
+import { sendEmail } from '../services/emailService';
+import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 
 /**
- * Bootstrap the default admin account if no admin accounts exist
+ * Bootstrap or synchronize the default admin account with requested credentials
+ * Username: admin
+ * Password: Admin@123
+ * Sensitive Password / PIN: Nirmal@31/08/2006
  */
 async function ensureDefaultAdmin() {
-  const count = await prisma.adminAccount.count();
-  if (count === 0) {
-    const defaultUsername = (process.env.ADMIN_INITIAL_USERNAME || 'admin').trim().toLowerCase();
-    const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || 'StreakUpAdmin@2026';
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(defaultPassword, salt);
-    const pinHash = await bcrypt.hash('1234', salt);
+  const defaultUsername = (process.env.ADMIN_INITIAL_USERNAME || 'admin').trim().toLowerCase();
+  const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || 'Admin@123';
+  const defaultSensitivePin = process.env.ADMIN_SENSITIVE_PIN || 'Nirmal@31/08/2006';
 
+  const existingAdmin = await prisma.adminAccount.findUnique({
+    where: { username: defaultUsername },
+  });
+
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash(defaultPassword, salt);
+  const pinHash = await bcrypt.hash(defaultSensitivePin, salt);
+
+  if (!existingAdmin) {
     await prisma.adminAccount.create({
       data: {
         username: defaultUsername,
@@ -29,6 +40,118 @@ async function ensureDefaultAdmin() {
       },
     });
     console.log(`[Admin] Initial Super Admin account created: @${defaultUsername}`);
+  } else {
+    await prisma.adminAccount.update({
+      where: { id: existingAdmin.id },
+      data: {
+        passwordHash,
+        sensitivePinHash: pinHash,
+        role: 'SUPER_ADMIN',
+      },
+    });
+  }
+}
+
+/**
+ * Automatically purges administrative audit logs older than 15 days
+ */
+export async function cleanupOldAuditLogs() {
+  try {
+    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    const result = await prisma.adminAuditLog.deleteMany({
+      where: {
+        createdAt: {
+          lt: fifteenDaysAgo,
+        },
+      },
+    });
+    if (result.count > 0) {
+      console.log(`[AdminAuditLog] Cleaned up ${result.count} audit logs older than 15 days.`);
+    }
+    return result.count;
+  } catch (err) {
+    console.error('[AdminAuditLog] Failed to clean up old audit logs:', err);
+    return 0;
+  }
+}
+
+export interface AdminNotificationOptions {
+  userId: string;
+  adminUsername: string;
+  actionTitle: string;
+  reason?: string;
+  changesSummary?: string;
+  sendInApp?: boolean;
+  sendEmail?: boolean;
+  includeReason?: boolean;
+  includeChanges?: boolean;
+}
+
+/**
+ * Dispatches optional In-App and Email notifications to user about administrative adjustments
+ */
+export async function dispatchAdminNotification(opts: AdminNotificationOptions) {
+  const {
+    userId,
+    actionTitle,
+    reason,
+    changesSummary,
+    sendInApp,
+    sendEmail: shouldSendEmail,
+    includeReason = true,
+    includeChanges = true,
+  } = opts;
+
+  if (!sendInApp && !shouldSendEmail) return;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, username: true, email: true },
+    });
+    if (!user) return;
+
+    const messageLines: string[] = [];
+    if (includeChanges && changesSummary) {
+      messageLines.push(changesSummary);
+    }
+    if (includeReason && reason) {
+      messageLines.push(`Reason: ${reason}`);
+    }
+    if (messageLines.length === 0) {
+      messageLines.push(`An administrative adjustment was applied to your account.`);
+    }
+
+    const fullMessage = messageLines.join('\n\n');
+    const noticeTitle = `Account Notice: ${actionTitle}`;
+
+    // 1. In-App Notification
+    if (sendInApp) {
+      await prisma.notification.create({
+        data: {
+          userId,
+          type: NotificationCategory.SYSTEM,
+          title: noticeTitle,
+          message: fullMessage,
+        },
+      });
+    }
+
+    // 2. Email Notification
+    if (shouldSendEmail && user.email) {
+      const emailText = `Hello ${user.name || user.username},\n\nAn administrative update has been made to your StreakUp account:\n\n${fullMessage}\n\nIf you have any questions, please contact support.\n\nBest regards,\nStreakUp Administration Team`;
+
+      await sendEmail({
+        userId,
+        recipientEmail: user.email,
+        category: NotificationCategory.SYSTEM,
+        subject: `[StreakUp Admin] ${noticeTitle}`,
+        text: emailText,
+        idempotencyKey: `admin-notice-${userId}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      });
+    }
+  } catch (err) {
+    console.error('[Admin] Failed to dispatch admin notification:', err);
   }
 }
 
@@ -212,6 +335,9 @@ export async function changeAdminCredentials(req: AdminAuthenticatedRequest, res
 
 export async function getAdminAuditLogs(req: AdminAuthenticatedRequest, res: Response) {
   try {
+    // Automatically purge logs older than 15 days
+    await cleanupOldAuditLogs();
+
     const { targetUserId, action, page = '1', limit = '30' } = req.query;
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 30));
@@ -241,6 +367,37 @@ export async function getAdminAuditLogs(req: AdminAuthenticatedRequest, res: Res
   } catch (err: any) {
     console.error('getAdminAuditLogs error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve audit logs.' });
+  }
+}
+
+export async function deleteAdminAuditLog(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { logId } = req.params;
+    await prisma.adminAuditLog.delete({
+      where: { id: logId },
+    });
+    return res.json({ success: true, message: 'Audit log entry deleted successfully.' });
+  } catch (err: any) {
+    console.error('deleteAdminAuditLog error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete audit log entry.' });
+  }
+}
+
+export async function clearAdminAuditLogs(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { targetUserId } = req.query;
+    const where: any = {};
+    if (targetUserId) where.targetUserId = String(targetUserId);
+
+    const deleted = await prisma.adminAuditLog.deleteMany({ where });
+    return res.json({
+      success: true,
+      message: `Cleared ${deleted.count} audit log entries.`,
+      count: deleted.count,
+    });
+  } catch (err: any) {
+    console.error('clearAdminAuditLogs error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to clear audit logs.' });
   }
 }
 
@@ -399,7 +556,15 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
 export async function overrideUsernameCooldown(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { newUsername, resetCooldownOnly = false, reason } = req.body;
+    const {
+      newUsername,
+      resetCooldownOnly = false,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -449,6 +614,10 @@ export async function overrideUsernameCooldown(req: AdminAuthenticatedRequest, r
       });
     }
 
+    const changesSummary = resetCooldownOnly
+      ? `Username change cooldown restriction was reset. You can now update your username immediately.`
+      : `Your username was updated to @${updatedUser.username}.`;
+
     await recordAuditLog({
       adminUsername: req.admin!.username,
       action: 'USERNAME_COOLDOWN_OVERRIDE',
@@ -457,6 +626,18 @@ export async function overrideUsernameCooldown(req: AdminAuthenticatedRequest, r
       reason,
       beforeState,
       afterState: updatedUser,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Username Settings Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
     });
 
     return res.json({
@@ -478,7 +659,17 @@ export async function overrideUsernameCooldown(req: AdminAuthenticatedRequest, r
 export async function correctStreaks(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { type, taskId, currentStreak, longestStreak, reason } = req.body;
+    const {
+      type,
+      taskId,
+      currentStreak,
+      longestStreak,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -514,6 +705,8 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         select: { id: true, title: true, currentStreak: true, longestStreak: true },
       });
 
+      const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
+
       await recordAuditLog({
         adminUsername: req.admin!.username,
         action: 'TASK_STREAK_CORRECTION',
@@ -522,6 +715,18 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         reason,
         beforeState,
         afterState: updatedTask,
+      });
+
+      await dispatchAdminNotification({
+        userId,
+        adminUsername: req.admin!.username,
+        actionTitle: 'Task Streak Corrected',
+        reason,
+        changesSummary,
+        sendInApp,
+        sendEmail: shouldSendEmail,
+        includeReason,
+        includeChanges,
       });
 
       return res.json({
@@ -543,6 +748,8 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         select: { id: true, username: true, currentStreak: true, longestStreak: true },
       });
 
+      const changesSummary = `Overall streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
+
       await recordAuditLog({
         adminUsername: req.admin!.username,
         action: 'OVERALL_STREAK_CORRECTION',
@@ -551,6 +758,18 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         reason,
         beforeState,
         afterState: updatedUser,
+      });
+
+      await dispatchAdminNotification({
+        userId,
+        adminUsername: req.admin!.username,
+        actionTitle: 'Overall Streak Corrected',
+        reason,
+        changesSummary,
+        sendInApp,
+        sendEmail: shouldSendEmail,
+        includeReason,
+        includeChanges,
       });
 
       return res.json({
@@ -566,12 +785,164 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
 }
 
 /**
- * Adjust freezes (balance, recharge days, or historical freeze date protection)
+ * Grants a streak / task completion on a specific historical or current day for a user
+ * Maintains full workflow: creates TaskCompletion, recalculates task & user streaks,
+ * awards points, records audit log, and dispatches notifications if selected.
+ */
+export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      date,
+      taskId,
+      studyNote,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'A valid date in YYYY-MM-DD format is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { tasks: { where: { status: 'ACTIVE' }, take: 1 } },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    // Determine target task (provided taskId or user's first active task)
+    let targetTaskId = taskId;
+    if (!targetTaskId) {
+      if (user.tasks.length > 0) {
+        targetTaskId = user.tasks[0].id;
+      } else {
+        const newTask = await prisma.task.create({
+          data: {
+            userId,
+            title: 'Daily Productivity',
+            recurrence: 'DAILY',
+            scheduledDays: [0, 1, 2, 3, 4, 5, 6],
+            status: 'ACTIVE',
+          },
+        });
+        targetTaskId = newTask.id;
+      }
+    }
+
+    const beforeState = {
+      currentStreak: user.currentStreak,
+      longestStreak: user.longestStreak,
+      points: user.points,
+    };
+
+    // Create or update TaskCompletion for this date
+    const completion = await prisma.taskCompletion.upsert({
+      where: {
+        taskId_completionDate: {
+          taskId: targetTaskId,
+          completionDate: date,
+        },
+      },
+      create: {
+        userId,
+        taskId: targetTaskId,
+        completionDate: date,
+        completedAt: new Date(`${date}T12:00:00Z`),
+        studyNote: studyNote || `Retroactively granted by admin on ${date}`,
+      },
+      update: {
+        studyNote: studyNote || undefined,
+      },
+    });
+
+    // Recalculate task and user streaks
+    await recalculateTaskStreaks(prisma, targetTaskId, userId, user.timezone);
+    const updatedStreaks = await recalculateUserStreaks(prisma, userId, user.timezone);
+
+    // Award +10 points for completion
+    const pointsDelta = 10;
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { points: { increment: pointsDelta } },
+      select: {
+        id: true,
+        username: true,
+        currentStreak: true,
+        longestStreak: true,
+        points: true,
+        overallFreezeBalance: true,
+      },
+    });
+
+    const changesSummary = `Granted streak completion for ${date}. Current streak is now ${updatedUser.currentStreak} days (longest: ${updatedUser.longestStreak} days), points +10.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'GRANT_DAY_STREAK',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: {
+        completionId: completion.id,
+        date,
+        taskId: targetTaskId,
+        currentStreak: updatedUser.currentStreak,
+        longestStreak: updatedUser.longestStreak,
+        points: updatedUser.points,
+      },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Streak Granted for ${date}`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Streak completion successfully applied for ${date}. Workflow and streaks updated everywhere.`,
+      user: updatedUser,
+      completion,
+    });
+  } catch (err: any) {
+    console.error('grantDayStreak error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to grant streak on selected day.' });
+  }
+}
+
+/**
+ * Adjust freezes (balance out of 7, or historical freeze date protection)
  */
 export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { overallFreezeBalance, overallFreezeRechargeDays, historicalFreezeDate, taskId, reason } = req.body;
+    const {
+      overallFreezeBalance,
+      overallFreezeRechargeDays,
+      historicalFreezeDate,
+      taskId,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -588,8 +959,9 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
     };
 
     const updateData: any = {};
-    if (typeof overallFreezeBalance === 'number' && overallFreezeBalance >= 0) {
-      updateData.overallFreezeBalance = overallFreezeBalance;
+    if (typeof overallFreezeBalance === 'number') {
+      // Clamped out of 7 shields
+      updateData.overallFreezeBalance = Math.max(0, Math.min(7, Math.round(overallFreezeBalance)));
     }
     if (typeof overallFreezeRechargeDays === 'number' && overallFreezeRechargeDays >= 0) {
       updateData.overallFreezeRechargeDays = overallFreezeRechargeDays;
@@ -623,6 +995,20 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
         },
         update: {},
       });
+
+      // Recalculate streaks so freeze protection is immediately active in workflow
+      await recalculateUserStreaks(prisma, userId, user.timezone);
+      if (taskId) {
+        await recalculateTaskStreaks(prisma, taskId, userId, user.timezone);
+      }
+    }
+
+    const changesList: string[] = [];
+    if (typeof overallFreezeBalance === 'number') {
+      changesList.push(`Freeze shield balance set to ${updatedUser.overallFreezeBalance}/7 (was ${beforeState.overallFreezeBalance}/7).`);
+    }
+    if (historicalLog) {
+      changesList.push(`Streak freeze protection applied for ${historicalFreezeDate}.`);
     }
 
     await recordAuditLog({
@@ -637,6 +1023,18 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
         overallFreezeRechargeDays: updatedUser.overallFreezeRechargeDays,
         historicalLog,
       },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Freeze Settings Adjusted',
+      reason,
+      changesSummary: changesList.join(' '),
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
     });
 
     return res.json({
@@ -661,7 +1059,14 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
 export async function adjustPoints(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { pointsDelta, reason } = req.body;
+    const {
+      pointsDelta,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -697,6 +1102,8 @@ export async function adjustPoints(req: AdminAuthenticatedRequest, res: Response
       });
     });
 
+    const changesSummary = `Points adjusted by ${pointsDelta > 0 ? '+' : ''}${pointsDelta}. New point total: ${afterPoints} pts (was ${beforePoints} pts).`;
+
     await recordAuditLog({
       adminUsername: req.admin!.username,
       action: 'POINTS_ADJUSTMENT',
@@ -705,6 +1112,18 @@ export async function adjustPoints(req: AdminAuthenticatedRequest, res: Response
       reason,
       beforeState: { points: beforePoints },
       afterState: { points: afterPoints, pointsDelta },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Points Adjusted',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
     });
 
     return res.json({
@@ -724,7 +1143,14 @@ export async function adjustPoints(req: AdminAuthenticatedRequest, res: Response
 export async function overrideLimit15(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { maxStarredNotifications, reason } = req.body;
+    const {
+      maxStarredNotifications,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -747,6 +1173,8 @@ export async function overrideLimit15(req: AdminAuthenticatedRequest, res: Respo
       select: { id: true, username: true, maxStarredNotifications: true },
     });
 
+    const changesSummary = `Starred notifications limit updated from ${beforeState.maxStarredNotifications} to ${maxStarredNotifications}.`;
+
     await recordAuditLog({
       adminUsername: req.admin!.username,
       action: 'OVERRIDE_LIMIT_15',
@@ -755,6 +1183,18 @@ export async function overrideLimit15(req: AdminAuthenticatedRequest, res: Respo
       reason,
       beforeState,
       afterState: { maxStarredNotifications },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Starred Notification Limit Overridden',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
     });
 
     return res.json({
@@ -838,7 +1278,15 @@ export async function deleteUserAccountByAdmin(req: AdminAuthenticatedRequest, r
 export async function overrideEmailCooldown(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { userId } = req.params;
-    const { newEmail, resetCooldownOnly = false, reason } = req.body;
+    const {
+      newEmail,
+      resetCooldownOnly = false,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
 
     if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
@@ -881,6 +1329,10 @@ export async function overrideEmailCooldown(req: AdminAuthenticatedRequest, res:
       });
     }
 
+    const changesSummary = resetCooldownOnly
+      ? `Email 14-day restriction cleared. You can now update your registered email address immediately.`
+      : `Your registered email address was updated to ${updatedUser.email}.`;
+
     await recordAuditLog({
       adminUsername: req.admin!.username,
       action: 'EMAIL_COOLDOWN_OVERRIDE',
@@ -889,6 +1341,18 @@ export async function overrideEmailCooldown(req: AdminAuthenticatedRequest, res:
       reason,
       beforeState,
       afterState: updatedUser,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Email Settings Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
     });
 
     return res.json({

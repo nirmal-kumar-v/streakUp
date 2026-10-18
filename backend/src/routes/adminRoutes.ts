@@ -4,6 +4,8 @@ import {
   getAdminProfile,
   changeAdminCredentials,
   getAdminAuditLogs,
+  deleteAdminAuditLog,
+  clearAdminAuditLogs,
   searchUsersForAdmin,
   getUserDetailsForAdmin,
   overrideUsernameCooldown,
@@ -11,6 +13,7 @@ import {
   toggleUserEmailVerification,
   updateUserTimezone,
   correctStreaks,
+  grantDayStreak,
   adjustFreezes,
   adjustPoints,
   overrideLimit15,
@@ -33,21 +36,26 @@ router.use(requireAdminAuth);
 
 router.get('/me', getAdminProfile);
 router.post('/change-credentials', changeAdminCredentials);
+
+// Audit Logs Management
 router.get('/audit-logs', getAdminAuditLogs);
+router.delete('/audit-logs/:logId', requireSensitiveAuth, deleteAdminAuditLog);
+router.delete('/audit-logs', requireSensitiveAuth, clearAdminAuditLogs);
 
 // User Inspection & Search
 router.get('/users', searchUsersForAdmin);
 router.get('/users/:userId', getUserDetailsForAdmin);
 
-// Privileged Overrides & Controls
-router.post('/users/:userId/override-username-cooldown', overrideUsernameCooldown);
-router.post('/users/:userId/override-email-cooldown', overrideEmailCooldown);
+// Privileged Overrides & Controls (Protected with Secondary Sensitive Authentication)
+router.post('/users/:userId/override-username-cooldown', requireSensitiveAuth, overrideUsernameCooldown);
+router.post('/users/:userId/override-email-cooldown', requireSensitiveAuth, overrideEmailCooldown);
 router.post('/users/:userId/toggle-email-verification', toggleUserEmailVerification);
 router.post('/users/:userId/update-timezone', updateUserTimezone);
-router.post('/users/:userId/correct-streak', correctStreaks);
-router.post('/users/:userId/adjust-freezes', adjustFreezes);
-router.post('/users/:userId/adjust-points', adjustPoints);
-router.post('/users/:userId/override-starred-limit', overrideLimit15);
+router.post('/users/:userId/correct-streak', requireSensitiveAuth, correctStreaks);
+router.post('/users/:userId/grant-day-streak', requireSensitiveAuth, grantDayStreak);
+router.post('/users/:userId/adjust-freezes', requireSensitiveAuth, adjustFreezes);
+router.post('/users/:userId/adjust-points', requireSensitiveAuth, adjustPoints);
+router.post('/users/:userId/override-starred-limit', requireSensitiveAuth, overrideLimit15);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 
 // Task & Group Management
