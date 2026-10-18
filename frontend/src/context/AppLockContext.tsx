@@ -1,77 +1,84 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { generateSalt, hashPin, verifyPinHash } from '../utils/pinSecurity';
-import {
-  checkBiometricAvailability,
-  requestBiometricUnlock,
-  saveBiometricSecret,
-  deleteBiometricSecret,
-  isMedianAppEnvironment,
-} from '../utils/medianBridge';
-
-export type LockTimeout = 'immediate' | '1m' | '5m' | '15m';
 
 interface StoredAppLockData {
   enabled: boolean;
   salt: string;
   pinHash: string;
-  biometricsEnabled: boolean;
-  lockTimeout: LockTimeout;
 }
 
 interface AppLockContextType {
   isAppLockEnabled: boolean;
   isLocked: boolean;
   hasPinSet: boolean;
-  biometricsEnabled: boolean;
-  lockTimeout: LockTimeout;
-  isBiometricsAvailable: boolean;
-  isMedianApp: boolean;
-  biometryType?: string;
   failedAttempts: number;
   lockoutRemainingSeconds: number;
-  setupPin: (pin: string, enableBiometrics?: boolean) => Promise<boolean>;
+  setupPin: (pin: string) => Promise<boolean>;
   changePin: (currentPin: string, newPin: string) => Promise<{ success: boolean; error?: string }>;
   disableAppLock: (currentPin: string) => Promise<{ success: boolean; error?: string }>;
   verifyAndUnlock: (pin: string) => Promise<{ success: boolean; error?: string }>;
-  triggerBiometricUnlock: () => Promise<{ success: boolean; error?: string }>;
-  setBiometricsEnabled: (enabled: boolean) => Promise<boolean>;
-  setLockTimeout: (timeout: LockTimeout) => void;
   lockApp: () => void;
   unlockApp: () => void;
 }
 
 const AppLockContext = createContext<AppLockContextType | undefined>(undefined);
 
-const TIMEOUT_DURATIONS: Record<LockTimeout, number> = {
-  immediate: 0,
-  '1m': 60 * 1000,
-  '5m': 5 * 60 * 1000,
-  '15m': 15 * 60 * 1000,
-};
+// App locks when coming out of the app for 10 seconds or more
+const BACKGROUND_LOCK_THRESHOLD_MS = 10 * 1000;
 
 export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
   const userId = user?.id || 'guest';
 
-  const storageKey = `streakup_applock_${userId}`;
+  const configStorageKey = `streakup_applock_${userId}`;
+  const lockoutStorageKey = `streakup_applock_lockout_${userId}`;
+  const attemptsStorageKey = `streakup_applock_attempts_${userId}`;
+  const bgStorageKey = `streakup_applock_bg_${userId}`;
+  const sessionUnlockedKey = `streakup_applock_unlocked_${userId}`;
 
   const [isAppLockEnabled, setIsAppLockEnabled] = useState(false);
   const [hasPinSet, setHasPinSet] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-  const [biometricsEnabled, setBiometricsEnabledState] = useState(false);
-  const [lockTimeout, setLockTimeoutState] = useState<LockTimeout>('immediate');
 
-  const [isBiometricsAvailable, setIsBiometricsAvailable] = useState(false);
-  const [isMedianApp, setIsMedianApp] = useState(false);
-  const [biometryType, setBiometryType] = useState<string | undefined>(undefined);
+  // Initialize failed attempts and lockout state from localStorage to prevent refresh bypass
+  const [failedAttempts, setFailedAttempts] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(attemptsStorageKey);
+      return stored ? parseInt(stored, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
 
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
-  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(lockoutStorageKey);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (parsed > Date.now()) {
+          return parsed;
+        }
+        localStorage.removeItem(lockoutStorageKey);
+      }
+    } catch {}
+    return null;
+  });
+
+  const [lockoutRemainingSeconds, setLockoutRemainingSeconds] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(lockoutStorageKey);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (parsed > Date.now()) {
+          return Math.max(0, Math.ceil((parsed - Date.now()) / 1000));
+        }
+      }
+    } catch {}
+    return 0;
+  });
 
   const lastBackgroundedRef = useRef<number | null>(null);
-  const isInitialMountRef = useRef(true);
 
   // Load stored App Lock configuration for the current authenticated user
   const loadStoredConfig = useCallback(() => {
@@ -83,18 +90,36 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = localStorage.getItem(configStorageKey);
       if (raw) {
         const parsed: StoredAppLockData = JSON.parse(raw);
         if (parsed.enabled && parsed.pinHash && parsed.salt) {
           setIsAppLockEnabled(true);
           setHasPinSet(true);
-          setBiometricsEnabledState(!!parsed.biometricsEnabled);
-          setLockTimeoutState(parsed.lockTimeout || 'immediate');
 
-          // Lock on initial session load if enabled
-          if (isInitialMountRef.current) {
+          // Check if user is locked out due to wrong PIN attempts
+          const storedLockout = localStorage.getItem(lockoutStorageKey);
+          const parsedLockout = storedLockout ? parseInt(storedLockout, 10) : null;
+          const isCurrentlyLockedOut = parsedLockout ? parsedLockout > Date.now() : false;
+
+          // Check background duration and session unlock state
+          const isSessionUnlocked = sessionStorage.getItem(sessionUnlockedKey) === 'true';
+          const storedBg = localStorage.getItem(bgStorageKey);
+          const lastBgTime = storedBg ? parseInt(storedBg, 10) : 0;
+          const elapsedSinceBg = lastBgTime > 0 ? Date.now() - lastBgTime : 0;
+
+          if (isCurrentlyLockedOut) {
+            // Must stay locked if lockout penalty is active
             setIsLocked(true);
+            setLockoutUntil(parsedLockout);
+            setFailedAttempts(5);
+            setLockoutRemainingSeconds(Math.max(0, Math.ceil(((parsedLockout || 0) - Date.now()) / 1000)));
+          } else if (!isSessionUnlocked || elapsedSinceBg >= BACKGROUND_LOCK_THRESHOLD_MS) {
+            // Cold start or away for >= 10 seconds
+            setIsLocked(true);
+            sessionStorage.removeItem(sessionUnlockedKey);
+          } else {
+            setIsLocked(false);
           }
         } else {
           setIsAppLockEnabled(false);
@@ -111,68 +136,105 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setHasPinSet(false);
       setIsLocked(false);
     }
-  }, [isAuthenticated, user, storageKey]);
+  }, [isAuthenticated, user, configStorageKey, lockoutStorageKey, bgStorageKey, sessionUnlockedKey]);
 
-  // Initial load and biometric check
   useEffect(() => {
     loadStoredConfig();
-    isInitialMountRef.current = false;
-
-    // Check Median biometric capability
-    checkBiometricAvailability().then((status) => {
-      setIsBiometricsAvailable(status.available);
-      setIsMedianApp(status.isMedianApp);
-      setBiometryType(status.biometryType);
-    });
   }, [loadStoredConfig]);
 
-  // Lockout countdown timer
+  // Lockout countdown timer with persistent sync
   useEffect(() => {
     if (!lockoutUntil) {
       setLockoutRemainingSeconds(0);
       return;
     }
 
-    const interval = setInterval(() => {
+    const checkLockout = () => {
       const remaining = Math.max(0, Math.ceil((lockoutUntil - Date.now()) / 1000));
       setLockoutRemainingSeconds(remaining);
       if (remaining <= 0) {
         setLockoutUntil(null);
         setFailedAttempts(0);
-      }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [lockoutUntil]);
-
-  // Listen to background / foreground transitions via document.visibilitychange
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!isAppLockEnabled || !isAuthenticated) return;
-
-      if (document.visibilityState === 'hidden') {
-        // App went to background
-        lastBackgroundedRef.current = Date.now();
-      } else if (document.visibilityState === 'visible') {
-        // App returned to foreground
-        if (lastBackgroundedRef.current) {
-          const elapsed = Date.now() - lastBackgroundedRef.current;
-          const threshold = TIMEOUT_DURATIONS[lockTimeout] ?? 0;
-
-          if (elapsed >= threshold) {
-            setIsLocked(true);
-          }
-        }
-        lastBackgroundedRef.current = null;
+        try {
+          localStorage.removeItem(lockoutStorageKey);
+          localStorage.removeItem(attemptsStorageKey);
+        } catch {}
       }
     };
 
+    checkLockout();
+    const interval = setInterval(checkLockout, 500);
+    return () => clearInterval(interval);
+  }, [lockoutUntil, lockoutStorageKey, attemptsStorageKey]);
+
+  // Handle background / foreground transitions:
+  // App locks ONLY after 10 seconds of coming out of the app
+  useEffect(() => {
+    if (!isAppLockEnabled || !isAuthenticated) return;
+
+    const handleExitApp = () => {
+      const now = Date.now();
+      lastBackgroundedRef.current = now;
+      try {
+        localStorage.setItem(bgStorageKey, String(now));
+      } catch {}
+    };
+
+    const handleReturnToApp = () => {
+      const now = Date.now();
+      let bgTime = lastBackgroundedRef.current;
+      if (!bgTime) {
+        try {
+          const stored = localStorage.getItem(bgStorageKey);
+          if (stored) bgTime = parseInt(stored, 10);
+        } catch {}
+      }
+
+      if (bgTime) {
+        const elapsed = now - bgTime;
+        if (elapsed >= BACKGROUND_LOCK_THRESHOLD_MS) {
+          setIsLocked(true);
+          try {
+            sessionStorage.removeItem(sessionUnlockedKey);
+          } catch {}
+        }
+      }
+
+      lastBackgroundedRef.current = null;
+      try {
+        localStorage.removeItem(bgStorageKey);
+      } catch {}
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleExitApp();
+      } else if (document.visibilityState === 'visible') {
+        handleReturnToApp();
+      }
+    };
+
+    const handlePageHide = () => {
+      handleExitApp();
+    };
+
+    const handlePageShow = () => {
+      handleReturnToApp();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [isAppLockEnabled, isAuthenticated, lockTimeout]);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, [isAppLockEnabled, isAuthenticated, bgStorageKey, sessionUnlockedKey]);
 
   // Setup / Enable PIN
-  const setupPin = async (pin: string, enableBiometrics: boolean = false): Promise<boolean> => {
+  const setupPin = async (pin: string): Promise<boolean> => {
     if (!user || pin.length < 4) return false;
 
     try {
@@ -183,20 +245,17 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         enabled: true,
         salt,
         pinHash,
-        biometricsEnabled: enableBiometrics,
-        lockTimeout,
       };
 
-      localStorage.setItem(storageKey, JSON.stringify(config));
+      localStorage.setItem(configStorageKey, JSON.stringify(config));
       setIsAppLockEnabled(true);
       setHasPinSet(true);
-      setBiometricsEnabledState(enableBiometrics);
       setIsLocked(false);
       setFailedAttempts(0);
-
-      if (enableBiometrics && isMedianAppEnvironment()) {
-        await saveBiometricSecret(`streakup_secret_${userId}`);
-      }
+      setLockoutUntil(null);
+      localStorage.removeItem(lockoutStorageKey);
+      localStorage.removeItem(attemptsStorageKey);
+      sessionStorage.setItem(sessionUnlockedKey, 'true');
 
       return true;
     } catch (err) {
@@ -207,7 +266,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Change PIN (requires validating current PIN first)
   const changePin = async (currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> => {
-    const raw = localStorage.getItem(storageKey);
+    const raw = localStorage.getItem(configStorageKey);
     if (!raw) return { success: false, error: 'App lock configuration not found.' };
 
     try {
@@ -230,17 +289,18 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         pinHash: newHash,
       };
 
-      localStorage.setItem(storageKey, JSON.stringify(updated));
+      localStorage.setItem(configStorageKey, JSON.stringify(updated));
       setFailedAttempts(0);
+      localStorage.removeItem(attemptsStorageKey);
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'Failed to update PIN.' };
     }
   };
 
   // Disable App Lock (requires validating current PIN first)
   const disableAppLock = async (currentPin: string): Promise<{ success: boolean; error?: string }> => {
-    const raw = localStorage.getItem(storageKey);
+    const raw = localStorage.getItem(configStorageKey);
     if (!raw) {
       setIsAppLockEnabled(false);
       setHasPinSet(false);
@@ -255,15 +315,17 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: 'Incorrect PIN. Unable to disable App Lock.' };
       }
 
-      localStorage.removeItem(storageKey);
+      localStorage.removeItem(configStorageKey);
+      localStorage.removeItem(lockoutStorageKey);
+      localStorage.removeItem(attemptsStorageKey);
+      localStorage.removeItem(bgStorageKey);
+      sessionStorage.removeItem(sessionUnlockedKey);
+
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
-      setBiometricsEnabledState(false);
       setFailedAttempts(0);
-
-      // Clean up native secret if present
-      await deleteBiometricSecret();
+      setLockoutUntil(null);
 
       return { success: true };
     } catch {
@@ -273,12 +335,17 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Verify PIN entered by user on the lock screen
   const verifyAndUnlock = async (pin: string): Promise<{ success: boolean; error?: string }> => {
-    if (lockoutUntil && Date.now() < lockoutUntil) {
-      const secs = Math.ceil((lockoutUntil - Date.now()) / 1000);
+    // Check persistent lockout state to prevent refresh bypass
+    const rawLockout = localStorage.getItem(lockoutStorageKey);
+    const parsedLockout = rawLockout ? parseInt(rawLockout, 10) : null;
+    const effectiveLockout = lockoutUntil || (parsedLockout && parsedLockout > Date.now() ? parsedLockout : null);
+
+    if (effectiveLockout && Date.now() < effectiveLockout) {
+      const secs = Math.ceil((effectiveLockout - Date.now()) / 1000);
       return { success: false, error: `Too many failed attempts. Try again in ${secs}s.` };
     }
 
-    const raw = localStorage.getItem(storageKey);
+    const raw = localStorage.getItem(configStorageKey);
     if (!raw) {
       setIsLocked(false);
       return { success: true };
@@ -292,14 +359,22 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsLocked(false);
         setFailedAttempts(0);
         setLockoutUntil(null);
+        localStorage.removeItem(lockoutStorageKey);
+        localStorage.removeItem(attemptsStorageKey);
+        sessionStorage.setItem(sessionUnlockedKey, 'true');
         return { success: true };
       } else {
-        const nextFailed = failedAttempts + 1;
+        const storedAttempts = parseInt(localStorage.getItem(attemptsStorageKey) || '0', 10);
+        const nextFailed = Math.max(failedAttempts, storedAttempts) + 1;
+
         setFailedAttempts(nextFailed);
+        localStorage.setItem(attemptsStorageKey, String(nextFailed));
 
         if (nextFailed >= 5) {
           const lockTime = Date.now() + 30 * 1000; // 30s lockout
           setLockoutUntil(lockTime);
+          setLockoutRemainingSeconds(30);
+          localStorage.setItem(lockoutStorageKey, String(lockTime));
           return { success: false, error: 'Too many incorrect attempts. Locked for 30 seconds.' };
         }
 
@@ -310,67 +385,16 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Trigger Biometric Unlock via Median Bridge
-  const triggerBiometricUnlock = async (): Promise<{ success: boolean; error?: string }> => {
-    if (!biometricsEnabled) {
-      return { success: false, error: 'Biometrics is not enabled for App Lock.' };
-    }
-
-    const res = await requestBiometricUnlock('Unlock StreakUp');
-    if (res.success) {
-      setIsLocked(false);
-      setFailedAttempts(0);
-      setLockoutUntil(null);
-      return { success: true };
-    }
-
-    return { success: false, error: res.error || 'Biometric authentication cancelled or unavailable.' };
-  };
-
-  // Toggle Biometrics setting
-  const setBiometricsEnabled = async (enabled: boolean): Promise<boolean> => {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) return false;
-
-    try {
-      const parsed: StoredAppLockData = JSON.parse(raw);
-      parsed.biometricsEnabled = enabled;
-      localStorage.setItem(storageKey, JSON.stringify(parsed));
-      setBiometricsEnabledState(enabled);
-
-      if (enabled && isMedianAppEnvironment()) {
-        await saveBiometricSecret(`streakup_secret_${userId}`);
-      } else {
-        await deleteBiometricSecret();
-      }
-
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  // Update Lock Timeout
-  const setLockTimeout = (timeout: LockTimeout) => {
-    setLockTimeoutState(timeout);
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      try {
-        const parsed: StoredAppLockData = JSON.parse(raw);
-        parsed.lockTimeout = timeout;
-        localStorage.setItem(storageKey, JSON.stringify(parsed));
-      } catch {}
-    }
-  };
-
   const lockApp = () => {
     if (isAppLockEnabled) {
       setIsLocked(true);
+      sessionStorage.removeItem(sessionUnlockedKey);
     }
   };
 
   const unlockApp = () => {
     setIsLocked(false);
+    sessionStorage.setItem(sessionUnlockedKey, 'true');
   };
 
   return (
@@ -379,20 +403,12 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isAppLockEnabled,
         isLocked,
         hasPinSet,
-        biometricsEnabled,
-        lockTimeout,
-        isBiometricsAvailable,
-        isMedianApp,
-        biometryType,
         failedAttempts,
         lockoutRemainingSeconds,
         setupPin,
         changePin,
         disableAppLock,
         verifyAndUnlock,
-        triggerBiometricUnlock,
-        setBiometricsEnabled,
-        setLockTimeout,
         lockApp,
         unlockApp,
       }}

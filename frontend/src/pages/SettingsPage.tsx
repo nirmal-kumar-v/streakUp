@@ -33,13 +33,10 @@ import {
   Mail,
   RotateCw,
   Lock,
-  Fingerprint,
-  ScanFace,
-  ShieldCheck,
   X,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
-import { useAppLock, LockTimeout } from '../context/AppLockContext';
+import { useAppLock } from '../context/AppLockContext';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -48,24 +45,15 @@ export const SettingsPage: React.FC = () => {
   // App Lock Context & State
   const {
     isAppLockEnabled,
-    biometricsEnabled,
-    lockTimeout,
-    isBiometricsAvailable,
-    isMedianApp,
-    biometryType,
     setupPin,
     changePin,
     disableAppLock,
-    setBiometricsEnabled,
-    setLockTimeout,
-    lockApp,
   } = useAppLock();
 
   const [appLockModal, setAppLockModal] = useState<'none' | 'setup' | 'change' | 'disable'>('none');
   const [appLockPin, setAppLockPin] = useState('');
   const [appLockConfirmPin, setAppLockConfirmPin] = useState('');
   const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
-  const [appLockEnableBio, setAppLockEnableBio] = useState(true);
   const [appLockModalError, setAppLockModalError] = useState('');
   const [appLockModalLoading, setAppLockModalLoading] = useState(false);
   const [appLockSuccessMsg, setAppLockSuccessMsg] = useState('');
@@ -73,7 +61,6 @@ export const SettingsPage: React.FC = () => {
   const handleOpenSetupModal = () => {
     setAppLockPin('');
     setAppLockConfirmPin('');
-    setAppLockEnableBio(isBiometricsAvailable);
     setAppLockModalError('');
     setAppLockModal('setup');
   };
@@ -106,7 +93,7 @@ export const SettingsPage: React.FC = () => {
     setAppLockModalLoading(true);
     setAppLockModalError('');
     try {
-      const success = await setupPin(appLockPin, appLockEnableBio);
+      const success = await setupPin(appLockPin);
       if (success) {
         setAppLockModal('none');
         setAppLockSuccessMsg('App Lock enabled successfully!');
@@ -1097,13 +1084,13 @@ export const SettingsPage: React.FC = () => {
         </div>
       </form>
 
-      {/* SECTION: APP LOCK & BIOMETRICS (OPTIONAL) */}
+      {/* SECTION: APP LOCK (OPTIONAL) */}
       <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <Lock className="w-5 h-5 text-flame-400" />
-              <h2 className="text-base font-bold text-zinc-100">App Lock & Biometrics</h2>
+              <h2 className="text-base font-bold text-zinc-100">App Lock</h2>
               <span
                 className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                   isAppLockEnabled
@@ -1115,7 +1102,7 @@ export const SettingsPage: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-dark-muted mt-1">
-              Protect your StreakUp session with a 4-digit PIN and native device biometrics when returning from the background.
+              Protect your StreakUp session with a 4-digit PIN. App lock automatically activates after 10 seconds of coming out of the app.
             </p>
           </div>
 
@@ -1161,80 +1148,20 @@ export const SettingsPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Lock Timeout Selection */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-dark-surface/50 border border-dark-border rounded-2xl">
+            {/* Lock Policy Info */}
+            <div className="flex items-center justify-between p-4 bg-dark-surface/50 border border-dark-border rounded-2xl">
               <div>
                 <div className="text-xs font-bold text-zinc-200 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-amber-400" />
                   <span>Lock Policy</span>
                 </div>
                 <p className="text-[11px] text-dark-muted mt-0.5">
-                  When StreakUp returns from the background or phone lock screen
+                  App automatically locks after 10 seconds of leaving the app or returning from the background.
                 </p>
               </div>
-              <select
-                value={lockTimeout}
-                onChange={(e) => setLockTimeout(e.target.value as LockTimeout)}
-                className="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-lg text-xs font-semibold text-zinc-200 focus:outline-none focus:border-flame-500/80 cursor-pointer"
-              >
-                <option value="immediate">Immediately upon exit</option>
-                <option value="1m">After 1 minute in background</option>
-                <option value="5m">After 5 minutes in background</option>
-                <option value="15m">After 15 minutes in background</option>
-              </select>
-            </div>
-
-            {/* Biometric Toggle & Native Status */}
-            <div className="p-4 bg-dark-surface/50 border border-dark-border rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  {biometryType === 'face' ? (
-                    <ScanFace className="w-5 h-5 text-flame-400" />
-                  ) : (
-                    <Fingerprint className="w-5 h-5 text-flame-400" />
-                  )}
-                  <div>
-                    <div className="text-xs font-bold text-zinc-200">
-                      Biometric Unlock (Face ID / Fingerprint)
-                    </div>
-                    <p className="text-[11px] text-dark-muted mt-0.5">
-                      Fast hardware-backed unlock using Median.co native bridge integration
-                    </p>
-                  </div>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={biometricsEnabled}
-                    onChange={(e) => setBiometricsEnabled(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-flame-500"></div>
-                </label>
-              </div>
-
-              {/* Status indicator banner */}
-              <div className="text-[11px] p-2.5 rounded-xl border flex items-center gap-2 bg-dark-bg/60 border-dark-border/80 text-zinc-400">
-                <ShieldCheck className={`w-4 h-4 shrink-0 ${isMedianApp ? 'text-emerald-400' : 'text-amber-400'}`} />
-                <span>
-                  {isMedianApp
-                    ? `Native Median environment detected. ${biometryType ? biometryType.toUpperCase() : 'Biometric'} hardware bridge is operational.`
-                    : 'Web Browser mode. PIN fallback is fully active. Native biometrics activate automatically when running inside your Median iOS/Android app.'}
-                </span>
-              </div>
-            </div>
-
-            {/* Test Button */}
-            <div className="flex justify-end pt-1">
-              <button
-                type="button"
-                onClick={lockApp}
-                className="px-3.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover border border-dark-border rounded-xl transition-colors font-medium flex items-center gap-1.5"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Test Lock Screen Now</span>
-              </button>
+              <span className="text-xs font-semibold text-amber-400/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
+                10 seconds
+              </span>
             </div>
           </div>
         )}
@@ -1435,19 +1362,6 @@ export const SettingsPage: React.FC = () => {
                   onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
                 />
-              </div>
-
-              <div className="flex items-center gap-2.5 pt-1">
-                <input
-                  type="checkbox"
-                  id="enableBioCheckbox"
-                  checked={appLockEnableBio}
-                  onChange={(e) => setAppLockEnableBio(e.target.checked)}
-                  className="w-4 h-4 rounded bg-dark-surface border-dark-border text-flame-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-                />
-                <label htmlFor="enableBioCheckbox" className="text-xs text-zinc-300 cursor-pointer">
-                  Enable Biometrics (Face ID / Touch ID)
-                </label>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">

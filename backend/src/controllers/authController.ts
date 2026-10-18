@@ -25,7 +25,7 @@ import {
 import { getOrCreateNotificationPreferences } from '../services/notificationService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
-const JWT_EXPIRES_IN = '7d';
+const JWT_EXPIRES_IN = '365d';
 
 // Registration schema validation
 const registerSchema = z.object({

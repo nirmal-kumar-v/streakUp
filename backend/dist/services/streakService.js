@@ -153,7 +153,7 @@ async function recalculateUserStreaks(prisma, userId, userTimezone) {
 async function recalculateTaskStreaks(prisma, taskId, userId, userTimezone) {
     const task = await prisma.task.findUnique({
         where: { id: taskId },
-        select: { id: true, recurrence: true }
+        select: { id: true, recurrence: true, scheduledDays: true }
     });
     if (!task || task.recurrence === 'ONE_TIME') {
         return {
@@ -187,7 +187,7 @@ async function recalculateTaskStreaks(prisma, taskId, userId, userTimezone) {
         select: { protectedDate: true }
     });
     const protectedDates = freezeLogs.map((l) => l.protectedDate);
-    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz);
+    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz, undefined, task.scheduledDays || [0, 1, 2, 3, 4, 5, 6]);
     if (freezeResult.newlyConsumedDates.length > 0) {
         for (const pDate of freezeResult.newlyConsumedDates) {
             await prisma.freezeLog.upsert({

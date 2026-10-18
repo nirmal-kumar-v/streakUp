@@ -263,6 +263,11 @@ async function checkAndTriggerFriendActivityAlerts(params) {
         },
     });
     const friends = friendships.map((f) => (f.user1Id === completedUserId ? f.user2 : f.user1));
+    // Fetch completed task details (including group info if applicable)
+    const completedTask = await prisma_1.default.task.findUnique({
+        where: { id: completedTaskId },
+        select: { id: true, title: true, groupId: true, group: { select: { id: true, name: true } } }
+    });
     for (const friend of friends) {
         const friendToday = (0, timezoneService_1.getTodayInTimezone)(friend.timezone || 'Asia/Kolkata');
         // 1. Overall Activity Alert
@@ -294,45 +299,85 @@ async function checkAndTriggerFriendActivityAlerts(params) {
             });
         }
         // 2. Task-Specific Activity Alert
-        // Find matching tasks in friend's active daily habits
-        const friendTasks = await prisma_1.default.task.findMany({
-            where: {
-                userId: friend.id,
-                recurrence: 'DAILY',
-                status: 'ACTIVE',
-            },
-            include: {
-                completions: {
-                    where: { completionDate: friendToday },
+        if (completedTask?.groupId) {
+            // Group Task Completion: Direct friend notification for friends in the same group
+            const friendGroupTask = await prisma_1.default.task.findFirst({
+                where: {
+                    userId: friend.id,
+                    groupId: completedTask.groupId,
+                    status: 'ACTIVE',
                 },
-            },
-        });
-        const match = (0, fuzzyMatchService_1.findBestMatchingTask)(completedTaskTitle, friendTasks);
-        if (match.match && match.confidence >= 0.6) {
-            const matchedTask = match.match;
-            // Has the friend completed their matching task today?
-            const friendCompletedMatchingTask = matchedTask.completions.length > 0;
-            if (!friendCompletedMatchingTask) {
-                // Friend hasn't completed their matching task today!
+                include: {
+                    completions: {
+                        where: { completionDate: friendToday },
+                    },
+                },
+            });
+            if (friendGroupTask && friendGroupTask.completions.length === 0) {
+                const groupName = completedTask.group?.name || completedTaskTitle;
                 const emailContent = (0, emailService_1.buildFriendTaskActivityEmail)({
                     recipientName: friend.name,
                     friendName: completedUser.name,
-                    taskTitle: matchedTask.title,
+                    taskTitle: groupName,
                     studyNote: studyNote || undefined,
                 });
-                const taskEventKey = `FRIEND_TASK:${completedUserId}:${friend.id}:${matchedTask.id}:${friendToday}`;
+                const taskEventKey = `FRIEND_GROUP_TASK:${completedUserId}:${friend.id}:${friendGroupTask.id}:${friendToday}`;
                 await createNotification({
                     userId: friend.id,
                     category: client_1.NotificationCategory.FRIEND_TASK_ACTIVITY,
-                    title: `${completedUser.name} completed ${completedTaskTitle}`,
-                    message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
+                    title: `${completedUser.name} completed ${groupName}`,
+                    message: `Your friend ${completedUser.name} completed the shared group task ${groupName} today, but you haven't completed it yet. Keep your streak blazing!`,
                     friendId: completedUser.id,
-                    taskId: matchedTask.id,
-                    actionUrl: `/tasks`,
+                    taskId: friendGroupTask.id,
+                    actionUrl: `/groups/${completedTask.groupId}`,
                     eventKey: taskEventKey,
                     emailSubject: emailContent.subject,
                     emailText: emailContent.text,
                 });
+            }
+        }
+        else {
+            // Personal Task: Find matching tasks in friend's active daily habits
+            const friendTasks = await prisma_1.default.task.findMany({
+                where: {
+                    userId: friend.id,
+                    recurrence: 'DAILY',
+                    status: 'ACTIVE',
+                    groupId: null,
+                },
+                include: {
+                    completions: {
+                        where: { completionDate: friendToday },
+                    },
+                },
+            });
+            const match = (0, fuzzyMatchService_1.findBestMatchingTask)(completedTaskTitle, friendTasks);
+            if (match.match && match.confidence >= 0.6) {
+                const matchedTask = match.match;
+                // Has the friend completed their matching task today?
+                const friendCompletedMatchingTask = matchedTask.completions.length > 0;
+                if (!friendCompletedMatchingTask) {
+                    // Friend hasn't completed their matching task today!
+                    const emailContent = (0, emailService_1.buildFriendTaskActivityEmail)({
+                        recipientName: friend.name,
+                        friendName: completedUser.name,
+                        taskTitle: matchedTask.title,
+                        studyNote: studyNote || undefined,
+                    });
+                    const taskEventKey = `FRIEND_TASK:${completedUserId}:${friend.id}:${matchedTask.id}:${friendToday}`;
+                    await createNotification({
+                        userId: friend.id,
+                        category: client_1.NotificationCategory.FRIEND_TASK_ACTIVITY,
+                        title: `${completedUser.name} completed ${completedTaskTitle}`,
+                        message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
+                        friendId: completedUser.id,
+                        taskId: matchedTask.id,
+                        actionUrl: `/dashboard`,
+                        eventKey: taskEventKey,
+                        emailSubject: emailContent.subject,
+                        emailText: emailContent.text,
+                    });
+                }
             }
         }
     }

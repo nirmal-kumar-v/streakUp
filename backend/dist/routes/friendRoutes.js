@@ -16,5 +16,6 @@ router.post('/request', friendController_1.sendFriendRequest);
 router.post('/requests/:requestId/accept', friendController_1.acceptFriendRequest);
 router.post('/requests/:requestId/reject', friendController_1.rejectFriendRequest);
 router.delete('/requests/:requestId/cancel', friendController_1.cancelFriendRequest);
+router.post('/:friendUserId/nudge', friendController_1.nudgeFriend);
 router.delete('/:friendUserId', friendController_1.removeFriend);
 exports.default = router;

@@ -23,7 +23,7 @@ const otpService_1 = require("../services/otpService");
 const emailService_1 = require("../services/emailService");
 const notificationService_1 = require("../services/notificationService");
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
-const JWT_EXPIRES_IN = '7d';
+const JWT_EXPIRES_IN = '365d';
 // Registration schema validation
 const registerSchema = zod_1.z.object({
     name: zod_1.z.string().min(2, 'Name must be at least 2 characters long').max(50),

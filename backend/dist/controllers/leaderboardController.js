@@ -10,10 +10,12 @@ const timezoneService_1 = require("../services/timezoneService");
 const dbError_1 = require("../utils/dbError");
 /**
  * Global Leaderboard (Public access, optional authentication)
+ * Supports type: 'streak' (default) or 'points' (Requirement 11)
  */
 async function getGlobalLeaderboard(req, res) {
     try {
         const currentUserId = req.user?.userId;
+        const type = req.query.type === 'points' ? 'points' : 'streak';
         const page = Math.max(1, parseInt(req.query.page) || 1);
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
         const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
@@ -24,6 +26,20 @@ async function getGlobalLeaderboard(req, res) {
         }
         // Total count of qualifying users
         const totalUsers = await prisma_1.default.user.count({ where });
+        // Deterministic sorting based on type
+        const orderBy = type === 'points'
+            ? [
+                { points: 'desc' },
+                { currentStreak: 'desc' },
+                { longestStreak: 'desc' },
+                { username: 'asc' }
+            ]
+            : [
+                { currentStreak: 'desc' },
+                { longestStreak: 'desc' },
+                { points: 'desc' },
+                { username: 'asc' }
+            ];
         // Fetch ranked users
         const users = await prisma_1.default.user.findMany({
             where,
@@ -34,6 +50,7 @@ async function getGlobalLeaderboard(req, res) {
                 profileImage: true,
                 currentStreak: true,
                 longestStreak: true,
+                points: true,
                 timezone: true,
                 createdAt: true,
                 _count: {
@@ -42,11 +59,7 @@ async function getGlobalLeaderboard(req, res) {
                     }
                 }
             },
-            orderBy: [
-                { currentStreak: 'desc' },
-                { longestStreak: 'desc' },
-                { username: 'asc' }
-            ],
+            orderBy,
             skip,
             take: limit
         });
@@ -68,6 +81,7 @@ async function getGlobalLeaderboard(req, res) {
                 profileImage: u.profileImage,
                 currentStreak: u.currentStreak,
                 longestStreak: u.longestStreak,
+                points: u.points,
                 totalCompletedTasks: u._count.taskCompletions,
                 tasksCompletedToday,
                 isCurrentUser: currentUserId ? u.id === currentUserId : false,
@@ -86,32 +100,73 @@ async function getGlobalLeaderboard(req, res) {
                     profileImage: true,
                     currentStreak: true,
                     longestStreak: true,
+                    points: true,
                     timezone: true,
                     _count: { select: { taskCompletions: true } }
                 }
             });
             if (currentUser) {
-                // Count users with higher streak or tie-break
-                const higherRankCount = await prisma_1.default.user.count({
-                    where: {
-                        OR: [
-                            { currentStreak: { gt: currentUser.currentStreak } },
-                            {
-                                AND: [
-                                    { currentStreak: currentUser.currentStreak },
-                                    { longestStreak: { gt: currentUser.longestStreak } }
-                                ]
-                            },
-                            {
-                                AND: [
-                                    { currentStreak: currentUser.currentStreak },
-                                    { longestStreak: currentUser.longestStreak },
-                                    { username: { lt: currentUser.username } }
-                                ]
-                            }
-                        ]
-                    }
-                });
+                let higherRankCount = 0;
+                if (type === 'points') {
+                    higherRankCount = await prisma_1.default.user.count({
+                        where: {
+                            OR: [
+                                { points: { gt: currentUser.points } },
+                                {
+                                    AND: [
+                                        { points: currentUser.points },
+                                        { currentStreak: { gt: currentUser.currentStreak } }
+                                    ]
+                                },
+                                {
+                                    AND: [
+                                        { points: currentUser.points },
+                                        { currentStreak: currentUser.currentStreak },
+                                        { longestStreak: { gt: currentUser.longestStreak } }
+                                    ]
+                                },
+                                {
+                                    AND: [
+                                        { points: currentUser.points },
+                                        { currentStreak: currentUser.currentStreak },
+                                        { longestStreak: currentUser.longestStreak },
+                                        { username: { lt: currentUser.username } }
+                                    ]
+                                }
+                            ]
+                        }
+                    });
+                }
+                else {
+                    higherRankCount = await prisma_1.default.user.count({
+                        where: {
+                            OR: [
+                                { currentStreak: { gt: currentUser.currentStreak } },
+                                {
+                                    AND: [
+                                        { currentStreak: currentUser.currentStreak },
+                                        { longestStreak: { gt: currentUser.longestStreak } }
+                                    ]
+                                },
+                                {
+                                    AND: [
+                                        { currentStreak: currentUser.currentStreak },
+                                        { longestStreak: currentUser.longestStreak },
+                                        { points: { gt: currentUser.points } }
+                                    ]
+                                },
+                                {
+                                    AND: [
+                                        { currentStreak: currentUser.currentStreak },
+                                        { longestStreak: currentUser.longestStreak },
+                                        { points: currentUser.points },
+                                        { username: { lt: currentUser.username } }
+                                    ]
+                                }
+                            ]
+                        }
+                    });
+                }
                 const todayDateStr = (0, timezoneService_1.getLocalDateString)(currentUser.timezone || 'Asia/Kolkata');
                 const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
                     where: {
@@ -127,6 +182,7 @@ async function getGlobalLeaderboard(req, res) {
                     profileImage: currentUser.profileImage,
                     currentStreak: currentUser.currentStreak,
                     longestStreak: currentUser.longestStreak,
+                    points: currentUser.points,
                     totalCompletedTasks: currentUser._count.taskCompletions,
                     tasksCompletedToday,
                     isCurrentUser: true
@@ -135,6 +191,7 @@ async function getGlobalLeaderboard(req, res) {
         }
         return res.json({
             success: true,
+            type,
             leaderboard: rankedUsers,
             pagination: {
                 page,
@@ -168,10 +225,12 @@ async function getGlobalLeaderboard(req, res) {
 }
 /**
  * Friends Leaderboard (Authenticated access required)
+ * Supports type: 'streak' (default) or 'points'
  */
 async function getFriendsLeaderboard(req, res) {
     try {
         const userId = req.user.userId;
+        const type = req.query.type === 'points' ? 'points' : 'streak';
         // Get all accepted friends
         const friendships = await prisma_1.default.friendship.findMany({
             where: {
@@ -185,6 +244,19 @@ async function getFriendsLeaderboard(req, res) {
         const friendUserIds = friendships.map(f => (f.user1Id === userId ? f.user2Id : f.user1Id));
         // Include current user in friends leaderboard!
         const allCohortIds = Array.from(new Set([...friendUserIds, userId]));
+        const orderBy = type === 'points'
+            ? [
+                { points: 'desc' },
+                { currentStreak: 'desc' },
+                { longestStreak: 'desc' },
+                { username: 'asc' }
+            ]
+            : [
+                { currentStreak: 'desc' },
+                { longestStreak: 'desc' },
+                { points: 'desc' },
+                { username: 'asc' }
+            ];
         const users = await prisma_1.default.user.findMany({
             where: {
                 id: { in: allCohortIds }
@@ -196,6 +268,7 @@ async function getFriendsLeaderboard(req, res) {
                 profileImage: true,
                 currentStreak: true,
                 longestStreak: true,
+                points: true,
                 timezone: true,
                 _count: {
                     select: {
@@ -203,11 +276,7 @@ async function getFriendsLeaderboard(req, res) {
                     }
                 }
             },
-            orderBy: [
-                { currentStreak: 'desc' },
-                { longestStreak: 'desc' },
-                { username: 'asc' }
-            ]
+            orderBy
         });
         const friendsLeaderboard = await Promise.all(users.map(async (u, idx) => {
             const todayDateStr = (0, timezoneService_1.getLocalDateString)(u.timezone || 'Asia/Kolkata');
@@ -225,6 +294,7 @@ async function getFriendsLeaderboard(req, res) {
                 profileImage: u.profileImage,
                 currentStreak: u.currentStreak,
                 longestStreak: u.longestStreak,
+                points: u.points,
                 totalCompletedTasks: u._count.taskCompletions,
                 tasksCompletedToday,
                 isCurrentUser: u.id === userId
@@ -233,6 +303,7 @@ async function getFriendsLeaderboard(req, res) {
         const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;
         return res.json({
             success: true,
+            type,
             leaderboard: friendsLeaderboard,
             totalParticipants: friendsLeaderboard.length,
             currentUserEntry

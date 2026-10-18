@@ -1,18 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAppLock } from '../context/AppLockContext';
 import { useAuth } from '../context/AuthContext';
-import { Delete, Fingerprint, ScanFace, LogOut } from 'lucide-react';
+import { Delete, LogOut } from 'lucide-react';
 
 export const AppLockScreen: React.FC = () => {
   const {
     isAppLockEnabled,
     isLocked,
-    biometricsEnabled,
-    biometryType,
-    isBiometricsAvailable,
     lockoutRemainingSeconds,
     verifyAndUnlock,
-    triggerBiometricUnlock,
   } = useAppLock();
 
   const { user, logout } = useAuth();
@@ -20,7 +16,6 @@ export const AppLockScreen: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isShaking, setIsShaking] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
-  const hasTriggeredBiometricsRef = useRef(false);
 
   const resetPinWithShake = useCallback((msg: string) => {
     setIsShaking(true);
@@ -103,32 +98,17 @@ export const AppLockScreen: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLocked, pin, lockoutRemainingSeconds, isVerifying, handleSubmitPin]);
 
-  // Auto-trigger biometric prompt once upon presentation if enabled
+  // Clean state when unlocked
   useEffect(() => {
-    if (
-      isLocked &&
-      biometricsEnabled &&
-      isBiometricsAvailable &&
-      !hasTriggeredBiometricsRef.current &&
-      lockoutRemainingSeconds <= 0
-    ) {
-      hasTriggeredBiometricsRef.current = true;
-      triggerBiometricUnlock().catch(() => {});
-    }
-
     if (!isLocked) {
-      hasTriggeredBiometricsRef.current = false;
       setPin('');
       setErrorMessage('');
     }
-  }, [isLocked, biometricsEnabled, isBiometricsAvailable, lockoutRemainingSeconds, triggerBiometricUnlock]);
+  }, [isLocked]);
 
   if (!isAppLockEnabled || !isLocked) {
     return null;
   }
-
-  const isBiometricUsable = biometricsEnabled && isBiometricsAvailable && lockoutRemainingSeconds <= 0;
-  const isFaceId = biometryType === 'face';
 
   return (
     <div
@@ -200,20 +180,8 @@ export const AppLockScreen: React.FC = () => {
             </button>
           ))}
 
-          {/* Row 4: Biometric / Empty, 0, Backspace */}
-          <div className="w-16 h-16 flex items-center justify-center">
-            {isBiometricUsable ? (
-              <button
-                type="button"
-                onClick={() => triggerBiometricUnlock()}
-                title="Unlock with Biometrics"
-                aria-label="Unlock with Biometrics"
-                className="w-14 h-14 rounded-full bg-flame-500/10 border border-flame-500/30 text-flame-400 hover:bg-flame-500/20 active:scale-95 transition-all flex items-center justify-center"
-              >
-                {isFaceId ? <ScanFace className="w-6 h-6" /> : <Fingerprint className="w-6 h-6" />}
-              </button>
-            ) : null}
-          </div>
+          {/* Row 4: Empty space placeholder for symmetry, 0, Backspace */}
+          <div className="w-16 h-16 sm:w-18 sm:h-18" aria-hidden="true" />
 
           <button
             type="button"
@@ -230,25 +198,11 @@ export const AppLockScreen: React.FC = () => {
             disabled={lockoutRemainingSeconds > 0 || isVerifying || pin.length === 0}
             title="Delete last digit"
             aria-label="Delete last digit"
-            className="w-16 h-16 flex items-center justify-center text-zinc-400 hover:text-zinc-200 active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+            className="w-16 h-16 sm:w-18 sm:h-18 flex items-center justify-center text-zinc-400 hover:text-zinc-200 active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
           >
             <Delete className="w-6 h-6" />
           </button>
         </div>
-
-        {/* Biometric Text Prompt (Alternative if user prefers tapping button) */}
-        {isBiometricUsable && (
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={() => triggerBiometricUnlock()}
-              className="text-xs font-semibold text-flame-400 hover:text-flame-300 inline-flex items-center gap-1.5 py-1 px-3 rounded-lg hover:bg-flame-500/10 transition-colors"
-            >
-              {isFaceId ? <ScanFace className="w-3.5 h-3.5" /> : <Fingerprint className="w-3.5 h-3.5" />}
-              <span>{isFaceId ? 'Unlock with Face ID' : 'Unlock with Fingerprint'}</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Bottom Footer: Forgot PIN / Sign Out */}

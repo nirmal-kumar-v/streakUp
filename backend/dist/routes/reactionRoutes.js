@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const reactionController_1 = require("../controllers/reactionController");
+const authMiddleware_1 = require("../middleware/authMiddleware");
+const router = (0, express_1.Router)();
+router.use(authMiddleware_1.requireAuth);
+router.post('/:completionId', reactionController_1.toggleReaction);
+router.get('/:completionId', reactionController_1.getReactions);
+exports.default = router;

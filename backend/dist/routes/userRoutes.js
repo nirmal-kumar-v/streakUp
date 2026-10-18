@@ -20,4 +20,6 @@ router.post('/change-username', authMiddleware_1.requireAuth, userController_1.c
 router.get('/email-change-status', authMiddleware_1.requireAuth, userController_1.getEmailChangeStatus);
 router.post('/change-email/request', authMiddleware_1.requireAuth, userController_1.requestChangeEmail);
 router.post('/change-email/verify', authMiddleware_1.requireAuth, userController_1.verifyChangeEmail);
+// Permanent Account Deletion (Requirement 4)
+router.delete('/account', authMiddleware_1.requireAuth, userController_1.deleteAccount);
 exports.default = router;

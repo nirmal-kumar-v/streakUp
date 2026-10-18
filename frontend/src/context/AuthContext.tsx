@@ -36,13 +36,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(res.user);
         localStorage.setItem('streakup_user', JSON.stringify(res.user));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn('Failed to refresh user profile:', err);
-      // If token expired, clear
-      localStorage.removeItem('streakup_token');
-      localStorage.removeItem('streakup_user');
-      setUser(null);
-      setToken(null);
+      // Only clear credentials if the server explicitly rejects the token with 401 Unauthorized.
+      // If there is a network error, offline state, or cold start, keep user logged in using cached profile.
+      if (err?.response?.status === 401) {
+        localStorage.removeItem('streakup_token');
+        localStorage.removeItem('streakup_user');
+        setUser(null);
+        setToken(null);
+      }
     } finally {
       setIsLoading(false);
     }

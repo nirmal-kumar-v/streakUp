@@ -46,6 +46,7 @@ exports.getTimezones = getTimezones;
 exports.getEmailChangeStatus = getEmailChangeStatus;
 exports.requestChangeEmail = requestChangeEmail;
 exports.verifyChangeEmail = verifyChangeEmail;
+exports.deleteAccount = deleteAccount;
 const zod_1 = require("zod");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
@@ -78,6 +79,7 @@ async function getPublicProfile(req, res) {
                 profileImage: true,
                 currentStreak: true,
                 longestStreak: true,
+                points: true,
                 createdAt: true,
                 _count: {
                     select: {
@@ -133,6 +135,7 @@ async function getPublicProfile(req, res) {
                 profileImage: user.profileImage,
                 currentStreak: user.currentStreak,
                 longestStreak: user.longestStreak,
+                points: user.points ?? 0,
                 totalCompletedTasks: user._count.taskCompletions,
                 memberSince: user.createdAt,
                 relationshipStatus,
@@ -668,5 +671,94 @@ async function verifyChangeEmail(req, res) {
     catch (err) {
         console.error('verifyChangeEmail error:', err);
         return res.status(500).json({ success: false, error: 'Failed to verify email change.' });
+    }
+}
+const deleteAccountSchema = zod_1.z.object({
+    confirmation: zod_1.z.string().refine((val) => val === 'DELETE', {
+        message: 'You must type DELETE to confirm account deletion'
+    }),
+    password: zod_1.z.string().optional()
+});
+/**
+ * Permanently and irreversibly deletes the user account and all personal data (Requirement 4).
+ * Handles group ownership transfers cleanly, and cascades all user data.
+ */
+async function deleteAccount(req, res) {
+    try {
+        const userId = req.user.userId;
+        const parseResult = deleteAccountSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                success: false,
+                error: parseResult.error.errors[0]?.message || 'Please type DELETE to confirm'
+            });
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            include: {
+                ownedGroups: {
+                    include: {
+                        members: {
+                            where: { userId: { not: userId } },
+                            orderBy: { joinedAt: 'asc' }
+                        }
+                    }
+                }
+            }
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        // If password provided, verify it
+        if (parseResult.data.password && user.passwordHash) {
+            const bcrypt = await Promise.resolve().then(() => __importStar(require('bcryptjs')));
+            const isValid = await bcrypt.compare(parseResult.data.password, user.passwordHash);
+            if (!isValid) {
+                return res.status(401).json({ success: false, error: 'Incorrect password entered.' });
+            }
+        }
+        // Execute atomic cleanup
+        await prisma_1.default.$transaction(async (tx) => {
+            // 1. Handle owned groups safely:
+            // If group has other members, transfer ownership to the earliest joined member.
+            // If user was the sole member, delete the group.
+            for (const group of user.ownedGroups) {
+                if (group.members.length > 0) {
+                    const nextOwner = group.members[0];
+                    await tx.group.update({
+                        where: { id: group.id },
+                        data: { ownerId: nextOwner.userId }
+                    });
+                    await tx.groupMember.update({
+                        where: { id: nextOwner.id },
+                        data: { role: 'OWNER' }
+                    });
+                }
+                else {
+                    await tx.group.delete({
+                        where: { id: group.id }
+                    });
+                }
+            }
+            // 2. Delete the user
+            // All relations with onDelete: Cascade will be permanently removed:
+            // Task, TaskCompletion, PointLedger, StudyNoteReaction, GroupMember,
+            // Friendship, FriendRequest, FreezeLog, Notification, NotificationPreference,
+            // ReminderSchedule, MilestoneEvent, EmailDelivery, EmailOtp, PasswordResetToken.
+            await tx.user.delete({
+                where: { id: userId }
+            });
+        });
+        // Clear any auth cookies if present
+        res.clearCookie('token');
+        res.clearCookie('jwt');
+        return res.json({
+            success: true,
+            message: 'Your account and all associated data have been permanently deleted.'
+        });
+    }
+    catch (err) {
+        console.error('deleteAccount error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to delete account.' });
     }
 }
