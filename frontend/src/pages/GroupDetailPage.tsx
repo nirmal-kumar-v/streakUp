@@ -90,9 +90,9 @@ export const GroupDetailPage: React.FC = () => {
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  const loadGroupDetails = useCallback(async () => {
+  const loadGroupDetails = useCallback(async (isSilent = false) => {
     if (!groupId) return;
-    if (!group) setIsLoadingGroup(true);
+    if (!isSilent) setIsLoadingGroup(true);
     try {
       const res = await fetchGroupDetails(groupId);
       if (res.success && res.group) {
@@ -103,7 +103,7 @@ export const GroupDetailPage: React.FC = () => {
     } finally {
       setIsLoadingGroup(false);
     }
-  }, [groupId, group]);
+  }, [groupId]);
 
   const loadLeaderboard = useCallback(async () => {
     if (!groupId) return;

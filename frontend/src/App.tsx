@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BadgeProvider } from './context/BadgeContext';
@@ -9,27 +9,57 @@ import { Navbar } from './components/Navbar';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
-import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { TasksPage } from './pages/TasksPage';
-import { GlobalLeaderboardPage } from './pages/GlobalLeaderboardPage';
-import { FriendsLeaderboardPage } from './pages/FriendsLeaderboardPage';
-import { FriendsPage } from './pages/FriendsPage';
-import { FriendsTasksPage } from './pages/FriendsTasksPage';
-import { PublicProfilePage } from './pages/PublicProfilePage';
-import { SettingsPage } from './pages/SettingsPage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
-import { GroupsPage } from './pages/GroupsPage';
-import { GroupDetailPage } from './pages/GroupDetailPage';
-import { TermsPage } from './pages/TermsPage';
-import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
 import { apiClient } from './api/client';
+
+// Lazy loaded secondary routes for optimal initial bundle size and rapid FCP
+const ForgotPasswordPage = lazy(() =>
+  import('./pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage }))
+);
+const ResetPasswordPage = lazy(() =>
+  import('./pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage }))
+);
+const GlobalLeaderboardPage = lazy(() =>
+  import('./pages/GlobalLeaderboardPage').then((m) => ({ default: m.GlobalLeaderboardPage }))
+);
+const FriendsLeaderboardPage = lazy(() =>
+  import('./pages/FriendsLeaderboardPage').then((m) => ({ default: m.FriendsLeaderboardPage }))
+);
+const FriendsPage = lazy(() =>
+  import('./pages/FriendsPage').then((m) => ({ default: m.FriendsPage }))
+);
+const FriendsTasksPage = lazy(() =>
+  import('./pages/FriendsTasksPage').then((m) => ({ default: m.FriendsTasksPage }))
+);
+const PublicProfilePage = lazy(() =>
+  import('./pages/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage }))
+);
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
+const NotificationsPage = lazy(() =>
+  import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
+);
+const NotificationSettingsPage = lazy(() =>
+  import('./pages/NotificationSettingsPage').then((m) => ({ default: m.NotificationSettingsPage }))
+);
+const GroupsPage = lazy(() =>
+  import('./pages/GroupsPage').then((m) => ({ default: m.GroupsPage }))
+);
+const GroupDetailPage = lazy(() =>
+  import('./pages/GroupDetailPage').then((m) => ({ default: m.GroupDetailPage }))
+);
+const TermsPage = lazy(() =>
+  import('./pages/TermsPage').then((m) => ({ default: m.TermsPage }))
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('./pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage }))
+);
 
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -53,20 +83,29 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <>{children}</>;
 };
 
+const PageFallback: React.FC = () => (
+  <div className="py-24 flex items-center justify-center text-dark-muted text-xs">
+    <div className="flex items-center gap-2">
+      <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
+      <span>Loading...</span>
+    </div>
+  </div>
+);
+
 export const AppContent: React.FC = () => {
   const { isAuthenticated } = useAuth();
 
-  // Periodically trigger serverless reminder check while user is active
+  // Periodically trigger serverless reminder check while user is active (every 5 minutes)
   React.useEffect(() => {
     if (!isAuthenticated) return;
 
     // Check immediately on load/mount
     apiClient.get('/cron/reminders').catch(() => {});
 
-    // Periodic check every 60 seconds
+    // Periodic check every 5 minutes (300,000 ms) instead of continuous aggressive 60s polling
     const timer = setInterval(() => {
       apiClient.get('/cron/reminders').catch(() => {});
-    }, 60000);
+    }, 300000);
 
     return () => clearInterval(timer);
   }, [isAuthenticated]);
@@ -79,7 +118,8 @@ export const AppContent: React.FC = () => {
       <StreakCelebration />
       {isAuthenticated && <PostCompletionNudge />}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <Routes>
+        <Suspense fallback={<PageFallback />}>
+          <Routes>
           {/* Public Routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -193,6 +233,7 @@ export const AppContent: React.FC = () => {
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+      </Suspense>
       </main>
 
       {/* Footer */}

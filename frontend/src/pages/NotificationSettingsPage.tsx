@@ -7,7 +7,6 @@ import {
   createReminderSchedule,
   deleteReminderSchedule,
   sendTestEmail,
-  fetchSmtpStatus,
   requestNotificationEmailOtp,
   verifyNotificationEmailOtp,
   removeNotificationEmail,
@@ -42,8 +41,6 @@ export const NotificationSettingsPage: React.FC = () => {
   const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
   const [defaultEmail, setDefaultEmail] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('Asia/Kolkata');
-  const [isSmtpConfigured, setIsSmtpConfigured] = useState<boolean>(false);
-  const [smtpStatusMsg, setSmtpStatusMsg] = useState<string>('');
 
   const [schedules, setSchedules] = useState<ReminderScheduleItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -108,11 +105,10 @@ export const NotificationSettingsPage: React.FC = () => {
       setIsLoading(true);
     }
     try {
-      const [prefRes, schedRes, tasksRes, smtpRes] = await Promise.all([
+      const [prefRes, schedRes, tasksRes] = await Promise.all([
         fetchNotificationPreferences(),
         fetchReminderSchedules(),
         fetchTasks({ status: 'ACTIVE' }),
-        fetchSmtpStatus(),
       ]);
 
       if (prefRes.success) {
@@ -131,11 +127,6 @@ export const NotificationSettingsPage: React.FC = () => {
         if (recurring.length > 0 && !taskSelectedId) {
           setTaskSelectedId(recurring[0].id);
         }
-      }
-
-      if (smtpRes.success) {
-        setIsSmtpConfigured(smtpRes.isConfigured);
-        setSmtpStatusMsg(smtpRes.message || (smtpRes.isConfigured ? 'Ready to deliver' : 'Not configured'));
       }
     } catch (err) {
       console.error('Failed to load notification settings:', err);
@@ -357,11 +348,11 @@ export const NotificationSettingsPage: React.FC = () => {
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Notification Center
         </Link>
-        <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5">
-          <Bell className="w-7 h-7 text-flame-500" />
+        <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5 break-words">
+          <Bell className="w-6 h-6 sm:w-7 sm:h-7 text-flame-500 shrink-0" />
           Notification Preferences & Reminders
         </h1>
-        <p className="text-xs sm:text-sm text-dark-muted mt-1">
+        <p className="text-xs sm:text-sm text-dark-muted mt-1 break-words">
           Customize your daily email reminder schedules, friend activity alerts, and milestone updates
         </p>
       </div>
@@ -385,36 +376,25 @@ export const NotificationSettingsPage: React.FC = () => {
       )}
 
       {/* SECTION 1: Delivery Channels & Email Destination */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-6">
-        <div className="flex items-center justify-between border-b border-dark-border pb-4 flex-wrap gap-2">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-dark-border pb-4 gap-3">
           <div>
             <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-              <Mail className="w-5 h-5 text-flame-500" />
+              <Mail className="w-5 h-5 text-flame-500 shrink-0" />
               Delivery Channels & Destination
             </h3>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-xs text-dark-muted">
                 Timezone: <span className="font-mono text-zinc-200 font-semibold">{timezone}</span>
               </span>
-              <span className="text-zinc-600 hidden sm:inline">•</span>
-              <span
-                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border ${
-                  isSmtpConfigured
-                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                }`}
-              >
-                {isSmtpConfigured ? 'SMTP Configured' : 'SMTP Off'}
-                {smtpStatusMsg && ` (${smtpStatusMsg})`}
-              </span>
             </div>
           </div>
 
-          <div className="flex flex-col items-start sm:items-end gap-1.5">
+          <div className="flex flex-col sm:items-end gap-1.5 w-full sm:w-auto">
             <button
               onClick={handleSendTestEmail}
               disabled={isSendingTest || cooldownRemaining > 0}
-              className="px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-300 rounded-xl inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="w-full sm:w-auto px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-300 rounded-xl inline-flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <Send className="w-3.5 h-3.5 text-flame-400" />
               {isSendingTest ? 'Sending...' : 'Send Test Email'}
@@ -471,7 +451,7 @@ export const NotificationSettingsPage: React.FC = () => {
         {/* Destination Email Section */}
         <div className="pt-2 border-t border-dark-border space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
+            <div className="min-w-0 flex-1">
               <label className="block text-xs font-bold text-zinc-200">
                 Notification Destination Email
               </label>
@@ -480,38 +460,38 @@ export const NotificationSettingsPage: React.FC = () => {
               </p>
             </div>
             {preferences.customNotificationEmail && preferences.isCustomEmailVerified ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
                 <Check className="w-3 h-3" />
                 Verified Custom Inbox
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
                 Default Account Email
               </span>
             )}
           </div>
 
           {notifEmailStep === 'idle' ? (
-            <div className="flex items-center justify-between p-3.5 bg-dark-surface/60 rounded-xl border border-dark-border gap-3 flex-wrap">
-              <div className="text-xs text-zinc-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-dark-surface/60 rounded-xl border border-dark-border gap-3">
+              <div className="text-xs text-zinc-300 min-w-0 flex-1 break-words">
                 Current destination:{' '}
-                <strong className="font-mono text-zinc-100">
+                <strong className="font-mono text-zinc-100 break-all">
                   {preferences.customNotificationEmail && preferences.isCustomEmailVerified
                     ? preferences.customNotificationEmail
                     : defaultEmail}
                 </strong>
                 {!(preferences.customNotificationEmail && preferences.isCustomEmailVerified) && (
-                  <span className="text-[11px] text-zinc-500 ml-1.5">(Registered email)</span>
+                  <span className="text-[11px] text-zinc-500 ml-1.5 whitespace-nowrap">(Registered email)</span>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto shrink-0">
                 {preferences.customNotificationEmail && preferences.isCustomEmailVerified && (
                   <button
                     type="button"
                     onClick={handleRemoveNotifEmail}
                     disabled={isVerifyingNotifEmail}
-                    className="px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors font-medium"
+                    className="flex-1 sm:flex-none px-3 py-1.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 rounded-lg transition-colors font-medium text-center"
                   >
                     Revert to Default
                   </button>
@@ -523,7 +503,7 @@ export const NotificationSettingsPage: React.FC = () => {
                     setNotifEmailInput('');
                     setNotifEmailOtp('');
                   }}
-                  className="px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-200 hover:text-flame-400 rounded-lg transition-colors"
+                  className="flex-1 sm:flex-none px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-200 hover:text-flame-400 rounded-lg transition-colors text-center"
                 >
                   {preferences.customNotificationEmail && preferences.isCustomEmailVerified
                     ? 'Change Custom Email'
@@ -532,7 +512,7 @@ export const NotificationSettingsPage: React.FC = () => {
               </div>
             </div>
           ) : notifEmailStep === 'input' ? (
-            <form onSubmit={handleRequestNotifEmailOtp} className="p-4 bg-dark-surface/40 rounded-2xl border border-dark-border space-y-3 max-w-lg">
+            <form onSubmit={handleRequestNotifEmailOtp} className="p-4 bg-dark-surface/40 rounded-2xl border border-dark-border space-y-3 w-full max-w-lg">
               <label className="block text-xs font-semibold text-zinc-300">
                 Enter New Notification Email
               </label>
@@ -569,9 +549,9 @@ export const NotificationSettingsPage: React.FC = () => {
               </div>
             </form>
           ) : (
-            <form onSubmit={handleVerifyNotifEmailOtp} className="p-4 bg-dark-surface/40 rounded-2xl border border-dark-border space-y-3 max-w-lg">
-              <div className="flex items-center justify-between text-xs text-zinc-300">
-                <span>Enter 6-digit code sent to <strong className="font-mono text-zinc-100">{notifEmailInput}</strong>:</span>
+            <form onSubmit={handleVerifyNotifEmailOtp} className="p-4 bg-dark-surface/40 rounded-2xl border border-dark-border space-y-3 w-full max-w-lg">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-zinc-300">
+                <span>Enter 6-digit code sent to <strong className="font-mono text-zinc-100 break-all">{notifEmailInput}</strong>:</span>
                 <button
                   type="button"
                   onClick={() => setNotifEmailStep('input')}
@@ -592,7 +572,7 @@ export const NotificationSettingsPage: React.FC = () => {
                 className="w-full py-2.5 text-center text-xl font-mono tracking-[0.4em] bg-dark-surface border border-dark-border rounded-xl text-zinc-100 font-bold focus:outline-none focus:border-flame-500"
               />
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
                 <button
                   type="button"
                   disabled={notifOtpCooldown > 0 || isVerifyingNotifEmail}
@@ -603,7 +583,7 @@ export const NotificationSettingsPage: React.FC = () => {
                   {notifOtpCooldown > 0 ? `Resend in ${notifOtpCooldown}s` : 'Resend code'}
                 </button>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 justify-end">
                   <button
                     type="button"
                     onClick={() => setNotifEmailStep('idle')}
@@ -626,14 +606,14 @@ export const NotificationSettingsPage: React.FC = () => {
       </div>
 
       {/* SECTION 2: Daily Overall Streak Reminders (Max 3) */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-5">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-5">
         <div>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-              <Flame className="w-5 h-5 text-flame-500" />
+              <Flame className="w-5 h-5 text-flame-500 shrink-0" />
               Overall Streak Reminders (Max 3 Times)
             </h3>
-            <span className="text-xs font-mono font-bold text-flame-400 bg-flame-500/10 px-2.5 py-0.5 rounded-full border border-flame-500/20">
+            <span className="text-xs font-mono font-bold text-flame-400 bg-flame-500/10 px-2.5 py-0.5 rounded-full border border-flame-500/20 shrink-0">
               {overallSchedules.length} / 3 configured
             </span>
           </div>
@@ -654,7 +634,7 @@ export const NotificationSettingsPage: React.FC = () => {
                 key={item.id}
                 className="px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl flex items-center gap-2 text-xs font-mono font-bold text-zinc-100 shadow-sm"
               >
-                <Clock className="w-3.5 h-3.5 text-flame-400" />
+                <Clock className="w-3.5 h-3.5 text-flame-400 shrink-0" />
                 <span>{item.time}</span>
                 <button
                   onClick={() => handleDeleteReminder(item.id)}
@@ -670,16 +650,16 @@ export const NotificationSettingsPage: React.FC = () => {
 
         {/* Add Overall Reminder Time Form */}
         {overallSchedules.length < 3 && (
-          <div className="flex items-center gap-2 pt-2 max-w-sm">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 pt-2 max-w-sm">
             <input
               type="time"
               value={overallNewTime}
               onChange={(e) => setOverallNewTime(e.target.value)}
-              className="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-flame-500"
+              className="flex-1 sm:flex-none px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-flame-500"
             />
             <button
               onClick={handleAddOverallReminder}
-              className="px-3.5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-flame-400 rounded-xl inline-flex items-center gap-1.5 transition-colors"
+              className="px-3.5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-flame-400 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Add Time
@@ -689,10 +669,10 @@ export const NotificationSettingsPage: React.FC = () => {
       </div>
 
       {/* SECTION 3: Independent Recurring Task Reminders (Max 3 per task) */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-5">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-5">
         <div>
           <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-            <Zap className="w-5 h-5 text-amber-400" />
+            <Zap className="w-5 h-5 text-amber-400 shrink-0" />
             Individual Task Reminders (Max 3 per Task)
           </h3>
           <p className="text-xs text-dark-muted mt-1">
@@ -707,8 +687,8 @@ export const NotificationSettingsPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {/* Task selector and add form */}
-            <div className="p-4 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex-1 min-w-[200px]">
+            <div className="p-3.5 sm:p-4 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-end gap-3">
+              <div className="w-full sm:flex-1 min-w-0">
                 <label className="block text-[11px] font-bold text-zinc-400 mb-1">
                   Select Recurring Habit
                 </label>
@@ -720,7 +700,7 @@ export const NotificationSettingsPage: React.FC = () => {
                 />
               </div>
 
-              <div>
+              <div className="w-full sm:w-auto">
                 <label className="block text-[11px] font-bold text-zinc-400 mb-1">
                   Reminder Time (HH:mm)
                 </label>
@@ -728,11 +708,11 @@ export const NotificationSettingsPage: React.FC = () => {
                   type="time"
                   value={taskNewTime}
                   onChange={(e) => setTaskNewTime(e.target.value)}
-                  className="px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-flame-500"
+                  className="w-full sm:w-auto px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-flame-500"
                 />
               </div>
 
-              <div className="sm:self-end">
+              <div className="w-full sm:w-auto">
                 <button
                   onClick={handleAddTaskReminder}
                   className="w-full sm:w-auto px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-bold text-xs rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors"
@@ -754,10 +734,10 @@ export const NotificationSettingsPage: React.FC = () => {
                 return (
                   <div
                     key={task.id}
-                    className="p-3 bg-dark-surface rounded-xl border border-dark-border flex items-center justify-between flex-wrap gap-2"
+                    className="p-3 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                   >
-                    <div>
-                      <div className="text-xs font-bold text-zinc-100">{task.title}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-zinc-100 truncate">{task.title}</div>
                       <div className="text-[10px] text-dark-muted font-mono">
                         {taskScheds.length} / 3 scheduled
                       </div>
@@ -769,7 +749,7 @@ export const NotificationSettingsPage: React.FC = () => {
                           key={sched.id}
                           className="px-2.5 py-1 bg-dark-card border border-dark-border rounded-lg flex items-center gap-1.5 text-xs font-mono text-zinc-200"
                         >
-                          <Clock className="w-3 h-3 text-amber-400" />
+                          <Clock className="w-3 h-3 text-amber-400 shrink-0" />
                           <span>{sched.time}</span>
                           <button
                             onClick={() => handleDeleteReminder(sched.id)}
@@ -789,7 +769,7 @@ export const NotificationSettingsPage: React.FC = () => {
       </div>
 
       {/* SECTION 4: Category Notification Toggles */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-4">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-4">
         <h3 className="text-base font-bold text-zinc-100">Notification Types & Triggers</h3>
         <p className="text-xs text-dark-muted">
           Control which events trigger in-app updates and emails.
@@ -797,13 +777,13 @@ export const NotificationSettingsPage: React.FC = () => {
 
         <div className="divide-y divide-dark-border">
           {/* Friend Overall Activity */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <Users2 className="w-3.5 h-3.5 text-blue-400" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <Users2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 Friend Overall Activity Alerts
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Notify me when an accepted friend finishes today's overall activity and I haven't completed any task yet
               </div>
             </div>
@@ -822,13 +802,13 @@ export const NotificationSettingsPage: React.FC = () => {
           </div>
 
           {/* Friend Task Activity */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 Friend Matching Task Alerts
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Notify me when an accepted friend finishes a matching habit and I haven't finished mine today
               </div>
             </div>
@@ -847,13 +827,13 @@ export const NotificationSettingsPage: React.FC = () => {
           </div>
 
           {/* Friend Overall Milestones */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <Trophy className="w-3.5 h-3.5 text-purple-400" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <Trophy className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                 Friend Overall Streak Milestones
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Notify me when a friend hits 5, 10, 25, 50, 100+ day overall milestones
               </div>
             </div>
@@ -872,13 +852,13 @@ export const NotificationSettingsPage: React.FC = () => {
           </div>
 
           {/* Friend Task Milestones */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <Trophy className="w-3.5 h-3.5 text-purple-400" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <Trophy className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                 Friend Task Streak Milestones
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Notify me when a friend reaches a streak milestone on a matching task
               </div>
             </div>
@@ -897,13 +877,13 @@ export const NotificationSettingsPage: React.FC = () => {
           </div>
 
           {/* My Own Milestones */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <Flame className="w-3.5 h-3.5 text-flame-500" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <Flame className="w-3.5 h-3.5 text-flame-500 shrink-0" />
                 My Own Streak Milestone Emails
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Send me a celebratory email whenever I unlock an overall or habit streak milestone
               </div>
             </div>
@@ -922,13 +902,13 @@ export const NotificationSettingsPage: React.FC = () => {
           </div>
 
           {/* Freeze and Streak Status Alerts */}
-          <div className="py-3.5 flex items-center justify-between">
-            <div className="pr-4">
-              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+          <div className="py-3.5 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 pr-2 sm:pr-4">
+              <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                 Streak Freeze & Status Alerts
               </div>
-              <div className="text-[11px] text-dark-muted mt-0.5">
+              <div className="text-[11px] text-dark-muted mt-0.5 break-words">
                 Receive notifications when an available freeze protects your streak after a missed day
               </div>
             </div>

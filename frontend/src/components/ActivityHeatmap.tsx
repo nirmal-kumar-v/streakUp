@@ -237,37 +237,40 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
         </div>
       ) : (
         <div className="overflow-x-auto pb-2 scrollbar-thin">
-          <div className="inline-block min-w-full">
+          <div className="min-w-[760px] w-full">
             {/* Month labels aligned with week columns */}
-            <div className="flex mb-1 pl-7 text-[10px] font-mono text-zinc-400 select-none">
-              {weeks.map((_, wIdx) => {
-                const label = monthLabels.find((m) => m.weekIndex === wIdx);
-                return (
-                  <div
-                    key={wIdx}
-                    className="w-3 sm:w-3.5 mr-1 text-left shrink-0 overflow-visible whitespace-nowrap"
-                  >
-                    {label ? label.monthName : ''}
-                  </div>
-                );
-              })}
+            <div className="flex items-center gap-1.5 mb-1.5 select-none">
+              <div className="w-6 shrink-0" />
+              <div className="grid grid-flow-col auto-cols-fr gap-1 flex-1 text-[10px] font-mono text-zinc-400">
+                {weeks.map((_, wIdx) => {
+                  const label = monthLabels.find((m) => m.weekIndex === wIdx);
+                  return (
+                    <div
+                      key={wIdx}
+                      className="text-left overflow-visible whitespace-nowrap"
+                    >
+                      {label ? label.monthName : ''}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Main grid with day labels on left */}
-            <div className="flex items-start gap-1.5">
+            <div className="flex items-stretch gap-1.5">
               {/* Day of week labels (Sun..Sat) */}
-              <div className="flex flex-col gap-1 pt-0.5 text-[9px] font-mono text-zinc-500 shrink-0 select-none">
-                <span className="h-3 sm:h-3.5 leading-3">Sun</span>
-                <span className="h-3 sm:h-3.5 leading-3 opacity-0">Mon</span>
-                <span className="h-3 sm:h-3.5 leading-3">Tue</span>
-                <span className="h-3 sm:h-3.5 leading-3 opacity-0">Wed</span>
-                <span className="h-3 sm:h-3.5 leading-3">Thu</span>
-                <span className="h-3 sm:h-3.5 leading-3 opacity-0">Fri</span>
-                <span className="h-3 sm:h-3.5 leading-3">Sat</span>
+              <div className="grid grid-rows-7 gap-1 w-6 shrink-0 text-[9px] font-mono text-zinc-500 select-none">
+                <span className="flex items-center leading-none">Sun</span>
+                <span className="flex items-center leading-none opacity-0">Mon</span>
+                <span className="flex items-center leading-none">Tue</span>
+                <span className="flex items-center leading-none opacity-0">Wed</span>
+                <span className="flex items-center leading-none">Thu</span>
+                <span className="flex items-center leading-none opacity-0">Fri</span>
+                <span className="flex items-center leading-none">Sat</span>
               </div>
 
               {/* 52-53 Columns of 7 Days */}
-              <div className="inline-grid grid-rows-7 grid-flow-col gap-1">
+              <div className="grid grid-rows-7 grid-flow-col auto-cols-fr gap-1 flex-1">
                 {weeks.map((week) =>
                   week.map((day) => (
                     <div
@@ -278,7 +281,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
                           ? `${day.formattedDate}: Future date`
                           : `${day.formattedDate}: ${day.count} habit${day.count === 1 ? '' : 's'} completed`
                       }
-                      className={`w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-sm border transition-all duration-100 ${getCellColor(
+                      className={`aspect-square w-full rounded-sm border transition-all duration-100 ${getCellColor(
                         day.count,
                         day.isInRange,
                         day.isFuture
