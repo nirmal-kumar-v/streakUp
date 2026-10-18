@@ -154,8 +154,8 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center justify-between h-full">
           {/* Logo / Brand */}
           <Link to={isAuthenticated ? '/dashboard' : '/'} className="flex items-center gap-2.5 group shrink-0">
-            <div className="w-9 h-9 rounded-xl bg-flame-500/10 border border-flame-500/25 flex items-center justify-center text-flame-400 group-hover:scale-105 transition-all shadow-sm">
-              <Flame className="w-5 h-5 text-flame-500 fill-flame-500" />
+            <div className="w-9 h-9 rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-950 flex items-center justify-center group-hover:scale-105 transition-all shadow-sm">
+              <img src="/icons/logo.png" alt="StreakUp Logo" className="w-full h-full object-cover" />
             </div>
             <div className="flex flex-col">
               <span className="text-base sm:text-lg font-black tracking-tight text-zinc-100 flex items-center">

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { registerUser, verifySignupOtp, resendSignupOtp } from '../api/auth';
 import { fetchTimezones, TimezoneOption } from '../api/user';
 import { useAuth } from '../context/AuthContext';
-import { Flame, AlertCircle, ArrowRight, Lock, User as UserIcon, Mail, Globe, CheckCircle2, RotateCw, KeyRound, Edit2 } from 'lucide-react';
+import { AlertCircle, ArrowRight, Lock, User as UserIcon, Mail, Globe, CheckCircle2, RotateCw, KeyRound, Edit2 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
 export const RegisterPage: React.FC = () => {
@@ -159,9 +159,9 @@ export const RegisterPage: React.FC = () => {
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-dark-card border border-dark-border rounded-3xl p-8 shadow-panel relative">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-flame-500/15 border border-flame-500/30 text-flame-500 mb-3 shadow-sm shadow-flame-500/20">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-950 mb-3 shadow-sm">
             {step === 'register' ? (
-              <Flame className="w-6 h-6 fill-flame-500" />
+              <img src="/icons/logo.png" alt="StreakUp Logo" className="w-full h-full object-cover" />
             ) : (
               <KeyRound className="w-6 h-6 text-flame-500" />
             )}
