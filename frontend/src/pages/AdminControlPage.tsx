@@ -187,6 +187,7 @@ export const AdminControlPage: React.FC = () => {
           if (res.success) {
             setIsAdminAuth(true);
             setActiveAdmin(res.admin);
+            handleSearchUsers('');
           }
         })
         .catch(() => {
@@ -195,6 +196,17 @@ export const AdminControlPage: React.FC = () => {
         });
     }
   }, []);
+
+  // ------------------------------------------
+  // Debounced auto-search on searchQuery change
+  // ------------------------------------------
+  useEffect(() => {
+    if (!isAdminAuth) return;
+    const timer = setTimeout(() => {
+      handleSearchUsers(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, isAdminAuth]);
 
   // ------------------------------------------
   // Auth Handlers
@@ -242,6 +254,12 @@ export const AdminControlPage: React.FC = () => {
         setSearchResults(res.users || []);
       }
     } catch (err: any) {
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        localStorage.removeItem('streakup_admin_token');
+        setIsAdminAuth(false);
+        toast.error('Admin session expired or unauthorized. Please sign in with Super Admin credentials.');
+        return;
+      }
       toast.error(extractErrorMessage(err, 'Failed to search users.'));
     } finally {
       setIsSearching(false);
@@ -270,6 +288,12 @@ export const AdminControlPage: React.FC = () => {
         }
       }
     } catch (err: any) {
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        localStorage.removeItem('streakup_admin_token');
+        setIsAdminAuth(false);
+        toast.error('Admin session expired or unauthorized. Please sign in with Super Admin credentials.');
+        return;
+      }
       toast.error(extractErrorMessage(err, 'Failed to load user details.'));
     } finally {
       setIsLoadingDetails(false);

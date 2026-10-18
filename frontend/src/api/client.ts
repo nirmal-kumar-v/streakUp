@@ -12,9 +12,13 @@ export const apiClient = axios.create({
   },
 });
 
-// Request interceptor: attach token
+// Request interceptor: attach token (prioritizes streakup_admin_token for /admin endpoints)
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('streakup_token');
+  const isAdminEndpoint = config.url && (config.url.startsWith('/admin') || config.url.includes('/admin/'));
+  const token = isAdminEndpoint
+    ? localStorage.getItem('streakup_admin_token')
+    : localStorage.getItem('streakup_token');
+
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -50,7 +54,8 @@ apiClient.interceptors.response.use(
       const hasToken = Boolean(localStorage.getItem('streakup_token'));
       const isLoginOrAuth =
         window.location.pathname.includes('/login') ||
-        window.location.pathname.includes('/register');
+        window.location.pathname.includes('/register') ||
+        window.location.pathname.includes('/admin-control');
 
       if (hasToken && !isLoginOrAuth && !isRedirectingToLogin) {
         isRedirectingToLogin = true;

@@ -1,4 +1,38 @@
-import apiClient from './client';
+import axios from 'axios';
+
+// Normalize base URL (strip trailing slash)
+const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
+
+export const adminApiClient = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Admin Request Interceptor: strictly attaches streakup_admin_token
+adminApiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('streakup_admin_token');
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Admin Response Interceptor: clear stale admin token on 401/403
+adminApiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      if (!error.config?.url?.includes('/admin/login')) {
+        localStorage.removeItem('streakup_admin_token');
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface AdminUser {
   id: string;
@@ -36,7 +70,7 @@ export interface AdminAuditLogItem {
 }
 
 export async function adminLogin(username: string, password: string) {
-  const res = await apiClient.post<{
+  const res = await adminApiClient.post<{
     success: boolean;
     token: string;
     admin: {
@@ -51,7 +85,7 @@ export async function adminLogin(username: string, password: string) {
 }
 
 export async function fetchAdminProfile() {
-  const res = await apiClient.get<{
+  const res = await adminApiClient.get<{
     success: boolean;
     admin: {
       id: string;
@@ -71,7 +105,7 @@ export async function changeAdminCredentials(data: {
   newSensitivePin?: string;
   reason?: string;
 }) {
-  const res = await apiClient.post<{ success: boolean; message: string }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
     '/admin/change-credentials',
     data
   );
@@ -84,7 +118,7 @@ export async function fetchAdminAuditLogs(params?: {
   page?: number;
   limit?: number;
 }) {
-  const res = await apiClient.get<{
+  const res = await adminApiClient.get<{
     success: boolean;
     logs: AdminAuditLogItem[];
     total: number;
@@ -95,7 +129,7 @@ export async function fetchAdminAuditLogs(params?: {
 }
 
 export async function searchAdminUsers(q: string = '') {
-  const res = await apiClient.get<{
+  const res = await adminApiClient.get<{
     success: boolean;
     users: AdminUser[];
   }>('/admin/users', { params: { q } });
@@ -103,7 +137,7 @@ export async function searchAdminUsers(q: string = '') {
 }
 
 export async function fetchAdminUserDetails(userId: string) {
-  const res = await apiClient.get<{
+  const res = await adminApiClient.get<{
     success: boolean;
     user: any;
   }>(`/admin/users/${userId}`);
@@ -114,7 +148,7 @@ export async function overrideUsernameCooldown(
   userId: string,
   data: { newUsername?: string; resetCooldownOnly?: boolean; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-username-cooldown`,
     data
   );
@@ -131,7 +165,7 @@ export async function correctUserStreak(
     reason: string;
   }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user?: any; task?: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user?: any; task?: any }>(
     `/admin/users/${userId}/correct-streak`,
     data
   );
@@ -148,7 +182,7 @@ export async function adjustUserFreezes(
     reason: string;
   }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any; historicalFreezeApplied: boolean }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any; historicalFreezeApplied: boolean }>(
     `/admin/users/${userId}/adjust-freezes`,
     data
   );
@@ -159,7 +193,7 @@ export async function adjustUserPoints(
   userId: string,
   data: { pointsDelta: number; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; points: number }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; points: number }>(
     `/admin/users/${userId}/adjust-points`,
     data
   );
@@ -170,7 +204,7 @@ export async function overrideUserLimit15(
   userId: string,
   data: { maxStarredNotifications: number; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-starred-limit`,
     data
   );
@@ -181,7 +215,7 @@ export async function deleteUserAccountByAdmin(
   userId: string,
   data: { reason: string; sensitivePin: string }
 ) {
-  const res = await apiClient.delete<{ success: boolean; message: string }>(
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
     `/admin/users/${userId}`,
     {
       data: { reason: data.reason },
@@ -195,7 +229,7 @@ export async function overrideEmailCooldown(
   userId: string,
   data: { newEmail?: string; resetCooldownOnly?: boolean; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/override-email-cooldown`,
     data
   );
@@ -206,7 +240,7 @@ export async function toggleUserEmailVerification(
   userId: string,
   data: { isEmailVerified?: boolean; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/toggle-email-verification`,
     data
   );
@@ -217,7 +251,7 @@ export async function updateUserTimezone(
   userId: string,
   data: { timezone: string; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/update-timezone`,
     data
   );
@@ -228,7 +262,7 @@ export async function resetNudgeCooldown(
   userId: string,
   data: { reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
     `/admin/users/${userId}/reset-nudge-cooldown`,
     data
   );
@@ -239,7 +273,7 @@ export async function updateTaskVisibility(
   taskId: string,
   data: { hiddenFrom: string[]; visibleOnlyTo: string[]; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; task: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
     `/admin/tasks/${taskId}/visibility`,
     data
   );
@@ -250,7 +284,7 @@ export async function adminManageGroupMember(
   groupId: string,
   data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER'; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
     `/admin/groups/${groupId}/manage-member`,
     data
   );
@@ -261,7 +295,7 @@ export async function adminRecoverGroupTask(
   taskId: string,
   data: { reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; task: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
     `/admin/tasks/${taskId}/recover`,
     data
   );
@@ -272,10 +306,9 @@ export async function adminModerateStudyNote(
   completionId: string,
   data: { studyNote?: string | null; clearReactions?: boolean; reason: string }
 ) {
-  const res = await apiClient.post<{ success: boolean; message: string; completion: any }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; completion: any }>(
     `/admin/completions/${completionId}/moderate`,
     data
   );
   return res.data;
 }
-
