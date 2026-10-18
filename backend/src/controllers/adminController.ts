@@ -130,7 +130,7 @@ export async function dispatchAdminNotification(opts: AdminNotificationOptions) 
       await prisma.notification.create({
         data: {
           userId,
-          type: NotificationCategory.SYSTEM,
+          category: NotificationCategory.SYSTEM,
           title: noticeTitle,
           message: fullMessage,
         },

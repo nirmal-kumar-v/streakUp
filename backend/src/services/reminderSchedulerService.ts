@@ -170,6 +170,8 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
 
       if (notif) sent++;
     }
+  }
+
   // Automatically purge admin audit logs older than 15 days
   try {
     await cleanupOldAuditLogs();
