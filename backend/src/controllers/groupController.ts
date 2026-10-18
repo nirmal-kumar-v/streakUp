@@ -444,7 +444,17 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
       where: { groupId_userId: { groupId: id, userId: adminUserId } },
     });
 
-    if (!adminMembership || (adminMembership.role !== 'OWNER' && adminMembership.role !== 'ADMIN')) {
+    const targetGroup = await prisma.group.findUnique({
+      where: { id },
+      select: { ownerId: true },
+    });
+
+    const isAuthorized =
+      targetGroup?.ownerId === adminUserId ||
+      adminMembership?.role === 'OWNER' ||
+      adminMembership?.role === 'ADMIN';
+
+    if (!isAuthorized) {
       return res.status(403).json({ success: false, error: 'Forbidden. Only group Owners and Admins can accept or reject requests.' });
     }
 
@@ -1390,11 +1400,20 @@ export async function inviteToGroup(req: AuthenticatedRequest, res: Response) {
     const inviterId = req.user!.userId;
     const { id } = req.params; // groupId
 
+    const group = await prisma.group.findUnique({
+      where: { id },
+      select: { id: true, name: true, ownerId: true },
+    });
+
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
     const membership = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId: id, userId: inviterId } },
     });
 
-    if (!membership) {
+    if (!membership && group.ownerId !== inviterId) {
       return res.status(403).json({ success: false, error: 'Forbidden. You must be a member of this group to invite others.' });
     }
 
@@ -1417,7 +1436,12 @@ export async function inviteToGroup(req: AuthenticatedRequest, res: Response) {
     } else if (inviteeUsername) {
       const cleanUsername = inviteeUsername.trim().toLowerCase().replace(/^@/, '');
       targetUser = await prisma.user.findFirst({
-        where: { normalizedUsername: cleanUsername },
+        where: {
+          OR: [
+            { normalizedUsername: cleanUsername },
+            { username: { equals: cleanUsername, mode: 'insensitive' } },
+          ],
+        },
         select: { id: true, name: true, username: true },
       });
     }
@@ -1592,9 +1616,65 @@ export async function respondToGroupInvitation(req: AuthenticatedRequest, res: R
       });
     }
 
-    // ACCEPT: Join group & create/activate task
-    const group = invitation.group;
+    // Check if inviter is the owner or an admin
+    const inviterMembership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: group.id, userId: invitation.inviterId } },
+    });
+    const isInviterOwnerOrAdmin =
+      group.ownerId === invitation.inviterId ||
+      inviterMembership?.role === 'OWNER' ||
+      inviterMembership?.role === 'ADMIN';
 
+    if (!isInviterOwnerOrAdmin) {
+      // The invitation was from a regular member:
+      // "my friend can invite his friend 'even he is not a friend to the owner'.. but the owner and admin should approve"
+      await prisma.$transaction(async (tx) => {
+        await tx.groupInvitation.update({
+          where: { id: invitationId },
+          data: { status: 'ACCEPTED' },
+        });
+
+        await tx.groupJoinRequest.upsert({
+          where: { groupId_userId: { groupId: group.id, userId } },
+          create: {
+            groupId: group.id,
+            userId,
+            status: 'PENDING',
+          },
+          update: {
+            status: 'PENDING',
+            updatedAt: new Date(),
+          },
+        });
+
+        const acceptingUser = await tx.user.findUnique({
+          where: { id: userId },
+          select: { name: true, username: true },
+        });
+        const inviterUser = await tx.user.findUnique({
+          where: { id: invitation.inviterId },
+          select: { name: true, username: true },
+        });
+
+        await tx.notification.create({
+          data: {
+            userId: group.ownerId,
+            category: 'SYSTEM',
+            title: 'Group Join Approval Needed',
+            message: `${acceptingUser?.name || acceptingUser?.username || 'A friend'} accepted an invitation from @${inviterUser?.username || 'a member'} to join "${group.name}". Waiting for your approval.`,
+            actionUrl: `/groups/${group.id}`,
+          },
+        });
+      });
+
+      return res.json({
+        success: true,
+        requiresApproval: true,
+        message: 'Invitation accepted! Your membership is pending approval by the group owner/admin.',
+      });
+    }
+
+    // Direct join if invited by owner or admin
     await prisma.$transaction(async (tx) => {
       // 1. Mark invitation accepted
       await tx.groupInvitation.update({

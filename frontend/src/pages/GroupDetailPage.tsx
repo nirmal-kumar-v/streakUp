@@ -20,7 +20,7 @@ import {
   GroupJoinRequestItem,
 } from '../api/groups';
 import { completeTask, updateTask } from '../api/tasks';
-import { sendFriendRequest, fetchFriendsList, FriendUser } from '../api/friends';
+import { sendFriendRequest, fetchFriendsList, searchUsers, FriendUser } from '../api/friends';
 import { toggleStudyNoteReaction, EmojiType } from '../api/reactions';
 import { useToast } from '../context/ToastContext';
 import { InitialsAvatar } from '../components/InitialsAvatar';
@@ -54,6 +54,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  Search,
   X,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
@@ -103,6 +104,8 @@ export const GroupDetailPage: React.FC = () => {
   const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
   const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set());
   const [isSendingInvite, setIsSendingInvite] = useState(false);
+  const [inviteSearchResults, setInviteSearchResults] = useState<FriendUser[]>([]);
+  const [isSearchingInvite, setIsSearchingInvite] = useState(false);
 
   // Group & Task Privacy Modal State
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
@@ -427,6 +430,57 @@ export const GroupDetailPage: React.FC = () => {
     });
     return list.slice(0, 6);
   }, [privacyShowInput, friendsList, privacyVisibleOnlyTo]);
+
+  // Strict prefix match on local friends list for invite modal (only when typing!)
+  const matchingInviteFriends = useMemo(() => {
+    const q = inviteInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return [];
+    return friendsList.filter((f) => {
+      const u = f.username.toLowerCase();
+      const n = (f.name || '').toLowerCase();
+      return u.startsWith(q) || (n && n.startsWith(q));
+    });
+  }, [inviteInput, friendsList]);
+
+  // Debounced search for system users matching prefix
+  useEffect(() => {
+    const q = inviteInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q || !isInviteOpen) {
+      setInviteSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingInvite(true);
+      try {
+        const res = await searchUsers(q);
+        if (res.success && res.users) {
+          setInviteSearchResults(res.users);
+        }
+      } catch (err) {
+        console.error('Invite user search error:', err);
+      } finally {
+        setIsSearchingInvite(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [inviteInput, isInviteOpen]);
+
+  const combinedInviteCandidates = useMemo(() => {
+    const q = inviteInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return [];
+
+    const map = new Map<string, FriendUser & { isFriend?: boolean }>();
+    matchingInviteFriends.forEach((f) => map.set(f.id, { ...f, isFriend: true }));
+    inviteSearchResults.forEach((u) => {
+      if (!map.has(u.id)) {
+        map.set(u.id, { ...u, isFriend: false });
+      }
+    });
+
+    return Array.from(map.values()).slice(0, 10);
+  }, [inviteInput, matchingInviteFriends, inviteSearchResults]);
 
   const handleSavePrivacy = async () => {
     if (!groupId) return;
@@ -1934,39 +1988,40 @@ export const GroupDetailPage: React.FC = () => {
         </div>
       )}
 
-      {/* Invite Friends to Group Modal */}
+      {/* Invite to Group Modal */}
       {isInviteOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden my-auto">
-            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
+          <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden my-auto flex flex-col max-h-[85vh]">
+            <div className="px-5 py-4 border-b border-dark-border flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                   <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-zinc-100">Invite to {group.name}</h2>
-                  <p className="text-xs text-dark-muted">Invite friends or search by username</p>
+                  <h2 className="text-sm sm:text-base font-bold text-zinc-100">Invite to {group.name}</h2>
+                  <p className="text-[11px] text-dark-muted">Search friends or any user to invite</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsInviteOpen(false)}
-                className="text-zinc-400 hover:text-zinc-200 p-1.5 rounded-lg hover:bg-dark-hover transition-colors"
+                className="text-zinc-400 hover:text-zinc-200 p-1.5 rounded-lg hover:bg-dark-hover transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              {/* Username Input Invite */}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Search User Input */}
               <div>
                 <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Invite by Username
+                  Search User or Friend
                 </label>
-                <div className="flex gap-2">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Enter username (e.g. alex)"
+                    placeholder="Type name or username (e.g. 'j')..."
                     value={inviteInput}
                     onChange={(e) => setInviteInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -1977,85 +2032,107 @@ export const GroupDetailPage: React.FC = () => {
                         }
                       }
                     }}
-                    className="flex-1 px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/60"
+                    autoFocus
+                    className="w-full pl-9 pr-4 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/60 transition-colors"
                   />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (inviteInput.trim()) {
-                        handleSendInvite({ username: inviteInput.trim() });
-                      }
-                    }}
-                    disabled={isSendingInvite || !inviteInput.trim()}
-                    className="px-4 py-2 bg-indigo-500 hover:bg-indigo-400 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
-                  >
-                    Send
-                  </button>
+                  {isSearchingInvite && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-400 font-mono animate-pulse">
+                      Searching...
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Friends List Suggestions */}
+              {/* Dynamic Search Results: No friends recommended when empty */}
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-2">
-                  Invite from Friends
-                </label>
-                {friendsList.length === 0 ? (
-                  <p className="text-xs text-dark-muted italic p-3 bg-dark-surface rounded-xl border border-dark-border text-center">
-                    No friends found to invite. Use username above!
-                  </p>
+                {inviteInput.trim().length === 0 ? (
+                  <div className="py-8 text-center text-dark-muted text-xs flex flex-col items-center justify-center gap-2">
+                    <div className="w-10 h-10 rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-center text-zinc-500">
+                      <Search className="w-5 h-5 text-zinc-400" />
+                    </div>
+                    <p className="text-zinc-300 font-medium">Search for someone to invite</p>
+                    <p className="text-[11px] text-zinc-500 max-w-xs">
+                      Type the first few letters of their name or username (e.g. "j" for jana or jaishu).
+                    </p>
+                  </div>
+                ) : combinedInviteCandidates.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-dark-surface border border-dark-border text-center space-y-3">
+                    <p className="text-xs text-zinc-400">
+                      No matching users found for <strong className="text-zinc-200">"{inviteInput}"</strong>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleSendInvite({ username: inviteInput.trim() })}
+                      disabled={isSendingInvite}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm"
+                    >
+                      Invite @{inviteInput.trim().replace(/^@/, '')} directly
+                    </button>
+                  </div>
                 ) : (
-                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
-                    {friendsList.map((f) => {
-                      const isAlreadyMember = group.members.some((m) => m.id === f.id);
-                      const isAlreadyInvited = invitedUserIds.has(f.id);
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                    {combinedInviteCandidates.map((u) => {
+                      const isAlreadyMember = group.members.some((m) => m.id === u.id);
+                      const isAlreadyInvited = invitedUserIds.has(u.id);
 
                       return (
                         <div
-                          key={f.id}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-dark-surface border border-dark-border"
+                          key={u.id}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-dark-surface border border-dark-border hover:border-zinc-700 transition-colors"
                         >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <InitialsAvatar name={f.name || f.username} size="sm" />
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <InitialsAvatar name={u.name || u.username} image={u.profileImage} size="sm" />
                             <div className="truncate">
-                              <span className="text-xs font-bold text-zinc-200 block truncate">{f.name}</span>
-                              <span className="text-[10px] text-zinc-400 font-mono">@{f.username}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-bold text-zinc-200 block truncate">
+                                  {u.name || u.username}
+                                </span>
+                                {u.isFriend && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold">
+                                    Friend
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-zinc-400 font-mono">@{u.username}</span>
                             </div>
                           </div>
 
-                          {isAlreadyMember ? (
-                            <span className="text-[10px] text-zinc-500 font-medium px-2 py-1 bg-zinc-800 rounded-lg">
-                              Member
-                            </span>
-                          ) : isAlreadyInvited ? (
-                            <span className="text-[10px] text-emerald-400 font-bold px-2 py-1 bg-emerald-500/10 rounded-lg">
-                              Invited ✓
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleSendInvite({ userId: f.id })}
-                              disabled={isSendingInvite}
-                              className="px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500 text-indigo-300 hover:text-white rounded-lg text-xs font-semibold transition-all cursor-pointer"
-                            >
-                              Invite
-                            </button>
-                          )}
+                          <div className="flex-shrink-0 ml-2">
+                            {isAlreadyMember ? (
+                              <span className="text-[10px] text-zinc-500 font-medium px-2.5 py-1 bg-zinc-800/80 rounded-lg">
+                                Member
+                              </span>
+                            ) : isAlreadyInvited ? (
+                              <span className="text-[10px] text-emerald-400 font-bold px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                Invited ✓
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSendInvite({ userId: u.id, username: u.username })}
+                                disabled={isSendingInvite}
+                                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                              >
+                                Invite
+                              </button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
               </div>
+            </div>
 
-              <div className="pt-2 border-t border-dark-border flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setIsInviteOpen(false)}
-                  className="px-4 py-2 text-xs text-zinc-400 hover:text-zinc-200 font-medium rounded-xl cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="px-5 py-3 border-t border-dark-border flex justify-end bg-dark-surface/40">
+              <button
+                type="button"
+                onClick={() => setIsInviteOpen(false)}
+                className="px-4 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 font-medium rounded-xl cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

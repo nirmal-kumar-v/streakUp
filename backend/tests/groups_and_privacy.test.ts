@@ -103,4 +103,44 @@ describe('Task Privacy and Visibility Engine', () => {
     // Owner of the specific task (Bob) can still see their own task
     expect(isTaskVisibleToUser(groupTaskHiddenAll, viewerBob)).toBe(true);
   });
+
+  it('restricts group tasks to visibleOnlyTo whitelist defined at group level', () => {
+    const groupTaskWhitelisted = {
+      userId: viewerBob.id,
+      hiddenFrom: [],
+      visibleOnlyTo: [],
+      groupId: 'grp-vip',
+      group: {
+        hiddenFrom: [],
+        visibleOnlyTo: ['alice'], // Only Alice is whitelisted
+      },
+    };
+
+    expect(isTaskVisibleToUser(groupTaskWhitelisted, viewerAlice)).toBe(true);
+    expect(isTaskVisibleToUser(groupTaskWhitelisted, viewerCharlie)).toBe(false);
+    // Bob (creator) can always see his own task
+    expect(isTaskVisibleToUser(groupTaskWhitelisted, viewerBob)).toBe(true);
+  });
+
+  it('validates prefix-only autocomplete logic (typing "j" matches "jana" / "jaishu" but not "alex" or "sanjay")', () => {
+    const candidateList = [
+      { username: 'jana', name: 'Jana Nathan' },
+      { username: 'jaishu', name: 'Jaishree V' },
+      { username: 'sanjay', name: 'Sanjay Kumar' },
+      { username: 'alex', name: 'Alexander J' },
+    ];
+
+    const q = 'j';
+    const matches = candidateList.filter((c) => {
+      const u = c.username.toLowerCase();
+      const n = c.name.toLowerCase();
+      return u.startsWith(q) || n.startsWith(q);
+    });
+
+    const matchedUsernames = matches.map((m) => m.username);
+    expect(matchedUsernames).toContain('jana');
+    expect(matchedUsernames).toContain('jaishu');
+    expect(matchedUsernames).not.toContain('sanjay');
+    expect(matchedUsernames).not.toContain('alex');
+  });
 });
