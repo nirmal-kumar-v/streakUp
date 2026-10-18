@@ -45,6 +45,7 @@ export interface GroupDetail {
   isAdmin: boolean;
   memberCount: number;
   groupHiddenFrom?: string[];
+  groupVisibleOnlyTo?: string[];
   memberHiddenFrom?: string[];
   pendingRequestsCount?: number;
   hasActiveDashboardTask?: boolean;
@@ -262,6 +263,7 @@ export async function updateGroup(
     description?: string | null;
     scheduledDays?: number[];
     hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
   }
 ) {
   const res = await apiClient.put<{ success: boolean; message: string; group: GroupDetail }>(`/groups/${id}`, data);

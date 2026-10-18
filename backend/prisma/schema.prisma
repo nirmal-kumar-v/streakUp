@@ -427,6 +427,7 @@ model Group {
   ownerId       String
   owner         User               @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
   hiddenFrom    String[]           @default([]) // usernames or "all" hidden by owner from finding group or seeing group tasks
+  visibleOnlyTo String[]           @default([]) // if non-empty, only visible to these usernames/IDs
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   members       GroupMember[]

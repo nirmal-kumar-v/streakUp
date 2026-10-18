@@ -17,6 +17,7 @@ const updateGroupSchema = z.object({
   description: z.string().trim().max(300).optional().nullable(),
   scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
   hiddenFrom: z.array(z.string()).optional(),
+  visibleOnlyTo: z.array(z.string()).optional(),
 });
 
 const inviteToGroupSchema = z.object({
@@ -202,6 +203,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
         scheduledDays: true,
         ownerId: true,
         hiddenFrom: true,
+        visibleOnlyTo: true,
         createdAt: true,
         _count: {
           select: { members: true },
@@ -214,6 +216,12 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
       const hidden = (g.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
       if (hidden.includes('all') || hidden.includes(cId) || (cUsername && hidden.includes(cUsername))) {
         return false;
+      }
+      const visible = (g.visibleOnlyTo || []).map((v) => v.trim().toLowerCase().replace(/^@/, ''));
+      if (visible.length > 0) {
+        if (!visible.includes(cId) && (!cUsername || !visible.includes(cUsername))) {
+          return false;
+        }
       }
       return true;
     });
@@ -653,6 +661,13 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ success: false, error: 'Group not found.' });
     }
 
+    const groupVisible = (group.visibleOnlyTo || []).map((v) => v.trim().toLowerCase().replace(/^@/, ''));
+    if (group.ownerId !== userId && groupVisible.length > 0) {
+      if (!groupVisible.includes(cId) && (!cUsername || !groupVisible.includes(cUsername))) {
+        return res.status(404).json({ success: false, error: 'Group not found.' });
+      }
+    }
+
     // Fetch user's assigned group task
     const userTask = await prisma.task.findFirst({
       where: { userId, groupId: id },
@@ -723,6 +738,7 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
         isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
         memberCount: members.length,
         groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
+        groupVisibleOnlyTo: membership.role === 'OWNER' ? (group.visibleOnlyTo || []) : [],
         memberHiddenFrom: membership.hiddenFrom || [],
         pendingRequestsCount,
         hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
@@ -1214,7 +1230,7 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const { name, description, scheduledDays, hiddenFrom } = parseResult.data;
+    const { name, description, scheduledDays, hiddenFrom, visibleOnlyTo } = parseResult.data;
 
     const updatedGroup = await prisma.$transaction(async (tx) => {
       const dataToUpdate: any = {};
@@ -1222,6 +1238,7 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response) {
       if (description !== undefined) dataToUpdate.description = description;
       if (scheduledDays !== undefined) dataToUpdate.scheduledDays = scheduledDays;
       if (hiddenFrom !== undefined) dataToUpdate.hiddenFrom = hiddenFrom;
+      if (visibleOnlyTo !== undefined) dataToUpdate.visibleOnlyTo = visibleOnlyTo;
 
       const group = await tx.group.update({
         where: { id },

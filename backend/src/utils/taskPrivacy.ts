@@ -15,6 +15,7 @@ export function isTaskVisibleToUser(
     groupId?: string | null;
     group?: {
       hiddenFrom?: string[] | null;
+      visibleOnlyTo?: string[] | null;
     } | null;
   },
   viewer: {
@@ -32,10 +33,19 @@ export function isTaskVisibleToUser(
 
   // 1. Group-level privacy: If group owner hid this viewer from the group,
   // tasks belonging to this group are invisible to the viewer.
-  if (task.group?.hiddenFrom && task.group.hiddenFrom.length > 0) {
-    const groupHidden = task.group.hiddenFrom.map((h) => h.trim().toLowerCase().replace(/^@/, ''));
-    if (groupHidden.includes('all') || groupHidden.includes(viewerId) || (viewerUsername && groupHidden.includes(viewerUsername))) {
-      return false;
+  if (task.group) {
+    if (task.group.hiddenFrom && task.group.hiddenFrom.length > 0) {
+      const groupHidden = task.group.hiddenFrom.map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+      if (groupHidden.includes('all') || groupHidden.includes(viewerId) || (viewerUsername && groupHidden.includes(viewerUsername))) {
+        return false;
+      }
+    }
+    if (task.group.visibleOnlyTo && task.group.visibleOnlyTo.length > 0) {
+      const groupVisible = task.group.visibleOnlyTo.map((v) => v.trim().toLowerCase().replace(/^@/, ''));
+      const isGroupAllowed = groupVisible.includes(viewerId) || (viewerUsername && groupVisible.includes(viewerUsername));
+      if (!isGroupAllowed) {
+        return false;
+      }
     }
   }
 

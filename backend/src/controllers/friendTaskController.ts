@@ -86,6 +86,7 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
             group: {
               select: {
                 hiddenFrom: true,
+                visibleOnlyTo: true,
               },
             },
             completions: {
@@ -208,6 +209,7 @@ export async function getFriendsStudyActivity(req: AuthenticatedRequest, res: Re
             group: {
               select: {
                 hiddenFrom: true,
+                visibleOnlyTo: true,
               },
             },
           }

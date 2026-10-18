@@ -160,7 +160,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !hiddenFrom.includes(u)) {
+      if ((u.startsWith(q) || n.startsWith(q)) && !hiddenFrom.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
@@ -174,7 +174,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !visibleOnlyTo.includes(u)) {
+      if ((u.startsWith(q) || n.startsWith(q)) && !visibleOnlyTo.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
@@ -495,10 +495,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     placeholder="Type name or 'all'..."
                     value={hideFromInput}
                     onChange={(e) => {
-                      setHideFromInput(e.target.value);
-                      setHideSuggestionsOpen(true);
+                      const val = e.target.value;
+                      setHideFromInput(val);
+                      setHideSuggestionsOpen(val.trim().length > 0);
                     }}
-                    onFocus={() => setHideSuggestionsOpen(true)}
+                    onFocus={() => {
+                      if (hideFromInput.trim().length > 0) setHideSuggestionsOpen(true);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -601,10 +604,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     placeholder="Type name to whitelist..."
                     value={showOnlyToInput}
                     onChange={(e) => {
-                      setShowOnlyToInput(e.target.value);
-                      setShowSuggestionsOpen(true);
+                      const val = e.target.value;
+                      setShowOnlyToInput(val);
+                      setShowSuggestionsOpen(val.trim().length > 0);
                     }}
-                    onFocus={() => setShowSuggestionsOpen(true)}
+                    onFocus={() => {
+                      if (showOnlyToInput.trim().length > 0) setShowSuggestionsOpen(true);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();

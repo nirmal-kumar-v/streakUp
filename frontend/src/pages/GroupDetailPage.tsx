@@ -109,6 +109,9 @@ export const GroupDetailPage: React.FC = () => {
   const [ownerGroupHiddenFrom, setOwnerGroupHiddenFrom] = useState<string[]>([]);
   const [ownerGroupHideInput, setOwnerGroupHideInput] = useState('');
   const [ownerGroupSuggestionsOpen, setOwnerGroupSuggestionsOpen] = useState(false);
+  const [ownerGroupVisibleOnlyTo, setOwnerGroupVisibleOnlyTo] = useState<string[]>([]);
+  const [ownerGroupShowInput, setOwnerGroupShowInput] = useState('');
+  const [ownerGroupShowSuggestionsOpen, setOwnerGroupShowSuggestionsOpen] = useState(false);
 
   const [memberPrivacyHiddenFrom, setMemberPrivacyHiddenFrom] = useState<string[]>([]);
   const [memberPrivacyHideInput, setMemberPrivacyHideInput] = useState('');
@@ -143,7 +146,9 @@ export const GroupDetailPage: React.FC = () => {
     setEditDescription(group.description || '');
     setEditScheduledDays(group.scheduledDays || [0, 1, 2, 3, 4, 5, 6]);
     setOwnerGroupHiddenFrom(group.groupHiddenFrom || []);
+    setOwnerGroupVisibleOnlyTo(group.groupVisibleOnlyTo || []);
     setOwnerGroupHideInput('');
+    setOwnerGroupShowInput('');
     setIsEditGroupOpen(true);
     fetchFriendsList()
       .then((res) => {
@@ -180,6 +185,7 @@ export const GroupDetailPage: React.FC = () => {
         description: editDescription.trim() || null,
         scheduledDays: editScheduledDays,
         hiddenFrom: ownerGroupHiddenFrom,
+        visibleOnlyTo: ownerGroupVisibleOnlyTo,
       });
       if (res.success) {
         setIsEditGroupOpen(false);
@@ -261,10 +267,12 @@ export const GroupDetailPage: React.FC = () => {
   const openPrivacyModal = () => {
     if (!group) return;
     setOwnerGroupHiddenFrom(group.groupHiddenFrom || []);
+    setOwnerGroupVisibleOnlyTo(group.groupVisibleOnlyTo || []);
     setMemberPrivacyHiddenFrom(group.memberHiddenFrom || []);
     setPrivacyHiddenFrom(group.userTask?.hiddenFrom || []);
     setPrivacyVisibleOnlyTo(group.userTask?.visibleOnlyTo || []);
     setOwnerGroupHideInput('');
+    setOwnerGroupShowInput('');
     setMemberPrivacyHideInput('');
     setPrivacyHideInput('');
     setPrivacyShowInput('');
@@ -289,6 +297,19 @@ export const GroupDetailPage: React.FC = () => {
 
   const removeOwnerGroupHide = (name: string) => {
     setOwnerGroupHiddenFrom(ownerGroupHiddenFrom.filter((h) => h !== name));
+  };
+
+  const addOwnerGroupVisibleOnlyTo = (name: string) => {
+    const clean = name.trim().toLowerCase().replace(/^@/, '');
+    if (!clean) return;
+    if (!ownerGroupVisibleOnlyTo.includes(clean)) {
+      setOwnerGroupVisibleOnlyTo([...ownerGroupVisibleOnlyTo, clean]);
+    }
+    setOwnerGroupShowInput('');
+  };
+
+  const removeOwnerGroupVisibleOnlyTo = (name: string) => {
+    setOwnerGroupVisibleOnlyTo(ownerGroupVisibleOnlyTo.filter((v) => v !== name));
   };
 
   const addMemberPrivacyHide = (name: string) => {
@@ -330,7 +351,7 @@ export const GroupDetailPage: React.FC = () => {
     setPrivacyVisibleOnlyTo(privacyVisibleOnlyTo.filter((v) => v !== name));
   };
 
-  // Autocomplete suggestion memos
+  // Autocomplete suggestion memos - strict prefix matching (e.g. typing "j" lists "jana", "jaishu")
   const filteredOwnerGroupSuggestions = useMemo(() => {
     const q = ownerGroupHideInput.trim().toLowerCase().replace(/^@/, '');
     if (!q) return [];
@@ -341,12 +362,26 @@ export const GroupDetailPage: React.FC = () => {
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !ownerGroupHiddenFrom.includes(u)) {
+      if ((u.startsWith(q) || (n && n.startsWith(q))) && !ownerGroupHiddenFrom.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
     return list.slice(0, 6);
   }, [ownerGroupHideInput, friendsList, ownerGroupHiddenFrom]);
+
+  const filteredOwnerGroupShowSuggestions = useMemo(() => {
+    const q = ownerGroupShowInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return [];
+    const list: Array<{ id: string; label: string; sublabel?: string; image?: string | null }> = [];
+    friendsList.forEach((f) => {
+      const u = f.username.toLowerCase();
+      const n = (f.name || '').toLowerCase();
+      if ((u.startsWith(q) || (n && n.startsWith(q))) && !ownerGroupVisibleOnlyTo.includes(u)) {
+        list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
+      }
+    });
+    return list.slice(0, 6);
+  }, [ownerGroupShowInput, friendsList, ownerGroupVisibleOnlyTo]);
 
   const filteredMemberPrivacySuggestions = useMemo(() => {
     const q = memberPrivacyHideInput.trim().toLowerCase().replace(/^@/, '');
@@ -355,7 +390,7 @@ export const GroupDetailPage: React.FC = () => {
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !memberPrivacyHiddenFrom.includes(u)) {
+      if ((u.startsWith(q) || (n && n.startsWith(q))) && !memberPrivacyHiddenFrom.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
@@ -372,7 +407,7 @@ export const GroupDetailPage: React.FC = () => {
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !privacyHiddenFrom.includes(u)) {
+      if ((u.startsWith(q) || (n && n.startsWith(q))) && !privacyHiddenFrom.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
@@ -386,7 +421,7 @@ export const GroupDetailPage: React.FC = () => {
     friendsList.forEach((f) => {
       const u = f.username.toLowerCase();
       const n = (f.name || '').toLowerCase();
-      if ((u.includes(q) || n.includes(q)) && !privacyVisibleOnlyTo.includes(u)) {
+      if ((u.startsWith(q) || (n && n.startsWith(q))) && !privacyVisibleOnlyTo.includes(u)) {
         list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
       }
     });
@@ -398,7 +433,10 @@ export const GroupDetailPage: React.FC = () => {
     setIsSavingPrivacy(true);
     try {
       if (isOwner) {
-        await updateGroup(groupId, { hiddenFrom: ownerGroupHiddenFrom });
+        await updateGroup(groupId, {
+          hiddenFrom: ownerGroupHiddenFrom,
+          visibleOnlyTo: ownerGroupVisibleOnlyTo,
+        });
       }
       await updateMemberGroupPrivacy(groupId, memberPrivacyHiddenFrom);
       if (group?.userTask?.id) {
@@ -1686,10 +1724,13 @@ export const GroupDetailPage: React.FC = () => {
                       placeholder="Type username or 'all'..."
                       value={ownerGroupHideInput}
                       onChange={(e) => {
-                        setOwnerGroupHideInput(e.target.value);
-                        setOwnerGroupSuggestionsOpen(true);
+                        const val = e.target.value;
+                        setOwnerGroupHideInput(val);
+                        setOwnerGroupSuggestionsOpen(val.trim().length > 0);
                       }}
-                      onFocus={() => setOwnerGroupSuggestionsOpen(true)}
+                      onFocus={() => {
+                        if (ownerGroupHideInput.trim().length > 0) setOwnerGroupSuggestionsOpen(true);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -1717,7 +1758,8 @@ export const GroupDetailPage: React.FC = () => {
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() => {
+                          onMouseDown={(e) => {
+                            e.preventDefault();
                             addOwnerGroupHide(s.label);
                             setOwnerGroupSuggestionsOpen(false);
                           }}
@@ -1762,6 +1804,104 @@ export const GroupDetailPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => removeOwnerGroupHide(name)}
+                          className="hover:text-white p-0.5 text-zinc-400 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Group Privacy: Show Only To (Owner Level) */}
+              <div className="pt-3 border-t border-dark-border/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                    <Eye className="w-4 h-4 text-emerald-400" />
+                    <span>Show Only To: (Exclusive Whitelist)</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-dark-muted">Optional</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  Optional whitelist. If specified, <strong className="text-emerald-400">ONLY</strong> these users can find, view, or join this group and see its study tasks.
+                </p>
+
+                <div className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type username to whitelist..."
+                      value={ownerGroupShowInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setOwnerGroupShowInput(val);
+                        setOwnerGroupShowSuggestionsOpen(val.trim().length > 0);
+                      }}
+                      onFocus={() => {
+                        if (ownerGroupShowInput.trim().length > 0) setOwnerGroupShowSuggestionsOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addOwnerGroupVisibleOnlyTo(ownerGroupShowInput);
+                          setOwnerGroupShowSuggestionsOpen(false);
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addOwnerGroupVisibleOnlyTo(ownerGroupShowInput);
+                        setOwnerGroupShowSuggestionsOpen(false);
+                      }}
+                      className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {ownerGroupShowSuggestionsOpen && filteredOwnerGroupShowSuggestions.length > 0 && (
+                    <div className="absolute z-20 top-full mt-1.5 left-0 right-0 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1 divide-y divide-zinc-800/60">
+                      {filteredOwnerGroupShowSuggestions.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addOwnerGroupVisibleOnlyTo(s.label);
+                            setOwnerGroupShowSuggestionsOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-zinc-800/80 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <InitialsAvatar name={s.sublabel || s.label} image={s.image} size="sm" />
+                            <div className="truncate">
+                              <span className="font-semibold text-zinc-200 block truncate">@{s.label}</span>
+                              {s.sublabel && (
+                                <span className="text-[10px] text-zinc-400 block truncate">{s.sublabel}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono">Select</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {ownerGroupVisibleOnlyTo.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {ownerGroupVisibleOnlyTo.map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-medium bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                      >
+                        <span>@{name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeOwnerGroupVisibleOnlyTo(name)}
                           className="hover:text-white p-0.5 text-zinc-400 cursor-pointer"
                         >
                           <X className="w-3 h-3" />
@@ -1968,10 +2108,13 @@ export const GroupDetailPage: React.FC = () => {
                         placeholder="Type username or 'all'..."
                         value={ownerGroupHideInput}
                         onChange={(e) => {
-                          setOwnerGroupHideInput(e.target.value);
-                          setOwnerGroupSuggestionsOpen(true);
+                          const val = e.target.value;
+                          setOwnerGroupHideInput(val);
+                          setOwnerGroupSuggestionsOpen(val.trim().length > 0);
                         }}
-                        onFocus={() => setOwnerGroupSuggestionsOpen(true)}
+                        onFocus={() => {
+                          if (ownerGroupHideInput.trim().length > 0) setOwnerGroupSuggestionsOpen(true);
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
@@ -1999,7 +2142,8 @@ export const GroupDetailPage: React.FC = () => {
                           <button
                             key={s.id}
                             type="button"
-                            onClick={() => {
+                            onMouseDown={(e) => {
+                              e.preventDefault();
                               addOwnerGroupHide(s.label);
                               setOwnerGroupSuggestionsOpen(false);
                             }}
@@ -2052,6 +2196,104 @@ export const GroupDetailPage: React.FC = () => {
                       ))}
                     </div>
                   )}
+
+                  {/* Show Group Only To (Owner Level) */}
+                  <div className="pt-3 border-t border-dark-border/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                        <Eye className="w-4 h-4 text-emerald-400" />
+                        <span>Show Group Only To: (Exclusive Whitelist)</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-dark-muted">Optional</span>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      Optional whitelist. If specified, <strong className="text-emerald-400">ONLY</strong> these users can find, view, or join this group and see its study tasks.
+                    </p>
+
+                    <div className="relative">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Type username to whitelist..."
+                          value={ownerGroupShowInput}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOwnerGroupShowInput(val);
+                            setOwnerGroupShowSuggestionsOpen(val.trim().length > 0);
+                          }}
+                          onFocus={() => {
+                            if (ownerGroupShowInput.trim().length > 0) setOwnerGroupShowSuggestionsOpen(true);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addOwnerGroupVisibleOnlyTo(ownerGroupShowInput);
+                              setOwnerGroupShowSuggestionsOpen(false);
+                            }
+                          }}
+                          className="flex-1 px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            addOwnerGroupVisibleOnlyTo(ownerGroupShowInput);
+                            setOwnerGroupShowSuggestionsOpen(false);
+                          }}
+                          className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                        >
+                          Add
+                        </button>
+                      </div>
+
+                      {ownerGroupShowSuggestionsOpen && filteredOwnerGroupShowSuggestions.length > 0 && (
+                        <div className="absolute z-20 top-full mt-1.5 left-0 right-0 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1 divide-y divide-zinc-800/60">
+                          {filteredOwnerGroupShowSuggestions.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                addOwnerGroupVisibleOnlyTo(s.label);
+                                setOwnerGroupShowSuggestionsOpen(false);
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-zinc-800/80 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <InitialsAvatar name={s.sublabel || s.label} image={s.image} size="sm" />
+                                <div className="truncate">
+                                  <span className="font-semibold text-zinc-200 block truncate">@{s.label}</span>
+                                  {s.sublabel && (
+                                    <span className="text-[10px] text-zinc-400 block truncate">{s.sublabel}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-zinc-500 font-mono">Select</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {ownerGroupVisibleOnlyTo.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {ownerGroupVisibleOnlyTo.map((name) => (
+                          <span
+                            key={name}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-medium bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                          >
+                            <span>@{name}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeOwnerGroupVisibleOnlyTo(name)}
+                              className="hover:text-white p-0.5 text-zinc-400 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -2077,10 +2319,13 @@ export const GroupDetailPage: React.FC = () => {
                       placeholder="Type username..."
                       value={memberPrivacyHideInput}
                       onChange={(e) => {
-                        setMemberPrivacyHideInput(e.target.value);
-                        setMemberPrivacySuggestionsOpen(true);
+                        const val = e.target.value;
+                        setMemberPrivacyHideInput(val);
+                        setMemberPrivacySuggestionsOpen(val.trim().length > 0);
                       }}
-                      onFocus={() => setMemberPrivacySuggestionsOpen(true)}
+                      onFocus={() => {
+                        if (memberPrivacyHideInput.trim().length > 0) setMemberPrivacySuggestionsOpen(true);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -2108,7 +2353,8 @@ export const GroupDetailPage: React.FC = () => {
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() => {
+                          onMouseDown={(e) => {
+                            e.preventDefault();
                             addMemberPrivacyHide(s.label);
                             setMemberPrivacySuggestionsOpen(false);
                           }}
@@ -2179,10 +2425,13 @@ export const GroupDetailPage: React.FC = () => {
                           placeholder="Type username or 'all'..."
                           value={privacyHideInput}
                           onChange={(e) => {
-                            setPrivacyHideInput(e.target.value);
-                            setTaskPrivacyHideSuggestionsOpen(true);
+                            const val = e.target.value;
+                            setPrivacyHideInput(val);
+                            setTaskPrivacyHideSuggestionsOpen(val.trim().length > 0);
                           }}
-                          onFocus={() => setTaskPrivacyHideSuggestionsOpen(true)}
+                          onFocus={() => {
+                            if (privacyHideInput.trim().length > 0) setTaskPrivacyHideSuggestionsOpen(true);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -2210,7 +2459,8 @@ export const GroupDetailPage: React.FC = () => {
                             <button
                               key={s.id}
                               type="button"
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 addPrivacyHideFrom(s.label);
                                 setTaskPrivacyHideSuggestionsOpen(false);
                               }}
@@ -2281,10 +2531,13 @@ export const GroupDetailPage: React.FC = () => {
                           placeholder="Type friend username..."
                           value={privacyShowInput}
                           onChange={(e) => {
-                            setPrivacyShowInput(e.target.value);
-                            setTaskPrivacyShowSuggestionsOpen(true);
+                            const val = e.target.value;
+                            setPrivacyShowInput(val);
+                            setTaskPrivacyShowSuggestionsOpen(val.trim().length > 0);
                           }}
-                          onFocus={() => setTaskPrivacyShowSuggestionsOpen(true)}
+                          onFocus={() => {
+                            if (privacyShowInput.trim().length > 0) setTaskPrivacyShowSuggestionsOpen(true);
+                          }}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
@@ -2312,7 +2565,8 @@ export const GroupDetailPage: React.FC = () => {
                             <button
                               key={s.id}
                               type="button"
-                              onClick={() => {
+                              onMouseDown={(e) => {
+                                e.preventDefault();
                                 addPrivacyVisibleOnlyTo(s.label);
                                 setTaskPrivacyShowSuggestionsOpen(false);
                               }}
