@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   fetchFriendsList,
@@ -9,7 +9,6 @@ import {
   rejectFriendRequest,
   cancelFriendRequest,
   removeFriend,
-  nudgeFriend,
   FriendUser,
   FriendRequestItem,
 } from '../api/friends';
@@ -22,15 +21,17 @@ import {
   Check,
   X,
   UserMinus,
-  CheckCircle2,
-  AlertCircle,
   Clock,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { useBadges } from '../context/BadgeContext';
+import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
 export const FriendsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
+  const { setPendingRequestsCount, decrementFriendRequests } = useBadges();
+  const toast = useToast();
 
   // Data states
   const [friends, setFriends] = useState<FriendUser[]>([]);
@@ -38,142 +39,229 @@ export const FriendsPage: React.FC = () => {
   const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FriendUser[]>([]);
-  const [nudgingFriendId, setNudgingFriendId] = useState<string | null>(null);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  // Action pending tracking for optimistic locking and zero duplicate requests
+  const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set());
+  const [confirmRemoveFriendId, setConfirmRemoveFriendId] = useState<string | null>(null);
 
-  const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
-    setFeedbackMessage({ text, type });
-    setTimeout(() => setFeedbackMessage(null), 4000);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const addPendingId = (id: string) => {
+    setPendingActionIds((prev) => new Set(prev).add(id));
+  };
+  const removePendingId = (id: string) => {
+    setPendingActionIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) setIsInitialLoading(true);
     try {
       const [friendsRes, requestsRes] = await Promise.all([
-        fetchFriendsList(),
-        fetchFriendRequests(),
+        fetchFriendsList().catch(() => null),
+        fetchFriendRequests().catch(() => null),
       ]);
 
-      if (friendsRes.success) {
+      if (friendsRes && friendsRes.success) {
         setFriends(friendsRes.friends || []);
       }
-      if (requestsRes.success) {
+      if (requestsRes && requestsRes.success) {
         setReceivedRequests(requestsRes.received || []);
         setSentRequests(requestsRes.sent || []);
+        // Immediately synchronize navbar badge count
+        setPendingRequestsCount(requestsRes.pendingCount || (requestsRes.received || []).length);
       }
     } catch (err) {
       console.error('Failed to load friends data:', err);
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsInitialLoading(false);
     }
-  }, []);
+  }, [setPendingRequestsCount]);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
   }, [loadData]);
 
-  // Handle Search
+  // Handle User Search with quick debounce
   useEffect(() => {
-    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || trimmed.length < 2) {
       setSearchResults([]);
       return;
     }
 
     const timer = setTimeout(async () => {
       try {
-        const res = await searchUsers(searchQuery.trim());
-        if (res.success) {
+        const res = await searchUsers(trimmed);
+        if (res.success && isMountedRef.current) {
           setSearchResults(res.users || []);
         }
       } catch (err) {
         console.error('Search error:', err);
       }
-    }, 250);
+    }, 200);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Actions
+  // ==========================================
+  // Optimistic Handlers for Instant UI Feel
+  // ==========================================
+
   const handleSendRequest = async (targetUser: FriendUser) => {
+    if (pendingActionIds.has(targetUser.id)) return;
+    addPendingId(targetUser.id);
+
+    // 1. Optimistic UI update: immediately switch target user status
+    const previousSearchResults = [...searchResults];
+    setSearchResults((prev) =>
+      prev.map((u) => (u.id === targetUser.id ? { ...u, status: 'REQUEST_SENT' } : u))
+    );
+    toast.success('Request sent');
+
     try {
       const res = await sendFriendRequest(targetUser.id);
       if (res.success) {
-        showFeedback(res.message || `Friend request sent to @${targetUser.username}!`);
-        // Update local status
-        setSearchResults((prev) =>
-          prev.map((u) => (u.id === targetUser.id ? { ...u, status: 'REQUEST_SENT' } : u))
-        );
-        loadData();
+        // Background silent refresh of sent requests
+        loadData(true);
+      } else {
+        throw new Error(res.message || 'Failed to send request');
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to send friend request.'), 'error');
+      // Revert optimistic state on failure
+      setSearchResults(previousSearchResults);
+      toast.error(extractErrorMessage(err, 'Could not send friend request. Please try again.'));
+    } finally {
+      removePendingId(targetUser.id);
     }
   };
 
   const handleAcceptRequest = async (requestId: string) => {
+    if (pendingActionIds.has(requestId)) return;
+    addPendingId(requestId);
+
+    const targetReq = receivedRequests.find((r) => r.id === requestId);
+    const previousReceived = [...receivedRequests];
+    const previousFriends = [...friends];
+
+    // 1. Optimistic UI update: instantly remove from requests and add to friends
+    setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
+    if (targetReq?.sender) {
+      setFriends((prev) => [targetReq.sender!, ...prev.filter((f) => f.id !== targetReq.sender!.id)]);
+    }
+
+    // 2. Immediately update badge count in Navbar
+    decrementFriendRequests();
+
+    const friendName = targetReq?.sender?.username ? `@${targetReq.sender.username}` : 'your friend';
+    toast.success(`You're now friends with ${friendName}`);
+
     try {
       const res = await acceptFriendRequest(requestId);
-      if (res.success) {
-        showFeedback('Friend request accepted! You can now view their streak on your leaderboard.');
-        loadData();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to accept request');
       }
+      // Reconcile in background
+      loadData(true);
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to accept request.'), 'error');
+      // Revert optimistic state on failure
+      setReceivedRequests(previousReceived);
+      setFriends(previousFriends);
+      setPendingRequestsCount((c) => c + 1);
+      toast.error(extractErrorMessage(err, "Couldn't accept request. Please try again."));
+    } finally {
+      removePendingId(requestId);
     }
   };
 
   const handleRejectRequest = async (requestId: string) => {
+    if (pendingActionIds.has(requestId)) return;
+    addPendingId(requestId);
+
+    const previousReceived = [...receivedRequests];
+
+    // 1. Optimistic UI: remove from list & decrement badge immediately
+    setReceivedRequests((prev) => prev.filter((r) => r.id !== requestId));
+    decrementFriendRequests();
+    toast.info('Request declined');
+
     try {
       const res = await rejectFriendRequest(requestId);
-      if (res.success) {
-        showFeedback('Friend request rejected.');
-        loadData();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to reject request');
       }
+      loadData(true);
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to reject request.'), 'error');
+      // Revert on failure
+      setReceivedRequests(previousReceived);
+      setPendingRequestsCount((c) => c + 1);
+      toast.error(extractErrorMessage(err, "Couldn't decline request. Please try again."));
+    } finally {
+      removePendingId(requestId);
     }
   };
 
   const handleCancelRequest = async (requestId: string) => {
+    if (pendingActionIds.has(requestId)) return;
+    addPendingId(requestId);
+
+    const previousSent = [...sentRequests];
+    const previousSearchResults = [...searchResults];
+
+    // Optimistic UI: remove from sent requests
+    setSentRequests((prev) => prev.filter((r) => r.id !== requestId));
+    setSearchResults((prev) =>
+      prev.map((u) => (u.requestId === requestId ? { ...u, status: 'NONE' } : u))
+    );
+    toast.info('Request cancelled');
+
     try {
       const res = await cancelFriendRequest(requestId);
-      if (res.success) {
-        showFeedback('Friend request cancelled.');
-        loadData();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to cancel request');
       }
+      loadData(true);
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to cancel request.'), 'error');
+      setSentRequests(previousSent);
+      setSearchResults(previousSearchResults);
+      toast.error(extractErrorMessage(err, "Couldn't cancel request. Please try again."));
+    } finally {
+      removePendingId(requestId);
     }
   };
 
-  const handleRemoveFriend = async (friend: FriendUser) => {
-    if (!window.confirm(`Are you sure you want to remove @${friend.username} from your friends?`)) {
-      return;
-    }
+  const executeRemoveFriend = async (friend: FriendUser) => {
+    setConfirmRemoveFriendId(null);
+    if (pendingActionIds.has(friend.id)) return;
+    addPendingId(friend.id);
+
+    const previousFriends = [...friends];
+    // Optimistic UI: remove friend instantly
+    setFriends((prev) => prev.filter((f) => f.id !== friend.id));
+    toast.info(`Removed @${friend.username} from friends`);
+
     try {
       const res = await removeFriend(friend.id);
-      if (res.success) {
-        showFeedback(`Removed @${friend.username} from friends.`);
-        loadData();
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to remove friend');
       }
+      loadData(true);
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to remove friend.'), 'error');
-    }
-  };
-
-  const handleNudge = async (friend: FriendUser) => {
-    setNudgingFriendId(friend.id);
-    try {
-      const res = await nudgeFriend(friend.id);
-      if (res.success) {
-        showFeedback(res.message || `Nudged @${friend.username} to keep their streak blazing! 🔥`, 'success');
-      }
-    } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to nudge friend. Please try again later.'), 'error');
+      setFriends(previousFriends);
+      toast.error(extractErrorMessage(err, 'Failed to remove friend. Please try again.'));
     } finally {
-      setNudgingFriendId(null);
+      removePendingId(friend.id);
     }
   };
 
@@ -190,26 +278,8 @@ export const FriendsPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Feedback Banner */}
-      {feedbackMessage && (
-        <div
-          className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
-            feedbackMessage.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-          }`}
-        >
-          {feedbackMessage.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
-          ) : (
-            <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400" />
-          )}
-          <span>{feedbackMessage.text}</span>
-        </div>
-      )}
-
       {/* Tabs */}
-      <div className="flex bg-dark-card p-1.5 rounded-2xl border border-dark-border gap-2 max-w-md">
+      <div className="flex bg-dark-card border border-dark-border p-1 rounded-2xl max-w-md">
         <button
           onClick={() => setActiveTab('friends')}
           className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
@@ -255,8 +325,11 @@ export const FriendsPage: React.FC = () => {
       {/* TAB 1: Friends List */}
       {activeTab === 'friends' && (
         <div className="space-y-4">
-          {isLoading ? (
-            <div className="py-20 text-center text-xs text-dark-muted">Loading friends...</div>
+          {isInitialLoading && friends.length === 0 ? (
+            <div className="py-16 text-center text-xs text-dark-muted flex items-center justify-center gap-2">
+              <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
+              <span>Loading friends...</span>
+            </div>
           ) : friends.length === 0 ? (
             <div className="bg-dark-card border border-dashed border-dark-border rounded-2xl p-12 text-center">
               <Users2 className="w-12 h-12 text-dark-muted mx-auto mb-3 opacity-50" />
@@ -266,65 +339,81 @@ export const FriendsPage: React.FC = () => {
               </p>
               <button
                 onClick={() => setActiveTab('search')}
-                className="mt-4 px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm inline-flex items-center gap-1.5"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md transition-all"
               >
-                <Search className="w-4 h-4" /> Find Users
+                <UserPlus className="w-4 h-4" /> Find Friends
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {friends.map((friend) => (
-                <div
-                  key={friend.id}
-                  className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center justify-between gap-3 group hover:border-zinc-700 transition-colors"
-                >
-                  <Link to={`/profile/${friend.username}`} className="flex items-center gap-3 min-w-0">
-                    <InitialsAvatar
-                      name={friend.name}
-                      image={friend.profileImage}
-                      size="md"
-                      className="group-hover:border-flame-500 transition-colors"
-                    />
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors truncate">
-                        {friend.name}
-                      </h4>
-                      <p className="text-xs text-dark-muted font-mono truncate">@{friend.username}</p>
-                    </div>
-                  </Link>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {friends.map((friend) => {
+                const isConfirmingRemove = confirmRemoveFriendId === friend.id;
 
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="flex items-center gap-1 text-xs font-mono font-bold text-flame-400 justify-end">
-                        <Flame className="w-3.5 h-3.5 fill-flame-500/30" />
-                        <span>{friend.currentStreak}d</span>
+                return (
+                  <div
+                    key={friend.id}
+                    className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex flex-col justify-between gap-3 group hover:border-zinc-700 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <Link to={`/profile/${friend.username}`} className="flex items-center gap-3 min-w-0">
+                        <InitialsAvatar
+                          name={friend.name}
+                          image={friend.profileImage}
+                          size="md"
+                          className="group-hover:border-flame-500 transition-colors"
+                        />
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-bold text-zinc-100 group-hover:text-flame-400 transition-colors truncate">
+                            {friend.name}
+                          </h4>
+                          <p className="text-xs text-dark-muted font-mono truncate">@{friend.username}</p>
+                        </div>
+                      </Link>
+
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 text-xs font-mono font-bold text-flame-400 justify-end">
+                            <Flame className="w-3.5 h-3.5 fill-flame-500/30" />
+                            <span>{friend.currentStreak}d</span>
+                          </div>
+                          <div className="text-[10px] text-dark-muted font-mono">
+                            {friend.tasksCompletedToday || 0} done today
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => setConfirmRemoveFriendId(isConfirmingRemove ? null : friend.id)}
+                          title="Remove friend"
+                          className="p-2 text-zinc-500 hover:text-rose-400 hover:bg-dark-hover rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                        >
+                          <UserMinus className="w-4 h-4" />
+                        </button>
                       </div>
-                      <div className="text-[10px] text-dark-muted font-mono">
-                        {friend.tasksCompletedToday || 0} done today
-                      </div>
                     </div>
 
-                    {/* Nudge Button (Requirement 5) */}
-                    <button
-                      onClick={() => handleNudge(friend)}
-                      disabled={nudgingFriendId === friend.id}
-                      title={`Nudge @${friend.username} to complete today's habits`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-flame-500/10 hover:bg-flame-500/20 active:scale-95 text-flame-400 border border-flame-500/30 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-                    >
-                      <Flame className={`w-3.5 h-3.5 fill-flame-500 ${nudgingFriendId === friend.id ? 'animate-bounce' : ''}`} />
-                      <span>{nudgingFriendId === friend.id ? 'Nudging...' : 'Nudge'}</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleRemoveFriend(friend)}
-                      title="Remove friend"
-                      className="p-2 text-zinc-500 hover:text-rose-400 hover:bg-dark-hover rounded-xl transition-colors"
-                    >
-                      <UserMinus className="w-4 h-4" />
-                    </button>
+                    {/* Non-intrusive inline remove confirmation (Replaces disruptive browser window.confirm) */}
+                    {isConfirmingRemove && (
+                      <div className="pt-2.5 mt-1 border-t border-dark-border/80 flex items-center justify-between gap-2 animate-fadeIn">
+                        <span className="text-xs text-rose-300 font-medium">Remove from friends?</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setConfirmRemoveFriendId(null)}
+                            className="text-xs px-2.5 py-1 text-zinc-400 hover:text-zinc-200 rounded-lg hover:bg-dark-hover transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => executeRemoveFriend(friend)}
+                            className="text-xs px-3 py-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-bold rounded-lg shadow-sm transition-all"
+                          >
+                            Confirm
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -347,69 +436,76 @@ export const FriendsPage: React.FC = () => {
           </div>
 
           {searchQuery.trim().length >= 2 && searchResults.length === 0 ? (
-            <div className="py-12 text-center text-xs text-dark-muted">
-              No matching users found for "{searchQuery}".
+            <div className="p-8 text-center bg-dark-card border border-dark-border rounded-2xl text-xs text-dark-muted">
+              No users found matching "@{searchQuery.trim()}"
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {searchResults.map((user) => (
-                <div
-                  key={user.id}
-                  className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center justify-between gap-3"
-                >
-                  <Link to={`/profile/${user.username}`} className="flex items-center gap-3 min-w-0">
-                    <InitialsAvatar
-                      name={user.name}
-                      image={user.profileImage}
-                      size="md"
-                    />
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-bold text-zinc-100 truncate">{user.name}</h4>
-                      <p className="text-xs text-dark-muted font-mono truncate">@{user.username}</p>
-                    </div>
-                  </Link>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {searchResults.map((user) => {
+                const isActionPending = pendingActionIds.has(user.id);
 
-                  <div className="flex items-center gap-3">
-                    <div className="text-right hidden sm:block">
-                      <div className="flex items-center gap-1 text-xs font-mono font-bold text-flame-400 justify-end">
-                        <Flame className="w-3.5 h-3.5 fill-flame-500/30" />
-                        <span>{user.currentStreak}d</span>
+                return (
+                  <div
+                    key={user.id}
+                    className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center justify-between gap-3 group hover:border-zinc-700 transition-colors"
+                  >
+                    <Link to={`/profile/${user.username}`} className="flex items-center gap-3 min-w-0">
+                      <InitialsAvatar
+                        name={user.name}
+                        image={user.profileImage}
+                        size="md"
+                        className="group-hover:border-flame-500 transition-colors"
+                      />
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-zinc-100 truncate">{user.name}</h4>
+                        <p className="text-xs text-dark-muted font-mono truncate">@{user.username}</p>
                       </div>
-                      <div className="text-[10px] text-dark-muted font-mono">
-                        Best: {user.longestStreak}d
-                      </div>
-                    </div>
+                    </Link>
 
-                    {user.status === 'SELF' ? (
-                      <span className="text-[10px] font-bold bg-dark-surface text-zinc-400 px-3 py-1.5 rounded-xl border border-dark-border">
-                        You
-                      </span>
-                    ) : user.status === 'FRIENDS' ? (
-                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/25 flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5 stroke-[3]" /> Friends
-                      </span>
-                    ) : user.status === 'REQUEST_SENT' ? (
-                      <span className="text-[11px] font-medium text-dark-muted bg-dark-surface px-3 py-1.5 rounded-xl border border-dark-border flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-amber-400" /> Request Sent
-                      </span>
-                    ) : user.status === 'REQUEST_RECEIVED' && user.requestId ? (
-                      <button
-                        onClick={() => handleAcceptRequest(user.requestId!)}
-                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-zinc-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1"
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" /> Accept
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleSendRequest(user)}
-                        className="px-3.5 py-1.5 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all active:scale-95"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" /> Add Friend
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3">
+                      <div className="text-right hidden sm:block">
+                        <div className="flex items-center gap-1 text-xs font-mono font-bold text-flame-400 justify-end">
+                          <Flame className="w-3.5 h-3.5 fill-flame-500/30" />
+                          <span>{user.currentStreak}d</span>
+                        </div>
+                        <div className="text-[10px] text-dark-muted font-mono">
+                          Best: {user.longestStreak}d
+                        </div>
+                      </div>
+
+                      {user.status === 'SELF' ? (
+                        <span className="text-[10px] font-bold bg-dark-surface text-zinc-400 px-3 py-1.5 rounded-xl border border-dark-border">
+                          You
+                        </span>
+                      ) : user.status === 'FRIENDS' ? (
+                        <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/25 flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" /> Friends
+                        </span>
+                      ) : user.status === 'REQUEST_SENT' ? (
+                        <span className="text-[11px] font-medium text-dark-muted bg-dark-surface px-3 py-1.5 rounded-xl border border-dark-border flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-amber-400" /> Request Sent
+                        </span>
+                      ) : user.status === 'REQUEST_RECEIVED' && user.requestId ? (
+                        <button
+                          onClick={() => handleAcceptRequest(user.requestId!)}
+                          disabled={isActionPending}
+                          className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-zinc-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1 transition-all disabled:opacity-50"
+                        >
+                          <Check className="w-3.5 h-3.5 stroke-[3]" /> Accept
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleSendRequest(user)}
+                          disabled={isActionPending}
+                          className="px-3.5 py-1.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" /> Add Friend
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -426,7 +522,7 @@ export const FriendsPage: React.FC = () => {
             </h3>
 
             {receivedRequests.length === 0 ? (
-              <p className="text-xs text-dark-muted py-4">No pending incoming friend requests.</p>
+              <p className="text-xs text-dark-muted py-4">No pending incoming friend requests. All caught up!</p>
             ) : (
               <div className="space-y-3">
                 {receivedRequests.map((req) => (
@@ -442,22 +538,26 @@ export const FriendsPage: React.FC = () => {
                       />
                       <div>
                         <div className="text-sm font-bold text-zinc-100">{req.sender?.name}</div>
-                        <div className="text-xs text-dark-muted font-mono">@{req.sender?.username} • {req.sender?.currentStreak || 0}d streak</div>
+                        <div className="text-xs text-dark-muted font-mono">
+                          @{req.sender?.username} • {req.sender?.currentStreak || 0}d streak
+                        </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleAcceptRequest(req.id)}
-                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-zinc-950 font-bold text-xs rounded-lg flex items-center gap-1"
+                        disabled={pendingActionIds.has(req.id)}
+                        className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-zinc-950 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1 transition-all disabled:opacity-50"
                       >
                         <Check className="w-3.5 h-3.5 stroke-[3]" /> Accept
                       </button>
                       <button
                         onClick={() => handleRejectRequest(req.id)}
-                        className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-dark-hover rounded-lg transition-colors"
+                        disabled={pendingActionIds.has(req.id)}
+                        className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 font-bold text-xs rounded-xl flex items-center gap-1 transition-all disabled:opacity-50"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-3.5 h-3.5" /> Decline
                       </button>
                     </div>
                   </div>
@@ -474,7 +574,7 @@ export const FriendsPage: React.FC = () => {
             </h3>
 
             {sentRequests.length === 0 ? (
-              <p className="text-xs text-dark-muted py-4">No outgoing pending requests.</p>
+              <p className="text-xs text-dark-muted py-4">You have no outgoing friend requests.</p>
             ) : (
               <div className="space-y-3">
                 {sentRequests.map((req) => (
@@ -496,9 +596,10 @@ export const FriendsPage: React.FC = () => {
 
                     <button
                       onClick={() => handleCancelRequest(req.id)}
-                      className="text-xs text-zinc-400 hover:text-rose-400 hover:bg-dark-hover px-2.5 py-1 rounded-lg transition-colors"
+                      disabled={pendingActionIds.has(req.id)}
+                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-zinc-300 font-medium text-xs rounded-xl flex items-center gap-1 transition-all disabled:opacity-50"
                     >
-                      Cancel Request
+                      <X className="w-3.5 h-3.5" /> Cancel Request
                     </button>
                   </div>
                 ))}

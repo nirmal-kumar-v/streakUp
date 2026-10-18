@@ -33,9 +33,11 @@ import {
   RotateCw,
   Check,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
 export const NotificationSettingsPage: React.FC = () => {
+  const toast = useToast();
   const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
   const [defaultEmail, setDefaultEmail] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('Asia/Kolkata');
@@ -54,12 +56,19 @@ export const NotificationSettingsPage: React.FC = () => {
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
+    if (type === 'error') {
+      toast.error(text);
+    } else {
+      toast.info(text);
+    }
     setFeedback({ text, type });
     setTimeout(() => setFeedback(null), 4000);
   };
 
   const loadAll = async () => {
-    setIsLoading(true);
+    if (!preferences) {
+      setIsLoading(true);
+    }
     try {
       const [prefRes, schedRes, tasksRes, smtpRes] = await Promise.all([
         fetchNotificationPreferences(),
@@ -249,13 +258,17 @@ export const NotificationSettingsPage: React.FC = () => {
   };
 
   const handleDeleteReminder = async (id: string) => {
+    const prevSchedules = [...schedules];
+    // Optimistic remove
+    setSchedules((prev) => prev.filter((s) => s.id !== id));
+    showFeedback('Reminder time removed.');
+
     try {
       const res = await deleteReminderSchedule(id);
-      if (res.success) {
-        setSchedules((prev) => prev.filter((s) => s.id !== id));
-        showFeedback('Reminder time removed.');
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to remove reminder time');
     } catch (err: any) {
+      // Rollback
+      setSchedules(prevSchedules);
       showFeedback(extractErrorMessage(err, 'Failed to remove reminder time'), 'error');
     }
   };

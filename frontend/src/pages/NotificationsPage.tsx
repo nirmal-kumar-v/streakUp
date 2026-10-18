@@ -9,6 +9,8 @@ import {
   NotificationCategory,
 } from '../api/notifications';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { useBadges } from '../context/BadgeContext';
+import { useToast } from '../context/ToastContext';
 import {
   Bell,
   CheckCheck,
@@ -24,6 +26,9 @@ import {
 import { extractErrorMessage } from '../utils/error';
 
 export const NotificationsPage: React.FC = () => {
+  const { decrementNotifications, clearNotifications, setUnreadNotificationsCount } = useBadges();
+  const toast = useToast();
+
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -32,15 +37,12 @@ export const NotificationsPage: React.FC = () => {
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'reminders' | 'friends' | 'milestones'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [feedback, setFeedback] = useState<string | null>(null);
-
-  const showFeedback = (msg: string) => {
-    setFeedback(msg);
-    setTimeout(() => setFeedback(null), 3000);
-  };
 
   const loadNotifications = useCallback(async (targetPage = 1, filter = activeFilter) => {
-    setIsLoading(true);
+    // Only set loading if we don't have notifications yet to avoid screen flash
+    if (notifications.length === 0) {
+      setIsLoading(true);
+    }
     try {
       let statusParam: 'all' | 'unread' | undefined = undefined;
       let categoryParam: NotificationCategory | undefined = undefined;
@@ -80,58 +82,86 @@ export const NotificationsPage: React.FC = () => {
         setTotalCount(res.totalCount);
         setPage(res.page);
         setTotalPages(res.totalPages);
+        setUnreadNotificationsCount(res.unreadCount);
       }
     } catch (err) {
       console.error('Failed to load notifications:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [activeFilter]);
+  }, [activeFilter, notifications.length, setUnreadNotificationsCount]);
 
   useEffect(() => {
     loadNotifications(1, activeFilter);
-  }, [loadNotifications, activeFilter]);
+  }, [activeFilter]);
 
   const handleMarkAsRead = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target || target.isRead) return;
+
+    // Optimistic update
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+    setUnreadCount((c) => Math.max(0, c - 1));
+    decrementNotifications();
+
     try {
       const res = await markNotificationRead(id);
-      if (res.success) {
-        setNotifications((prev) =>
-          prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-        );
-        setUnreadCount((c) => Math.max(0, c - 1));
-      }
+      if (!res.success) throw new Error('Failed to mark as read');
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to mark as read'));
+      // Rollback on failure
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isRead: false } : n))
+      );
+      setUnreadCount((c) => c + 1);
+      toast.error(extractErrorMessage(err, 'Failed to mark as read'));
     }
   };
 
   const handleMarkAllRead = async () => {
+    const previousNotifications = [...notifications];
+    const previousUnread = unreadCount;
+
+    // Optimistic update
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setUnreadCount(0);
+    clearNotifications();
+
     try {
       const res = await markAllNotificationsRead();
-      if (res.success) {
-        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-        setUnreadCount(0);
-        showFeedback('All notifications marked as read.');
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to mark all as read');
+      toast.info('All caught up');
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to mark all as read'));
+      // Rollback
+      setNotifications(previousNotifications);
+      setUnreadCount(previousUnread);
+      toast.error(extractErrorMessage(err, 'Failed to mark all as read'));
     }
   };
 
   const handleDismiss = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target) return;
+
+    const previousNotifications = [...notifications];
+    const previousUnread = unreadCount;
+
+    // Optimistic remove
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (!target.isRead) {
+      setUnreadCount((c) => Math.max(0, c - 1));
+      decrementNotifications();
+    }
+
     try {
       const res = await dismissNotification(id);
-      if (res.success) {
-        const dismissed = notifications.find((n) => n.id === id);
-        setNotifications((prev) => prev.filter((n) => n.id !== id));
-        if (dismissed && !dismissed.isRead) {
-          setUnreadCount((c) => Math.max(0, c - 1));
-        }
-        showFeedback('Notification dismissed.');
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to dismiss notification');
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to dismiss notification'));
+      // Rollback
+      setNotifications(previousNotifications);
+      setUnreadCount(previousUnread);
+      toast.error(extractErrorMessage(err, 'Failed to dismiss notification'));
     }
   };
 
@@ -216,12 +246,6 @@ export const NotificationsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Feedback Toast */}
-      {feedback && (
-        <div className="p-3 bg-flame-500/10 border border-flame-500/30 rounded-xl text-xs font-bold text-flame-300">
-          {feedback}
-        </div>
-      )}
 
       {/* Filter Tabs */}
       <div className="flex bg-dark-card p-1.5 rounded-2xl border border-dark-border gap-1.5 overflow-x-auto">

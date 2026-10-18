@@ -16,7 +16,9 @@ export const FriendsLeaderboardPage: React.FC = () => {
     if (!isAuthenticated) return;
 
     const loadFriendsLeaderboard = async () => {
-      setIsLoading(true);
+      if (entries.length === 0) {
+        setIsLoading(true);
+      }
       try {
         const res = await fetchFriendsLeaderboard({ type: activeType });
         if (res.success) {

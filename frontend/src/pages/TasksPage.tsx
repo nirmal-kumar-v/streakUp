@@ -16,6 +16,8 @@ import { TaskCard } from '../components/TaskCard';
 import { TaskModal } from '../components/TaskModal';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { TaskDetailModal } from '../components/TaskDetailModal';
+import { triggerStreakCelebration } from '../components/StreakCelebration';
+import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
   CheckSquare,
   Plus,
@@ -26,9 +28,12 @@ import {
   Clock,
   Layers,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { extractErrorMessage } from '../utils/error';
 
 export const TasksPage: React.FC = () => {
   const { updateUser } = useAuth();
+  const toast = useToast();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +54,9 @@ export const TasksPage: React.FC = () => {
 
 
   const loadTasks = useCallback(async () => {
-    setIsLoading(true);
+    if (tasks.length === 0) {
+      setIsLoading(true);
+    }
     try {
       const res = await fetchTasks({
         status: statusFilter,
@@ -67,7 +74,7 @@ export const TasksPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, categoryFilter, sortBy, sortOrder]);
+  }, [statusFilter, priorityFilter, categoryFilter, sortBy, sortOrder, tasks.length]);
 
   useEffect(() => {
     loadTasks();
@@ -76,21 +83,27 @@ export const TasksPage: React.FC = () => {
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
     if (task.completedToday) {
+      // Optimistic untick immediately
+      const prevTasks = [...tasks];
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
+      );
       try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
-          setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
-          );
           if (res.streak) {
             updateUser({
               currentStreak: res.streak.currentStreak,
               longestStreak: res.streak.longestStreak,
             });
           }
+        } else {
+          throw new Error('Failed to undo completion');
         }
-      } catch (err) {
-        console.error('Failed to undo completion:', err);
+      } catch (err: any) {
+        // Rollback
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
       }
     } else {
       setCompletingTask(task);
@@ -115,10 +128,22 @@ export const TasksPage: React.FC = () => {
             longestStreak: res.streak.longestStreak,
           });
         }
+
+        // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
+        triggerStreakCelebration({
+          newStreak: res.streak?.currentStreak,
+        });
+
+        // 2. Compact, clean friend accountability nudge reminder
+        triggerPostCompletionNudge({
+          taskId: completingTask.id,
+          taskTitle: completingTask.title,
+        });
+
         await loadTasks();
       }
-    } catch (err) {
-      console.error('Failed to complete task:', err);
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
     }
   };
 
@@ -131,22 +156,55 @@ export const TasksPage: React.FC = () => {
     recurrence: Recurrence;
     dueTime?: string;
   }) => {
-    if (editingTask) {
-      await updateTask(editingTask.id, taskData);
-    } else {
-      await createTask(taskData);
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, taskData);
+        toast.info('Habit updated');
+      } else {
+        await createTask(taskData);
+        toast.info('Habit created');
+      }
+      await loadTasks();
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to save habit.'));
     }
-    await loadTasks();
   };
 
   const handleArchiveToggle = async (task: Task) => {
-    await toggleArchiveTask(task.id);
-    await loadTasks();
+    const isNowArchived = task.status !== 'ARCHIVED';
+    const previousTasks = [...tasks];
+
+    // Optimistic toggle: if on ACTIVE tab and archiving, remove from list; if restoring, remove from ARCHIVED tab list
+    setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    toast.info(isNowArchived ? 'Habit archived' : 'Habit restored');
+
+    try {
+      const res = await toggleArchiveTask(task.id);
+      if (!res.success) throw new Error('Failed to toggle archive');
+      await loadTasks();
+    } catch (err: any) {
+      // Rollback
+      setTasks(previousTasks);
+      toast.error(extractErrorMessage(err, 'Failed to update habit status.'));
+    }
   };
 
   const handleDeleteTask = async (task: Task) => {
-    await deleteTask(task.id);
-    await loadTasks();
+    const previousTasks = [...tasks];
+
+    // Optimistic remove
+    setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    toast.info('Habit removed');
+
+    try {
+      const res = await deleteTask(task.id);
+      if (!res.success) throw new Error('Failed to delete habit');
+      await loadTasks();
+    } catch (err: any) {
+      // Rollback
+      setTasks(previousTasks);
+      toast.error(extractErrorMessage(err, 'Failed to delete habit.'));
+    }
   };
 
   // Filter tasks client-side by search query
@@ -186,7 +244,7 @@ export const TasksPage: React.FC = () => {
             setEditingTask(null);
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>New Task</span>

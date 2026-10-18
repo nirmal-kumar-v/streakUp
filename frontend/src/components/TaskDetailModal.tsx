@@ -9,6 +9,7 @@ import {
   TaskFriendsLeaderboardData,
 } from '../api/tasks';
 import { InitialsAvatar } from './InitialsAvatar';
+import { useToast } from '../context/ToastContext';
 import {
   Flame,
   Shield,
@@ -38,6 +39,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   onTaskUpdated,
 }) => {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'leaderboard'>('overview');
   const [details, setDetails] = useState<TaskDetailData | null>(null);
   const [leaderboard, setLeaderboard] = useState<TaskFriendsLeaderboardData | null>(null);
@@ -91,10 +93,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           ),
         });
         setEditingDate(null);
+        toast.info('Note updated');
         if (onTaskUpdated) onTaskUpdated();
       }
     } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to update note.');
+      toast.error(err?.response?.data?.error || 'Failed to update note.');
     } finally {
       setIsSavingNote(false);
     }
@@ -103,18 +106,20 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const handleConfirmMatch = async (friendTaskId: string) => {
     try {
       await confirmTaskEquivalence(taskId, friendTaskId);
+      toast.info('Habit matched with friend');
       await loadData();
     } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to confirm equivalence.');
+      toast.error(err?.response?.data?.error || 'Failed to confirm equivalence.');
     }
   };
 
   const handleRejectMatch = async (friendTaskId: string) => {
     try {
       await rejectTaskEquivalence(taskId, friendTaskId);
+      toast.info('Match dismissed');
       await loadData();
     } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to reject match.');
+      toast.error(err?.response?.data?.error || 'Failed to reject match.');
     }
   };
 

@@ -58,6 +58,7 @@ export const SettingsPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [confirmRemoveImage, setConfirmRemoveImage] = useState(false);
   const [imageSuccess, setImageSuccess] = useState('');
   const [imageError, setImageError] = useState('');
 
@@ -299,7 +300,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleRemoveImage = async () => {
-    if (!window.confirm('Are you sure you want to remove your profile image?')) return;
+    setConfirmRemoveImage(false);
     setIsUploadingImage(true);
     setImageError('');
     setImageSuccess('');
@@ -488,15 +489,36 @@ export const SettingsPage: React.FC = () => {
               )}
 
               {user?.profileImage && !imagePreview && (
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  disabled={isUploadingImage}
-                  className="px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Remove Picture</span>
-                </button>
+                confirmRemoveImage ? (
+                  <div className="flex items-center gap-1.5 p-1 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs">
+                    <span className="text-rose-300 text-[11px] px-1 font-medium">Remove image?</span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      disabled={isUploadingImage}
+                      className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-lg text-xs"
+                    >
+                      {isUploadingImage ? '...' : 'Yes'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveImage(false)}
+                      className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemoveImage(true)}
+                    disabled={isUploadingImage}
+                    className="px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove Picture</span>
+                  </button>
+                )
               )}
 
               {imagePreview && (

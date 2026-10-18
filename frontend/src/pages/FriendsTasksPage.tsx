@@ -16,7 +16,6 @@ import {
   Sparkles,
   Trophy,
   Activity,
-  Lock,
 } from 'lucide-react';
 
 export const FriendsTasksPage: React.FC = () => {
@@ -30,7 +29,9 @@ export const FriendsTasksPage: React.FC = () => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const loadData = async () => {
-    setIsLoading(true);
+    if (friendsTasks.length === 0 && activity.length === 0) {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       const [tasksRes, actRes] = await Promise.all([
@@ -112,14 +113,6 @@ export const FriendsTasksPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-mono uppercase tracking-wider text-flame-400 font-bold px-2 py-0.5 rounded-md bg-flame-500/10 border border-flame-500/20">
-              Friends Circle
-            </span>
-            <span className="text-xs text-zinc-400 flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Friends-Only Access
-            </span>
-          </div>
           <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight">
             Friends' Tasks & Study Activity
           </h1>

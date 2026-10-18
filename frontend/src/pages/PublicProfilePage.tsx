@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import { fetchPublicProfile, PublicProfile } from '../api/user';
 import { sendFriendRequest, acceptFriendRequest } from '../api/friends';
 import { useAuth } from '../context/AuthContext';
+import { useBadges } from '../context/BadgeContext';
+import { useToast } from '../context/ToastContext';
 import {
   Flame,
   Trophy,
@@ -21,11 +23,13 @@ import { extractErrorMessage } from '../utils/error';
 export const PublicProfilePage: React.FC = () => {
   const { username } = useParams<{ username: string }>();
   const { isAuthenticated } = useAuth();
+  const { decrementFriendRequests } = useBadges();
+  const toast = useToast();
 
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionFeedback, setActionFeedback] = useState('');
+  const [isActionPending, setIsActionPending] = useState(false);
 
   const loadProfile = async () => {
     if (!username) return;
@@ -48,28 +52,43 @@ export const PublicProfilePage: React.FC = () => {
   }, [username]);
 
   const handleAddFriend = async () => {
-    if (!profile) return;
+    if (!profile || isActionPending) return;
+    setIsActionPending(true);
+
+    const prevStatus = profile.relationshipStatus;
+    // 1. Optimistic UI: immediately set status
+    setProfile({ ...profile, relationshipStatus: 'REQUEST_SENT' });
+    toast.success('Friend request sent');
+
     try {
       const res = await sendFriendRequest(profile.id);
-      if (res.success) {
-        setActionFeedback('Friend request sent!');
-        setProfile({ ...profile, relationshipStatus: 'REQUEST_SENT' });
-      }
+      if (!res.success) throw new Error(res.message);
     } catch (err: any) {
-      setActionFeedback(err.response?.data?.error || 'Failed to send friend request.');
+      setProfile({ ...profile, relationshipStatus: prevStatus });
+      toast.error(extractErrorMessage(err, 'Failed to send friend request. Please try again.'));
+    } finally {
+      setIsActionPending(false);
     }
   };
 
   const handleAcceptRequest = async () => {
-    if (!profile || !profile.requestId) return;
+    if (!profile || !profile.requestId || isActionPending) return;
+    setIsActionPending(true);
+
+    const prevStatus = profile.relationshipStatus;
+    // 1. Optimistic UI: immediately set friends & decrement navbar badge
+    setProfile({ ...profile, relationshipStatus: 'FRIENDS' });
+    decrementFriendRequests();
+    toast.success(`You're now friends with @${profile.username}`);
+
     try {
       const res = await acceptFriendRequest(profile.requestId);
-      if (res.success) {
-        setActionFeedback('Friend request accepted!');
-        setProfile({ ...profile, relationshipStatus: 'FRIENDS' });
-      }
+      if (!res.success) throw new Error(res.message);
     } catch (err: any) {
-      setActionFeedback(err.response?.data?.error || 'Failed to accept friend request.');
+      setProfile({ ...profile, relationshipStatus: prevStatus });
+      toast.error(extractErrorMessage(err, 'Failed to accept friend request. Please try again.'));
+    } finally {
+      setIsActionPending(false);
     }
   };
 
@@ -178,10 +197,6 @@ export const PublicProfilePage: React.FC = () => {
                 >
                   Log in to Connect
                 </Link>
-              )}
-
-              {actionFeedback && (
-                <p className="text-xs text-amber-300 mt-2 font-medium">{actionFeedback}</p>
               )}
             </div>
           </div>

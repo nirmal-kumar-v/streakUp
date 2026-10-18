@@ -33,3 +33,6 @@ Thumbs.db
 *.db
 *.db-journal
 prisma/*.db
+
+# Scratch and test scripts
+scratch/

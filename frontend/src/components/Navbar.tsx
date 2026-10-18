@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { fetchFriendRequests } from '../api/friends';
+import { useBadges } from '../context/BadgeContext';
 import {
   Flame,
   LayoutDashboard,
@@ -15,53 +15,28 @@ import {
   Bell,
 } from 'lucide-react';
 import { InitialsAvatar } from './InitialsAvatar';
-import { fetchNotifications } from '../api/notifications';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
+  const { pendingRequestsCount, unreadNotificationsCount } = useBadges();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
-  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
-  const isFetchingRef = useRef(false);
 
-  // Poll pending friend requests and unread notifications periodically (every 45s)
-  // Decoupled from location.pathname to eliminate layout shifts, duplicate fetches, and navigation flicker
+  // Streak celebration animation highlight listener
+  const [isStreakHighlighted, setIsStreakHighlighted] = useState(false);
+
   useEffect(() => {
-    if (!isAuthenticated) {
-      setPendingRequestsCount(0);
-      setUnreadNotificationsCount(0);
-      return;
-    }
-
-    const loadBadgeCounts = async () => {
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
-      try {
-        const [friendsRes, notifsRes] = await Promise.all([
-          fetchFriendRequests(),
-          fetchNotifications({ status: 'unread', limit: 1 }),
-        ]);
-
-        if (friendsRes.success) {
-          setPendingRequestsCount(friendsRes.pendingCount || 0);
-        }
-        if (notifsRes.success) {
-          setUnreadNotificationsCount(notifsRes.unreadCount || 0);
-        }
-      } catch {
-        // Silent fail for background badge poll
-      } finally {
-        isFetchingRef.current = false;
-      }
+    const handleHighlight = () => {
+      setIsStreakHighlighted(true);
+      const timer = setTimeout(() => setIsStreakHighlighted(false), 1600);
+      return () => clearTimeout(timer);
     };
 
-    loadBadgeCounts();
-    const interval = setInterval(loadBadgeCounts, 45000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    window.addEventListener('streak-highlight', handleHighlight);
+    return () => window.removeEventListener('streak-highlight', handleHighlight);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -220,11 +195,20 @@ export const Navbar: React.FC = () => {
 
                 {/* Current Streak Indicator: Flame Vector + Numeric Value Only */}
                 <div
+                  data-streak-indicator="true"
                   title={`${user.currentStreak}-day streak`}
                   aria-label={`${user.currentStreak} day streak`}
-                  className="flex items-center gap-1.5 bg-zinc-800/60 border border-zinc-700/50 px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold text-zinc-100"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold transition-all duration-300 ${
+                    isStreakHighlighted
+                      ? 'bg-flame-500/25 border-flame-500 text-amber-300 ring-2 ring-flame-500/40 shadow-lg shadow-flame-500/30 scale-110'
+                      : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-100'
+                  }`}
                 >
-                  <Flame className="w-4 h-4 text-flame-500 fill-flame-500 shrink-0" />
+                  <Flame
+                    className={`w-4 h-4 text-flame-500 fill-flame-500 shrink-0 transition-transform duration-300 ${
+                      isStreakHighlighted ? 'scale-125 rotate-6' : ''
+                    }`}
+                  />
                   <span>{user.currentStreak}</span>
                 </div>
 
@@ -310,10 +294,19 @@ export const Navbar: React.FC = () => {
 
                 {/* Mobile Streak Display: Flame Vector + Numeric Value Only */}
                 <div
+                  data-streak-indicator="true"
                   aria-label={`${user.currentStreak} day streak`}
-                  className="flex items-center gap-1 text-xs font-bold text-zinc-100 font-mono bg-zinc-800/60 px-2 py-1 rounded-lg border border-zinc-700/40"
+                  className={`flex items-center gap-1 text-xs font-bold font-mono px-2 py-1 rounded-lg border transition-all duration-300 ${
+                    isStreakHighlighted
+                      ? 'bg-flame-500/25 border-flame-500 text-amber-300 ring-2 ring-flame-500/40 shadow-lg shadow-flame-500/30 scale-110'
+                      : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-100'
+                  }`}
                 >
-                  <Flame className="w-3.5 h-3.5 text-flame-500 fill-flame-500" />
+                  <Flame
+                    className={`w-3.5 h-3.5 text-flame-500 fill-flame-500 transition-transform duration-300 ${
+                      isStreakHighlighted ? 'scale-125 rotate-6' : ''
+                    }`}
+                  />
                   <span>{user.currentStreak}</span>
                 </div>
               </>

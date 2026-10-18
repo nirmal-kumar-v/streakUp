@@ -17,8 +17,11 @@ import {
 import { completeTask } from '../api/tasks';
 import { sendFriendRequest } from '../api/friends';
 import { toggleStudyNoteReaction, EmojiType } from '../api/reactions';
+import { useToast } from '../context/ToastContext';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
+import { triggerStreakCelebration } from '../components/StreakCelebration';
+import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
   Users,
   Flame,
@@ -69,19 +72,28 @@ export const GroupDetailPage: React.FC = () => {
   // Task Completion Modal
   const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
 
-  // Feedback & Copy State
+  // Feedback, Confirmation & Copy State
+  const toast = useToast();
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const [confirmPromoteUserId, setConfirmPromoteUserId] = useState<string | null>(null);
+  const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
+    if (type === 'error') {
+      toast.error(text);
+    } else {
+      toast.info(text);
+    }
     setFeedback({ text, type });
-    setTimeout(() => setFeedback(null), 5000);
+    setTimeout(() => setFeedback(null), 4000);
   };
 
   const loadGroupDetails = useCallback(async () => {
     if (!groupId) return;
-    setIsLoadingGroup(true);
+    if (!group) setIsLoadingGroup(true);
     try {
       const res = await fetchGroupDetails(groupId);
       if (res.success && res.group) {
@@ -92,7 +104,7 @@ export const GroupDetailPage: React.FC = () => {
     } finally {
       setIsLoadingGroup(false);
     }
-  }, [groupId]);
+  }, [groupId, group]);
 
   const loadLeaderboard = useCallback(async () => {
     if (!groupId) return;
@@ -167,6 +179,18 @@ export const GroupDetailPage: React.FC = () => {
       const res = await completeTask(group.userTask.id, studyNote);
       if (res.success) {
         showFeedback('Group task completed! Streak recorded.');
+
+        // 1. Duolingo/LeetCode inspired streak celebration animation
+        triggerStreakCelebration({
+          newStreak: res.streak?.currentStreak,
+        });
+
+        // 2. Compact friend accountability nudge reminder
+        triggerPostCompletionNudge({
+          taskId: group.userTask.id,
+          taskTitle: group.userTask.title,
+        });
+
         loadGroupDetails();
         if (activeMainTab === 'notes') loadNotes();
         if (activeMainTab === 'leaderboard') loadLeaderboard();
@@ -178,21 +202,26 @@ export const GroupDetailPage: React.FC = () => {
   };
 
   const handleSendFriendRequest = async (targetUserId: string) => {
-    setActionLoadingId(targetUserId);
+    const prevStatus = leaderboard.find((entry) => entry.userId === targetUserId)?.friendshipStatus;
+    // Optimistic update
+    setLeaderboard((prev) =>
+      prev.map((entry) =>
+        entry.userId === targetUserId ? { ...entry, friendshipStatus: 'REQUEST_SENT' } : entry
+      )
+    );
+    toast.info('Request sent');
+
     try {
       const res = await sendFriendRequest(targetUserId);
-      if (res.success) {
-        showFeedback(res.message || 'Friend request sent!');
-        setLeaderboard((prev) =>
-          prev.map((entry) =>
-            entry.userId === targetUserId ? { ...entry, friendshipStatus: 'REQUEST_SENT' } : entry
-          )
-        );
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to send friend request.');
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to send friend request.'), 'error');
-    } finally {
-      setActionLoadingId(null);
+      // Rollback
+      setLeaderboard((prev) =>
+        prev.map((entry) =>
+          entry.userId === targetUserId ? { ...entry, friendshipStatus: prevStatus || 'NONE' } : entry
+        )
+      );
+      toast.error(extractErrorMessage(err, 'Failed to send friend request.'));
     }
   };
 
@@ -213,7 +242,7 @@ export const GroupDetailPage: React.FC = () => {
         );
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to toggle reaction.'), 'error');
+      toast.error(extractErrorMessage(err, 'Failed to toggle reaction.'));
     }
   };
 
@@ -223,73 +252,63 @@ export const GroupDetailPage: React.FC = () => {
     try {
       const res = await respondToJoinRequest(groupId, requestId, action);
       if (res.success) {
-        showFeedback(res.message);
+        toast.info(res.message);
         setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
         loadGroupDetails();
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to respond to request.'), 'error');
+      toast.error(extractErrorMessage(err, 'Failed to respond to request.'));
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  const handlePromoteToAdmin = async (targetUserId: string) => {
+  const executePromoteToAdmin = async (targetUserId: string) => {
     if (!groupId) return;
-    if (!window.confirm('Promote this member to Group Admin?')) return;
     setActionLoadingId(targetUserId);
+    setConfirmPromoteUserId(null);
     try {
       const res = await promoteMemberToAdmin(groupId, targetUserId);
       if (res.success) {
-        showFeedback(res.message || 'Member promoted to Admin.');
+        toast.info(res.message || 'Member promoted to Admin.');
         loadGroupDetails();
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to promote member.'), 'error');
+      toast.error(extractErrorMessage(err, 'Failed to promote member.'));
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  const handleRemoveMember = async (targetUserId: string, memberName: string) => {
+  const executeRemoveMember = async (targetUserId: string) => {
     if (!groupId) return;
-    if (!window.confirm(`Are you sure you want to remove ${memberName} from this group? This action can only be performed by the Group Owner.`)) return;
     setActionLoadingId(targetUserId);
+    setConfirmRemoveUserId(null);
     try {
       const res = await removeMemberFromGroup(groupId, targetUserId);
       if (res.success) {
-        showFeedback(res.message || 'Member removed from group.');
+        toast.info(res.message || 'Member removed from group.');
         loadGroupDetails();
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to remove member.'), 'error');
+      toast.error(extractErrorMessage(err, 'Failed to remove member.'));
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  const handleLeaveGroup = async () => {
+  const executeLeaveGroup = async () => {
     if (!group || !groupId) return;
-    const isOwner = group.userRole === 'OWNER';
-    const hasOtherMembers = (group.memberCount || 1) > 1;
-
-    let confirmMsg = `Are you sure you want to leave "${group.name}"?`;
-    if (isOwner && hasOtherMembers) {
-      confirmMsg += '\n\nSince you are the owner, group ownership will automatically transfer to the next earliest Admin or member.';
-    } else if (isOwner && !hasOtherMembers) {
-      confirmMsg += '\n\nYou are the only member in this group. Leaving will permanently remove the group.';
-    }
-
-    if (!window.confirm(confirmMsg)) return;
-
     setIsLeaving(true);
+    setConfirmLeaveOpen(false);
     try {
       const res = await leaveGroup(groupId);
       if (res.success) {
+        toast.info(`Left "${group.name}".`);
         navigate('/groups');
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to leave group.'), 'error');
+      toast.error(extractErrorMessage(err, 'Failed to leave group.'));
       setIsLeaving(false);
     }
   };
@@ -422,14 +441,43 @@ export const GroupDetailPage: React.FC = () => {
               </button>
             </div>
 
-            <button
-              onClick={handleLeaveGroup}
-              disabled={isLeaving}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition-all"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>{isLeaving ? 'Leaving...' : 'Leave Group'}</span>
-            </button>
+            {confirmLeaveOpen ? (
+              <div className="flex flex-col sm:flex-row items-center gap-2 p-2 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs">
+                <span className="text-rose-200 text-[11px] font-medium px-1">
+                  {isOwner && (group.memberCount || 1) > 1
+                    ? 'Owner role will transfer. Leave group?'
+                    : isOwner
+                    ? 'Permanent removal. Leave group?'
+                    : `Leave "${group.name}"?`}
+                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={executeLeaveGroup}
+                    disabled={isLeaving}
+                    className="px-2.5 py-1 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-lg text-xs transition-colors"
+                  >
+                    {isLeaving ? 'Leaving...' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmLeaveOpen(false)}
+                    className="px-2 py-1 text-zinc-400 hover:text-zinc-200 text-xs transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmLeaveOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition-all"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Leave Group</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1094,26 +1142,68 @@ export const GroupDetailPage: React.FC = () => {
                     <div className="flex items-center gap-2 shrink-0">
                       {/* Promote to Admin (Owner or Admin can promote normal members) */}
                       {!isTargetOwner && !isTargetAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => handlePromoteToAdmin(member.id)}
-                          disabled={actionLoadingId === member.id}
-                          className="px-3 py-1 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs text-zinc-300 hover:text-white rounded-xl"
-                        >
-                          Promote to Admin
-                        </button>
+                        confirmPromoteUserId === member.id ? (
+                          <div className="flex items-center gap-1.5 p-1 bg-purple-500/10 border border-purple-500/30 rounded-xl text-xs">
+                            <span className="text-purple-300 text-[11px] px-1 font-medium">Promote?</span>
+                            <button
+                              type="button"
+                              onClick={() => executePromoteToAdmin(member.id)}
+                              disabled={actionLoadingId === member.id}
+                              className="px-2 py-0.5 bg-purple-500 hover:bg-purple-400 text-zinc-950 font-bold rounded-lg text-xs"
+                            >
+                              {actionLoadingId === member.id ? '...' : 'Yes'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmPromoteUserId(null)}
+                              className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmPromoteUserId(member.id)}
+                            disabled={actionLoadingId === member.id}
+                            className="px-3 py-1 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs text-zinc-300 hover:text-white rounded-xl"
+                          >
+                            Promote to Admin
+                          </button>
+                        )
                       )}
 
                       {/* Remove Member: Strictly Owner Only! */}
                       {isOwner && !isTargetOwner && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMember(member.id, member.name)}
-                          disabled={actionLoadingId === member.id}
-                          className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold rounded-xl"
-                        >
-                          Remove
-                        </button>
+                        confirmRemoveUserId === member.id ? (
+                          <div className="flex items-center gap-1.5 p-1 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs">
+                            <span className="text-rose-300 text-[11px] px-1 font-medium">Remove {member.name}?</span>
+                            <button
+                              type="button"
+                              onClick={() => executeRemoveMember(member.id)}
+                              disabled={actionLoadingId === member.id}
+                              className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-lg text-xs"
+                            >
+                              {actionLoadingId === member.id ? '...' : 'Yes'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmRemoveUserId(null)}
+                              className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemoveUserId(member.id)}
+                            disabled={actionLoadingId === member.id}
+                            className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold rounded-xl"
+                          >
+                            Remove
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

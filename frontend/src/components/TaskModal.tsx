@@ -377,19 +377,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
 
           {/* Modal Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-dark-border mt-6">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-4 border-t border-dark-border mt-6">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors font-medium"
+              className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors font-medium text-center"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 text-sm bg-flame-500 hover:bg-flame-600 active:scale-95 text-zinc-950 font-bold rounded-xl transition-all shadow-md shadow-flame-500/20 disabled:opacity-50"
+              className="w-full sm:w-auto px-5 py-2.5 sm:py-2 text-sm bg-flame-500 hover:bg-flame-600 active:scale-95 text-zinc-950 font-bold rounded-xl transition-all shadow-md shadow-flame-500/20 disabled:opacity-50 text-center"
             >
               {isSubmitting ? 'Saving...' : editingTask ? 'Save Changes' : 'Create Task'}
             </button>

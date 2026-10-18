@@ -67,7 +67,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           onClick={handleCheck}
           disabled={isToggling}
           aria-label={task.completedToday ? 'Mark task as incomplete' : 'Mark task as complete'}
-          className={`flex-shrink-0 mt-1 w-6 h-6 rounded-lg flex items-center justify-center border transition-all duration-200 ${
+          className={`flex-shrink-0 mt-0.5 w-7 h-7 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center border transition-all duration-200 ${
             task.completedToday
               ? 'bg-emerald-500 border-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/30 ring-2 ring-emerald-500/20'
               : 'border-zinc-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'
@@ -217,12 +217,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 opacity-90 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">
           {onViewDetails && (
             <button
               onClick={() => onViewDetails(task)}
               title="View task details & history"
-              className="p-1.5 text-zinc-400 hover:text-flame-400 hover:bg-dark-hover rounded-lg transition-colors"
+              className="p-2 sm:p-1.5 text-zinc-400 hover:text-flame-400 hover:bg-dark-hover rounded-lg transition-colors min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
             >
               <Info className="w-3.5 h-3.5" />
             </button>
@@ -230,7 +230,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <button
             onClick={() => onEdit(task)}
             title="Edit task"
-            className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-lg transition-colors"
+            className="p-2 sm:p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-lg transition-colors min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
@@ -238,14 +238,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <button
             onClick={() => onArchiveToggle(task)}
             title={task.status === 'ACTIVE' ? 'Archive task' : 'Restore task'}
-            className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-dark-hover rounded-lg transition-colors"
+            className="p-2 sm:p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-dark-hover rounded-lg transition-colors min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
           >
             <Archive className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setShowConfirmDelete(true)}
             title="Delete task"
-            className="p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-dark-hover rounded-lg transition-colors"
+            className="p-2 sm:p-1.5 text-zinc-400 hover:text-rose-400 hover:bg-dark-hover rounded-lg transition-colors min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -254,12 +254,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
       {/* Delete Confirmation Dialog */}
       {showConfirmDelete && (
-        <div className="mt-3 pt-3 border-t border-dark-border/80 flex items-center justify-between bg-dark-surface/60 -mx-4 -mb-4 p-3 rounded-b-2xl">
+        <div className="mt-3 pt-3 border-t border-dark-border/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-dark-surface/60 -mx-4 -mb-4 p-3 rounded-b-2xl">
           <span className="text-xs text-rose-300 font-medium">Delete this task and all its history?</span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
               onClick={() => setShowConfirmDelete(false)}
-              className="text-xs px-2.5 py-1 text-zinc-400 hover:text-zinc-200"
+              className="text-xs px-3 py-1.5 text-zinc-400 hover:text-zinc-200 rounded-lg hover:bg-dark-hover transition-colors"
             >
               Cancel
             </button>
@@ -268,7 +268,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                 await onDelete(task);
                 setShowConfirmDelete(false);
               }}
-              className="text-xs px-3 py-1 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-lg shadow-sm"
+              className="text-xs px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white font-medium rounded-lg shadow-sm"
             >
               Confirm Delete
             </button>

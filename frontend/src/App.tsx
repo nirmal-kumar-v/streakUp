@@ -1,6 +1,8 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { BadgeProvider } from './context/BadgeContext';
+import { ToastProvider } from './context/ToastContext';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
@@ -20,6 +22,8 @@ import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { StreakCelebration } from './components/StreakCelebration';
+import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { apiClient } from './api/client';
 
 // Protected Route wrapper
@@ -63,8 +67,10 @@ export const AppContent: React.FC = () => {
   }, [isAuthenticated]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100">
+    <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100 overflow-x-hidden">
       <Navbar />
+      <StreakCelebration />
+      {isAuthenticated && <PostCompletionNudge />}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         <Routes>
           {/* Public Routes */}
@@ -196,7 +202,11 @@ export const App: React.FC = () => {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ErrorBoundary>
         <AuthProvider>
-          <AppContent />
+          <BadgeProvider>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
+          </BadgeProvider>
         </AuthProvider>
       </ErrorBoundary>
     </BrowserRouter>

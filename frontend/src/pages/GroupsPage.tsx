@@ -27,11 +27,13 @@ import {
   Send,
   XCircle,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const GroupsPage: React.FC = () => {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'my' | 'discover'>('my');
 
   // My Groups State
@@ -58,15 +60,21 @@ export const GroupsPage: React.FC = () => {
   // General feedback
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
+    if (type === 'error') {
+      toast.error(text);
+    } else {
+      toast.info(text);
+    }
     setFeedback({ text, type });
-    setTimeout(() => setFeedback(null), 5000);
+    setTimeout(() => setFeedback(null), 4000);
   };
 
   const loadMyGroups = async () => {
-    setIsLoadingGroups(true);
+    if (groups.length === 0) {
+      setIsLoadingGroups(true);
+    }
     try {
       const res = await fetchUserGroups();
       if (res.success) {
@@ -163,37 +171,40 @@ export const GroupsPage: React.FC = () => {
   };
 
   const handleRequestToJoin = async (group: GroupSearchResult) => {
-    setActionLoadingId(group.id);
+    // Optimistic update
+    setSearchResults((prev) =>
+      prev.map((g) => (g.id === group.id ? { ...g, myRequestStatus: 'PENDING' } : g))
+    );
+    showFeedback('Join request submitted.');
+
     try {
       const res = await requestToJoinGroup(group.id);
-      if (res.success) {
-        showFeedback(res.message || 'Join request submitted! Waiting for Owner or Admin approval.');
-        // Update local search results
-        setSearchResults((prev) =>
-          prev.map((g) => (g.id === group.id ? { ...g, myRequestStatus: 'PENDING' } : g))
-        );
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to submit join request.');
     } catch (err: any) {
+      // Rollback
+      setSearchResults((prev) =>
+        prev.map((g) => (g.id === group.id ? { ...g, myRequestStatus: null } : g))
+      );
       showFeedback(extractErrorMessage(err, 'Failed to submit join request.'), 'error');
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
   const handleCancelRequest = async (groupId: string) => {
-    setActionLoadingId(groupId);
+    // Optimistic update
+    setSearchResults((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, myRequestStatus: null } : g))
+    );
+    showFeedback('Join request cancelled.');
+
     try {
       const res = await cancelJoinRequest(groupId);
-      if (res.success) {
-        showFeedback('Join request cancelled.');
-        setSearchResults((prev) =>
-          prev.map((g) => (g.id === groupId ? { ...g, myRequestStatus: null } : g))
-        );
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to cancel join request.');
     } catch (err: any) {
+      // Rollback
+      setSearchResults((prev) =>
+        prev.map((g) => (g.id === groupId ? { ...g, myRequestStatus: 'PENDING' } : g))
+      );
       showFeedback(extractErrorMessage(err, 'Failed to cancel join request.'), 'error');
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
@@ -500,7 +511,7 @@ export const GroupsPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {searchResults.map((group) => {
-                const isLoading = actionLoadingId === group.id;
+                const isLoading = false;
 
                 return (
                   <div

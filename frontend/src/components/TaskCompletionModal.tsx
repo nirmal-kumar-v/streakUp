@@ -119,12 +119,12 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-dark-border">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2 border-t border-dark-border">
           <button
             type="button"
             onClick={handleCancel}
             disabled={isSubmitting}
-            className="px-4 py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors text-center"
           >
             Cancel
           </button>
@@ -132,7 +132,7 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
             type="button"
             onClick={handleComplete}
             disabled={isSubmitting || !isValid}
-            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 ${
+            className={`w-full sm:w-auto px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 ${
               isValid && !isSubmitting
                 ? 'bg-flame-500 hover:bg-flame-600 text-zinc-950 shadow-flame-500/20 active:scale-95 cursor-pointer'
                 : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'

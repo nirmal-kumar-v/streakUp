@@ -18,6 +18,8 @@ import { TaskModal } from '../components/TaskModal';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 import { ActivityHeatmap } from '../components/ActivityHeatmap';
+import { triggerStreakCelebration } from '../components/StreakCelebration';
+import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
   Flame,
   Trophy,
@@ -29,9 +31,12 @@ import {
   Zap,
   Award,
 } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
+import { extractErrorMessage } from '../utils/error';
 
 export const DashboardPage: React.FC = () => {
   const { user, updateUser } = useAuth();
+  const toast = useToast();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,13 +94,14 @@ export const DashboardPage: React.FC = () => {
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
     if (task.completedToday) {
-      // Untick immediately
+      // Optimistic untick immediately
+      const prevTasks = [...tasks];
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
+      );
       try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
-          setTasks((prev) =>
-            prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
-          );
           if (res.streak) {
             updateUser({
               currentStreak: res.streak.currentStreak,
@@ -103,9 +109,13 @@ export const DashboardPage: React.FC = () => {
             });
           }
           await loadDashboard();
+        } else {
+          throw new Error('Failed to undo completion');
         }
-      } catch (err) {
-        console.error('Error undoing completion:', err);
+      } catch (err: any) {
+        // Rollback
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
       }
     } else {
       // Open study note modal before completing
@@ -131,13 +141,24 @@ export const DashboardPage: React.FC = () => {
             longestStreak: res.streak.longestStreak,
           });
         }
+
+        // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
+        triggerStreakCelebration({
+          newStreak: res.streak?.currentStreak,
+        });
+
+        // 2. Compact, clean friend accountability nudge reminder
+        triggerPostCompletionNudge({
+          taskId: completingTask.id,
+          taskTitle: completingTask.title,
+        });
+
         await loadDashboard();
       }
-    } catch (err) {
-      console.error('Error completing task:', err);
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
     }
   };
-
 
   const handleCreateOrUpdateTask = async (taskData: {
     title: string;
@@ -147,22 +168,57 @@ export const DashboardPage: React.FC = () => {
     recurrence: Recurrence;
     dueTime?: string;
   }) => {
-    if (editingTask) {
-      await updateTask(editingTask.id, taskData);
-    } else {
-      await createTask(taskData);
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, taskData);
+        toast.info('Habit updated');
+      } else {
+        await createTask(taskData);
+        toast.info('Habit created');
+      }
+      await loadDashboard();
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to save habit.'));
     }
-    await loadDashboard();
   };
 
   const handleArchiveToggle = async (task: Task) => {
-    await toggleArchiveTask(task.id);
-    await loadDashboard();
+    const isNowArchived = task.status !== 'ARCHIVED';
+    const previousTasks = [...tasks];
+
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: isNowArchived ? 'ARCHIVED' : 'ACTIVE' } : t))
+    );
+    toast.info(isNowArchived ? 'Habit archived' : 'Habit restored');
+
+    try {
+      const res = await toggleArchiveTask(task.id);
+      if (!res.success) throw new Error('Failed to toggle archive');
+      await loadDashboard();
+    } catch (err: any) {
+      // Rollback
+      setTasks(previousTasks);
+      toast.error(extractErrorMessage(err, 'Failed to update habit status.'));
+    }
   };
 
   const handleDeleteTask = async (task: Task) => {
-    await deleteTask(task.id);
-    await loadDashboard();
+    const previousTasks = [...tasks];
+
+    // Optimistic removal
+    setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    toast.info('Habit removed');
+
+    try {
+      const res = await deleteTask(task.id);
+      if (!res.success) throw new Error('Failed to delete habit');
+      await loadDashboard();
+    } catch (err: any) {
+      // Rollback
+      setTasks(previousTasks);
+      toast.error(extractErrorMessage(err, 'Failed to delete habit.'));
+    }
   };
 
   const completedCount = tasks.filter((t) => t.completedToday).length;
@@ -187,7 +243,7 @@ export const DashboardPage: React.FC = () => {
             setEditingTask(null);
             setIsModalOpen(true);
           }}
-          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
           <span>New Task</span>
