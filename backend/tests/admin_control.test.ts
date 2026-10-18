@@ -167,26 +167,38 @@ describe('Super Admin Control & Privileged Workflows', () => {
     expect(moderatedRecord.studyNote).toBeNull();
   });
 
-  it('should support custom reminders quota and discover groups quota overrides', async () => {
+  it('should support custom reminders, discover groups, and profile image quota overrides', async () => {
     const {
       getUserReminderLimit,
       setUserReminderLimit,
       getUserDiscoverGroupsLimit,
       setUserDiscoverGroupsLimit,
+      getUserProfileImageLimitMb,
+      setUserProfileImageLimitMb,
+      deleteUserAdminConfig,
     } = await import('../src/services/adminConfigService');
 
-    const testUserId = 'test-quota-user-xyz';
+    const testUserId = `test-quota-user-${Date.now()}`;
+    deleteUserAdminConfig(testUserId);
 
-    // Defaults
-    expect(getUserReminderLimit(testUserId)).toBe(3);
-    expect(getUserDiscoverGroupsLimit(testUserId)).toBe(5);
+    try {
+      // Defaults
+      expect(getUserReminderLimit(testUserId)).toBe(3);
+      expect(getUserDiscoverGroupsLimit(testUserId)).toBe(5);
+      expect(getUserProfileImageLimitMb(testUserId)).toBe(5);
 
-    // Overrides
-    setUserReminderLimit(testUserId, 10);
-    expect(getUserReminderLimit(testUserId)).toBe(10);
+      // Overrides
+      setUserReminderLimit(testUserId, 10);
+      expect(getUserReminderLimit(testUserId)).toBe(10);
 
-    setUserDiscoverGroupsLimit(testUserId, 25);
-    expect(getUserDiscoverGroupsLimit(testUserId)).toBe(25);
+      setUserDiscoverGroupsLimit(testUserId, 25);
+      expect(getUserDiscoverGroupsLimit(testUserId)).toBe(25);
+
+      setUserProfileImageLimitMb(testUserId, 15);
+      expect(getUserProfileImageLimitMb(testUserId)).toBe(15);
+    } finally {
+      deleteUserAdminConfig(testUserId);
+    }
   });
 
   it('should award +5 points per selected task for multi-task heatmap streak granting', () => {

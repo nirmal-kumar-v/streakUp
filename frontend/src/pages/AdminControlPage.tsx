@@ -65,6 +65,7 @@ import {
   overrideLeaderboardLimit,
   overrideReminderLimit,
   overrideDiscoverGroupsLimit,
+  overrideProfileImageLimit,
   adminUpdateUserProfileImage,
   AdminUser,
   AdminAuditLogItem,
@@ -168,6 +169,11 @@ export const AdminControlPage: React.FC = () => {
   const [streakReason, setStreakReason] = useState('');
   const [isSubmittingStreak, setIsSubmittingStreak] = useState(false);
 
+  // Freeze Shield Balance & Shelf Recharge Control
+  const [newFreezeBalance, setNewFreezeBalance] = useState<number>(0);
+  const [newFreezeRechargeDays, setNewFreezeRechargeDays] = useState<number>(0);
+  const [freezeControlReason, setFreezeControlReason] = useState('');
+  const [isSubmittingFreezeControl, setIsSubmittingFreezeControl] = useState(false);
 
   // Points
   const [pointsDelta, setPointsDelta] = useState<number>(0);
@@ -190,6 +196,10 @@ export const AdminControlPage: React.FC = () => {
   const [newDiscoverGroupsLimit, setNewDiscoverGroupsLimit] = useState<number>(5);
   const [discoverGroupsReason, setDiscoverGroupsReason] = useState('');
   const [isSubmittingDiscoverGroupsLimit, setIsSubmittingDiscoverGroupsLimit] = useState(false);
+
+  const [newProfileImageLimitMb, setNewProfileImageLimitMb] = useState<number>(5);
+  const [profileImageLimitReason, setProfileImageLimitReason] = useState('');
+  const [isSubmittingProfileImageLimit, setIsSubmittingProfileImageLimit] = useState(false);
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -246,12 +256,17 @@ export const AdminControlPage: React.FC = () => {
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
   // ------------------------------------------
-  // Admin Security State
+  // Admin Security State (Separated Forms)
   // ------------------------------------------
-  const [currentAdminPassword, setCurrentAdminPassword] = useState('');
+  const [loginCurrentPassword, setLoginCurrentPassword] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState('');
+  const [isSubmittingLoginPassword, setIsSubmittingLoginPassword] = useState(false);
+
+  const [sensitiveCurrentPassword, setSensitiveCurrentPassword] = useState('');
   const [newAdminSensitivePin, setNewAdminSensitivePin] = useState('');
-  const [isSubmittingSecurity, setIsSubmittingSecurity] = useState(false);
+  const [confirmAdminSensitivePin, setConfirmAdminSensitivePin] = useState('');
+  const [isSubmittingSensitivePin, setIsSubmittingSensitivePin] = useState(false);
 
   // ------------------------------------------
   // Verify token on mount
@@ -359,6 +374,9 @@ export const AdminControlPage: React.FC = () => {
         setNewLeaderboardLimit(u.leaderboardLimit || 10);
         setNewReminderLimit(u.reminderLimit || 3);
         setNewDiscoverGroupsLimit(u.discoverGroupsLimit || 5);
+        setNewProfileImageLimitMb(u.profileImageLimitMb || 5);
+        setNewFreezeBalance(u.overallFreezeBalance || 0);
+        setNewFreezeRechargeDays(u.overallFreezeRechargeDays || 0);
         setSelectedTimezone(u.timezone || 'Asia/Kolkata');
         if (u.tasks && u.tasks.length > 0) {
           setSelectedTaskId(u.tasks[0].id);
@@ -930,6 +948,81 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
+  // Profile Picture Upload Limit Override
+  const handleOverrideProfileImageLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!profileImageLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Profile Picture Quota Override',
+      `Enter Super Admin Sensitive Password to set maximum profile picture upload size for @${selectedUserDetails?.username} to ${newProfileImageLimitMb} MB.`,
+      async (pin) => {
+        setIsSubmittingProfileImageLimit(true);
+        try {
+          const res = await overrideProfileImageLimit(selectedUserId, {
+            profileImageLimitMb: Number(newProfileImageLimitMb),
+            reason: profileImageLimitReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setProfileImageLimitReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update profile picture quota.'));
+        } finally {
+          setIsSubmittingProfileImageLimit(false);
+        }
+      }
+    );
+  };
+
+  // Freeze Shield Balance & Shelf Recharge Control
+  const handleUpdateFreezeControl = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!freezeControlReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Freeze Shields & Recharge Update',
+      `Enter Super Admin Sensitive Password to update freeze shields to ${newFreezeBalance}/7 and recharge progress to ${newFreezeRechargeDays}/7 days for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSubmittingFreezeControl(true);
+        try {
+          const res = await adjustUserFreezes(selectedUserId, {
+            overallFreezeBalance: Number(newFreezeBalance),
+            overallFreezeRechargeDays: Number(newFreezeRechargeDays),
+            reason: freezeControlReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setFreezeControlReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update freeze shields & recharge days.'));
+        } finally {
+          setIsSubmittingFreezeControl(false);
+        }
+      }
+    );
+  };
+
   // Handle Profile Picture File Change
   const handleProfileImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -940,8 +1033,9 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds the 5 MB limit.');
+    const limitMb = selectedUserDetails?.profileImageLimitMb || 5;
+    if (file.size > limitMb * 1024 * 1024) {
+      toast.error(`File size exceeds the ${limitMb} MB limit.`);
       return;
     }
 
@@ -1314,36 +1408,82 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
-  // O. Admin Security (Change Password & Sensitive PIN)
-  const handleUpdateAdminSecurity = async (e: React.FormEvent) => {
+  // O. Admin Security: Separated Login Password & Sensitive PIN Handlers
+  const handleUpdateLoginPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentAdminPassword) {
-      toast.error('Current password is required to update credentials.');
+    if (!loginCurrentPassword) {
+      toast.error('Current admin password is required.');
       return;
     }
-    if (!newAdminPassword && !newAdminSensitivePin) {
-      toast.error('Please enter a new password or a new sensitive PIN.');
+    if (!newAdminPassword) {
+      toast.error('Please enter a new admin login password.');
+      return;
+    }
+    if (newAdminPassword.length < 8) {
+      toast.error('New admin login password must be at least 8 characters long.');
+      return;
+    }
+    if (newAdminPassword !== confirmAdminPassword) {
+      toast.error('New login password and confirmation do not match.');
       return;
     }
 
-    setIsSubmittingSecurity(true);
+    setIsSubmittingLoginPassword(true);
     try {
       const res = await changeAdminCredentials({
-        currentPassword: currentAdminPassword,
-        newPassword: newAdminPassword.trim() || undefined,
-        newSensitivePin: newAdminSensitivePin.trim() || undefined,
-        reason: 'Super Admin credentials update',
+        currentPassword: loginCurrentPassword,
+        newPassword: newAdminPassword.trim(),
+        reason: 'Super Admin login password update',
       });
       if (res.success) {
         toast.info(res.message);
-        setCurrentAdminPassword('');
+        setLoginCurrentPassword('');
         setNewAdminPassword('');
-        setNewAdminSensitivePin('');
+        setConfirmAdminPassword('');
       }
     } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to update credentials.'));
+      toast.error(extractErrorMessage(err, 'Failed to update login password.'));
     } finally {
-      setIsSubmittingSecurity(false);
+      setIsSubmittingLoginPassword(false);
+    }
+  };
+
+  const handleUpdateSensitivePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sensitiveCurrentPassword) {
+      toast.error('Current admin password is required to verify identity.');
+      return;
+    }
+    if (!newAdminSensitivePin) {
+      toast.error('Please enter a new sensitive action password / PIN.');
+      return;
+    }
+    if (newAdminSensitivePin.length < 4) {
+      toast.error('Sensitive PIN must be at least 4 digits or characters.');
+      return;
+    }
+    if (newAdminSensitivePin !== confirmAdminSensitivePin) {
+      toast.error('New sensitive action password and confirmation do not match.');
+      return;
+    }
+
+    setIsSubmittingSensitivePin(true);
+    try {
+      const res = await changeAdminCredentials({
+        currentPassword: sensitiveCurrentPassword,
+        newSensitivePin: newAdminSensitivePin.trim(),
+        reason: 'Super Admin sensitive action password update',
+      });
+      if (res.success) {
+        toast.info(res.message);
+        setSensitiveCurrentPassword('');
+        setNewAdminSensitivePin('');
+        setConfirmAdminSensitivePin('');
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to update sensitive action password.'));
+    } finally {
+      setIsSubmittingSensitivePin(false);
     }
   };
 
@@ -2689,6 +2829,178 @@ export const AdminControlPage: React.FC = () => {
                         </button>
                       </form>
                     </div>
+
+                    {/* Freeze Shield Balance & Shelf Recharge Engine */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                          <Snowflake className="w-4 h-4 text-sky-400" />
+                          <span>Freeze Shield Balance & Shelf Recharge Engine</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold">
+                          MAX 7 SHIELDS • 7-DAY RECHARGE
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Adjust authoritative freeze inventory and exact recharge days. When a member maintains habit streaks, they accumulate days toward recharging a freeze shield (e.g. 5/7 recharge days). Super Admin can directly calibrate either value.
+                      </p>
+
+                      {/* Prominent Current Status Card */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-dark-surface border border-dark-border rounded-xl">
+                        {/* Freeze Shields */}
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                            <Snowflake className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                              Shield Inventory
+                            </span>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-2xl font-black text-sky-400 font-mono">
+                                {selectedUserDetails?.overallFreezeBalance || 0}
+                              </span>
+                              <span className="text-xs font-bold text-zinc-400">/ 7 Shields</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Shelf Recharge Progress */}
+                        <div className="flex items-center gap-3 border-t sm:border-t-0 sm:border-l border-dark-border/80 pt-3 sm:pt-0 sm:pl-4">
+                          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                            <Clock className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                              Shelf Recharge Progress
+                            </span>
+                            <div className="flex items-baseline gap-1.5 mb-1.5">
+                              <span className="text-2xl font-black text-amber-400 font-mono">
+                                {selectedUserDetails?.overallFreezeRechargeDays || 0}
+                              </span>
+                              <span className="text-xs font-bold text-zinc-400">/ 7 Days</span>
+                            </div>
+                            {/* Visual 7-pip meter */}
+                            <div className="flex items-center gap-1">
+                              {[0, 1, 2, 3, 4, 5, 6].map((pip) => (
+                                <div
+                                  key={pip}
+                                  className={`h-1.5 flex-1 rounded-full ${
+                                    pip < (selectedUserDetails?.overallFreezeRechargeDays || 0)
+                                      ? 'bg-amber-400 shadow-sm shadow-amber-400/50'
+                                      : 'bg-dark-card border border-dark-border'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleUpdateFreezeControl} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* Set Freeze Balance */}
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              New Freeze Shields (0 - 7)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="7"
+                              value={newFreezeBalance}
+                              onChange={(e) =>
+                                setNewFreezeBalance(Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)))
+                              }
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
+                              required
+                            />
+                            <div className="flex items-center gap-1.5 mt-2">
+                              {[0, 1, 2, 3, 5, 7].map((num) => (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onClick={() => setNewFreezeBalance(num)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                                    newFreezeBalance === num
+                                      ? 'bg-sky-500 text-zinc-950 shadow-sm'
+                                      : 'bg-dark-surface hover:bg-dark-border text-zinc-400 hover:text-zinc-200'
+                                  }`}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Set Recharge Days */}
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              Recharge Days toward Next Shield (0 - 7 days)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              max="7"
+                              value={newFreezeRechargeDays}
+                              onChange={(e) =>
+                                setNewFreezeRechargeDays(
+                                  Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0))
+                                )
+                              }
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-amber-500"
+                              required
+                            />
+                            <div className="flex items-center gap-1.5 mt-2">
+                              {[0, 3, 5, 6, 7].map((days) => (
+                                <button
+                                  key={days}
+                                  type="button"
+                                  onClick={() => setNewFreezeRechargeDays(days)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                                    newFreezeRechargeDays === days
+                                      ? 'bg-amber-400 text-zinc-950 shadow-sm'
+                                      : 'bg-dark-surface hover:bg-dark-border text-zinc-400 hover:text-zinc-200'
+                                  }`}
+                                >
+                                  {days}/7d
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={freezeControlReason}
+                            onChange={(e) => setFreezeControlReason(e.target.value)}
+                            placeholder="e.g. Calibrated freeze shelf recharge days (5/7) per user support request"
+                            className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingFreezeControl}
+                          className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingFreezeControl ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Freeze Shields & Recharge Adjustment</span>
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 )}
 
@@ -3331,6 +3643,105 @@ export const AdminControlPage: React.FC = () => {
                         </div>
                       )}
                     </div>
+
+                    {/* CARD 6: PROFILE PICTURE MAX UPLOAD FILE SIZE QUOTA */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Camera className="w-4 h-4 text-flame-400" />
+                          <span>Profile Picture Max File Size Quota (Default: 5 MB)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30 font-bold">
+                          CURRENT: {selectedUserDetails?.profileImageLimitMb || 5} MB QUOTA
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        By default, all members are restricted to a maximum 5 MB avatar upload. As Super Admin, you can <strong className="text-zinc-200">customize the maximum upload size specifically for @{selectedUserDetails?.username}</strong> (e.g. 5 MB, 10 MB, 15 MB, 25 MB, or 50 MB) if they need high-resolution photo uploads.
+                      </p>
+
+                      <form onSubmit={handleOverrideProfileImageLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Profile Picture Upload Limit
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Upload Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`${selectedUserDetails?.profileImageLimitMb || 5} MB Max File Size`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (1 - 100 MB)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={newProfileImageLimitMb}
+                                onChange={(e) => setNewProfileImageLimitMb(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 5)))}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[5, 10, 15, 25, 50].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewProfileImageLimitMb(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newProfileImageLimitMb === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}MB
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={profileImageLimitReason}
+                            onChange={(e) => setProfileImageLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded profile picture quota for HD photography per user request"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingProfileImageLimit}
+                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingProfileImageLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Profile Picture Quota ({newProfileImageLimitMb} MB)</span>
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 )}
 
@@ -3902,71 +4313,207 @@ export const AdminControlPage: React.FC = () => {
         {/* PRIMARY TAB 3: ADMIN SECURITY & SENSITIVE PASSWORD       */}
         {/* ======================================================== */}
         {primaryTab === 'security' && (
-          <div className="max-w-2xl mx-auto bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-6">
-            <div>
-              <h2 className="text-sm font-extrabold text-zinc-100 tracking-tight flex items-center gap-2">
-                <Lock className="w-4 h-4 text-flame-400" />
-                <span>Super Admin Credentials & Sensitive Password</span>
-              </h2>
-              <p className="text-xs text-zinc-400 mt-1">
-                Update the primary Super Admin login password or the secondary Sensitive Action Password required for sensitive overrides.
-              </p>
-            </div>
-
-            <form onSubmit={handleUpdateAdminSecurity} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Current Admin Password <span className="text-flame-400">*</span>
-                </label>
-                <input
-                  type="password"
-                  value={currentAdminPassword}
-                  onChange={(e) => setCurrentAdminPassword(e.target.value)}
-                  placeholder="Enter current password"
-                  className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                  required
-                />
-              </div>
-
-              <div className="pt-2 border-t border-dark-border space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    New Admin Password (optional, min 8 chars)
-                  </label>
-                  <input
-                    type="password"
-                    value={newAdminPassword}
-                    onChange={(e) => setNewAdminPassword(e.target.value)}
-                    placeholder="Leave blank to keep current password"
-                    className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                  />
+          <div className="max-w-5xl mx-auto space-y-6">
+            <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                  <Lock className="w-5 h-5" />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    New Sensitive Action Password (optional)
-                  </label>
-                  <input
-                    type="password"
-                    value={newAdminSensitivePin}
-                    onChange={(e) => setNewAdminSensitivePin(e.target.value)}
-                    placeholder="Enter new sensitive action password"
-                    className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                  />
-                  <p className="text-[11px] text-zinc-500 mt-1">
-                    This password is required for streak corrections, freezes, limit changes, and log deletions.
+                  <h2 className="text-base font-extrabold text-zinc-100 tracking-tight">
+                    Super Admin Security & Access Control
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Manage administrative credentials. Login password and sensitive action password are completely isolated and independent. Both updates require confirming your current administrator password.
                   </p>
                 </div>
               </div>
+            </div>
 
-              <button
-                type="submit"
-                disabled={isSubmittingSecurity || !currentAdminPassword}
-                className="w-full py-3 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg transition-all mt-2"
-              >
-                {isSubmittingSecurity ? 'Updating Credentials...' : 'Update Admin Credentials'}
-              </button>
-            </form>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* CARD 1: SUPER ADMIN LOGIN PASSWORD */}
+              <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel flex flex-col justify-between space-y-5">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-zinc-100">Login Password</h3>
+                        <p className="text-[11px] text-zinc-400">Panel sign-in authentication</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30 font-bold">
+                      SIGN-IN
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Update the primary password used by <code className="text-flame-400 font-mono">@{activeAdmin?.username || 'admin'}</code> to access the Super Admin control panel. Minimum 8 characters.
+                  </p>
+
+                  <form id="admin-login-pwd-form" onSubmit={handleUpdateLoginPassword} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        Current Admin Password <span className="text-flame-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={loginCurrentPassword}
+                        onChange={(e) => setLoginCurrentPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 font-mono"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        New Admin Password <span className="text-flame-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="new-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 font-mono"
+                        required
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-1 block">Must be at least 8 characters long</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        Confirm New Admin Password <span className="text-flame-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmAdminPassword}
+                        onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="new-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 font-mono"
+                        required
+                      />
+                    </div>
+                  </form>
+                </div>
+
+                <button
+                  type="submit"
+                  form="admin-login-pwd-form"
+                  disabled={isSubmittingLoginPassword || !loginCurrentPassword || !newAdminPassword || !confirmAdminPassword}
+                  className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 pt-2"
+                >
+                  {isSubmittingLoginPassword ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Login Password...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Update Login Password</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* CARD 2: SENSITIVE ACTION PASSWORD / PIN */}
+              <div className="bg-dark-card border border-rose-500/30 rounded-2xl p-6 shadow-panel flex flex-col justify-between space-y-5">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                        <Lock className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-zinc-100">Sensitive Action Password / PIN</h3>
+                        <p className="text-[11px] text-rose-300/80">Secondary high-risk authorization</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold">
+                      ROOT OVERRIDES
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Required for high-risk operations: streak adjustments, freeze calibrations, quota overrides, and permanent audit log purging.
+                  </p>
+
+                  <form id="admin-sensitive-pwd-form" onSubmit={handleUpdateSensitivePassword} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        Current Admin Password <span className="text-flame-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={sensitiveCurrentPassword}
+                        onChange={(e) => setSensitiveCurrentPassword(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="current-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400 font-mono"
+                        required
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-1 block">Verify administrator identity with your login password</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        New Sensitive Action Password / PIN <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={newAdminSensitivePin}
+                        onChange={(e) => setNewAdminSensitivePin(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="new-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400 font-mono"
+                        required
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-1 block">Minimum 4 characters or PIN digits</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                        Confirm New Sensitive Password <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        value={confirmAdminSensitivePin}
+                        onChange={(e) => setConfirmAdminSensitivePin(e.target.value)}
+                        placeholder="••••••••"
+                        autoComplete="new-password"
+                        className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400 font-mono"
+                        required
+                      />
+                    </div>
+                  </form>
+                </div>
+
+                <button
+                  type="submit"
+                  form="admin-sensitive-pwd-form"
+                  disabled={isSubmittingSensitivePin || !sensitiveCurrentPassword || !newAdminSensitivePin || !confirmAdminSensitivePin}
+                  className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-zinc-100 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 pt-2"
+                >
+                  {isSubmittingSensitivePin ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Sensitive Password...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Update Sensitive Action Password</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>
@@ -3975,9 +4522,9 @@ export const AdminControlPage: React.FC = () => {
       {/* FULL TASK SETTINGS & SUBSTRING PRIVACY MODAL             */}
       {/* ======================================================== */}
       {editingTask && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 my-8 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl max-h-[92vh] flex flex-col bg-dark-card border border-flame-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
                   <Sliders className="w-5 h-5" />
@@ -4005,12 +4552,13 @@ export const AdminControlPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveTaskFull} className="space-y-4 text-xs">
-              {/* Basic Habit Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                    Task Title / Name <span className="text-flame-400">*</span>
+            <form onSubmit={handleSaveTaskFull} className="flex-1 flex flex-col min-h-0 pt-3">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 sm:pr-2 space-y-4 text-xs">
+                {/* Basic Habit Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Task Title / Name <span className="text-flame-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -4347,7 +4895,9 @@ export const AdminControlPage: React.FC = () => {
 
               {renderNotificationOptions()}
 
-              <div className="flex items-center gap-2 pt-2">
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
@@ -4377,9 +4927,9 @@ export const AdminControlPage: React.FC = () => {
       {/* FULL GROUP SETTINGS & ROSTER CONTROL MODAL               */}
       {/* ======================================================== */}
       {editingGroup && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-3xl bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 my-8 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-3xl max-h-[92vh] flex flex-col bg-dark-card border border-flame-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
                   <Users className="w-5 h-5" />
@@ -4407,9 +4957,10 @@ export const AdminControlPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveGroupFull} className="space-y-4 text-xs">
-              {/* Basic Group Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <form onSubmit={handleSaveGroupFull} className="flex-1 flex flex-col min-h-0 pt-3">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 sm:pr-2 space-y-4 text-xs">
+                {/* Basic Group Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1">
                     Group Name <span className="text-flame-400">*</span>
@@ -4858,8 +5409,9 @@ export const AdminControlPage: React.FC = () => {
               </div>
 
               {renderNotificationOptions()}
+              </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setEditingGroup(null)}
@@ -4889,9 +5441,9 @@ export const AdminControlPage: React.FC = () => {
       {/* HEATMAP DAY ACTIVITY & STREAK / FREEZE CONTROL MODAL     */}
       {/* ======================================================== */}
       {dayModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-lg max-h-[92vh] flex flex-col bg-dark-card border border-flame-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-3">
                 <div
                   className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
@@ -4928,83 +5480,84 @@ export const AdminControlPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Mode Switcher Tabs */}
-            <div className="grid grid-cols-3 gap-2 p-1 bg-dark-surface rounded-2xl border border-dark-border">
-              <button
-                type="button"
-                onClick={() => {
-                  setDayModalMode('STREAK');
-                  setDayModalReason(`Administrative streak completion granted for ${dayModalDate}`);
-                }}
-                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  dayModalMode === 'STREAK'
-                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>Grant Streak</span>
-              </button>
+            <form onSubmit={handleDayActionSubmit} className="flex-1 flex flex-col min-h-0 pt-3">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 sm:pr-2 space-y-4 text-xs">
+                {/* Mode Switcher Tabs */}
+                <div className="grid grid-cols-3 gap-2 p-1 bg-dark-surface rounded-2xl border border-dark-border">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDayModalMode('STREAK');
+                      setDayModalReason(`Administrative streak completion granted for ${dayModalDate}`);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      dayModalMode === 'STREAK'
+                        ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Flame className="w-3.5 h-3.5" />
+                    <span>Grant Streak</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setDayModalMode('FREEZE');
-                  setDayModalReason(`Historical freeze applied for ${dayModalDate}`);
-                }}
-                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  dayModalMode === 'FREEZE'
-                    ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Snowflake className="w-3.5 h-3.5" />
-                <span>Freeze Day</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDayModalMode('FREEZE');
+                      setDayModalReason(`Historical freeze applied for ${dayModalDate}`);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      dayModalMode === 'FREEZE'
+                        ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Snowflake className="w-3.5 h-3.5" />
+                    <span>Freeze Day</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setDayModalMode('UNFREEZE');
-                  setDayModalReason(`Administrative freeze removed for ${dayModalDate}`);
-                }}
-                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  dayModalMode === 'UNFREEZE'
-                    ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Unfreeze</span>
-              </button>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDayModalMode('UNFREEZE');
+                      setDayModalReason(`Administrative freeze removed for ${dayModalDate}`);
+                    }}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      dayModalMode === 'UNFREEZE'
+                        ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Unfreeze</span>
+                  </button>
+                </div>
 
-            {/* Mode Description Banner */}
-            <div
-              className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                dayModalMode === 'STREAK'
-                  ? 'bg-flame-500/10 border-flame-500/30 text-amber-200'
-                  : dayModalMode === 'UNFREEZE'
-                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
-                  : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
-              }`}
-            >
-              {dayModalMode === 'STREAK' ? (
-                <span>
-                  🔥 <strong>Grant Streak (Multi-Task Selection):</strong> Select which tasks were completed on <strong>{dayModalDate}</strong>. Automatically awards <strong>+5 points per task</strong> (+{dayModalSelectedTaskIds.length * 5} pts), records completions, recalculates streaks, and updates heatmaps everywhere.
-                </span>
-              ) : dayModalMode === 'UNFREEZE' ? (
-                <span>
-                  🔓 <strong>Remove Freeze:</strong> Revokes streak freeze protection on <strong>{dayModalDate}</strong>. Streaks and freeze usage will be recalculated automatically.
-                </span>
-              ) : (
-                <span>
-                  ❄️ <strong>Freeze Day:</strong> Applies streak freeze protection on <strong>{dayModalDate}</strong>. Bridges missed habit days without breaking active streaks.
-                </span>
-              )}
-            </div>
+                {/* Mode Description Banner */}
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                    dayModalMode === 'STREAK'
+                      ? 'bg-flame-500/10 border-flame-500/30 text-amber-200'
+                      : dayModalMode === 'UNFREEZE'
+                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+                      : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
+                  }`}
+                >
+                  {dayModalMode === 'STREAK' ? (
+                    <span>
+                      🔥 <strong>Grant Streak (Multi-Task Selection):</strong> Select which tasks were completed on <strong>{dayModalDate}</strong>. Automatically awards <strong>+5 points per task</strong> (+{dayModalSelectedTaskIds.length * 5} pts), records completions, recalculates streaks, and updates heatmaps everywhere.
+                    </span>
+                  ) : dayModalMode === 'UNFREEZE' ? (
+                    <span>
+                      🔓 <strong>Remove Freeze:</strong> Revokes streak freeze protection on <strong>{dayModalDate}</strong>. Streaks and freeze usage will be recalculated automatically.
+                    </span>
+                  ) : (
+                    <span>
+                      ❄️ <strong>Freeze Day:</strong> Applies streak freeze protection on <strong>{dayModalDate}</strong>. Bridges missed habit days without breaking active streaks.
+                    </span>
+                  )}
+                </div>
 
-            <form onSubmit={handleDayActionSubmit} className="space-y-3 text-xs">
               {dayModalMode === 'STREAK' && (
                 <>
                   <div>
@@ -5120,8 +5673,9 @@ export const AdminControlPage: React.FC = () => {
               </div>
 
               {renderNotificationOptions()}
+              </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setDayModalOpen(false)}
@@ -5163,9 +5717,9 @@ export const AdminControlPage: React.FC = () => {
       {/* PROFILE PICTURE MANAGEMENT MODAL                         */}
       {/* ======================================================== */}
       {profileImageModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-md max-h-[92vh] flex flex-col bg-dark-card border border-flame-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
                   <Camera className="w-5 h-5" />
@@ -5184,138 +5738,140 @@ export const AdminControlPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Mode Switcher */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-dark-surface rounded-xl border border-dark-border text-xs">
-              <button
-                type="button"
-                onClick={() => setProfileImageMode('UPLOAD')}
-                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  profileImageMode === 'UPLOAD'
-                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setProfileImageMode('URL')}
-                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  profileImageMode === 'URL'
-                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                <span>Image URL</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setProfileImageMode('REMOVE')}
-                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  profileImageMode === 'REMOVE'
-                    ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Remove</span>
-              </button>
-            </div>
-
-            {/* Avatar Preview Section */}
-            <div className="flex flex-col items-center justify-center p-4 bg-dark-surface rounded-2xl border border-dark-border gap-2.5">
-              <div className="relative">
-                <div className="w-20 h-20 rounded-2xl bg-dark-card border-2 border-flame-500/40 flex items-center justify-center text-flame-400 font-extrabold text-2xl overflow-hidden shadow-inner">
-                  {profileImageMode === 'REMOVE' ? (
-                    <span className="text-zinc-500 font-mono text-sm">Default</span>
-                  ) : (profileImagePreview || profileImageInput) ? (
-                    <img
-                      src={profileImagePreview || profileImageInput}
-                      alt="Avatar Preview"
-                      className="w-full h-full object-cover"
-                      onError={() => toast.error('Failed to load image preview from provided URL.')}
-                    />
-                  ) : selectedUserDetails?.profileImage ? (
-                    <img
-                      src={selectedUserDetails.profileImage}
-                      alt="Current Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    selectedUserDetails?.name?.slice(0, 2).toUpperCase() ||
-                    selectedUserDetails?.username?.slice(0, 2).toUpperCase() ||
-                    'U'
-                  )}
+            <form onSubmit={handleUpdateProfileImage} className="flex-1 flex flex-col min-h-0 pt-3">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 sm:pr-2 space-y-4 text-xs">
+                {/* Mode Switcher */}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-dark-surface rounded-xl border border-dark-border text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setProfileImageMode('UPLOAD')}
+                    className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      profileImageMode === 'UPLOAD'
+                        ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Upload</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProfileImageMode('URL')}
+                    className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      profileImageMode === 'URL'
+                        ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    <span>Image URL</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProfileImageMode('REMOVE')}
+                    className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      profileImageMode === 'REMOVE'
+                        ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </button>
                 </div>
-              </div>
-              <span className="text-[11px] text-zinc-400 font-medium">
-                {profileImageMode === 'REMOVE'
-                  ? 'Will revert to default initial avatar'
-                  : (profileImagePreview || profileImageInput)
-                  ? 'New Avatar Preview'
-                  : 'Current Active Avatar'}
-              </span>
-            </div>
 
-            <form onSubmit={handleUpdateProfileImage} className="space-y-3 text-xs">
-              {profileImageMode === 'UPLOAD' && (
+                {/* Avatar Preview Section */}
+                <div className="flex flex-col items-center justify-center p-4 bg-dark-surface rounded-2xl border border-dark-border gap-2.5">
+                  <div className="relative">
+                    <div className="w-20 h-20 rounded-2xl bg-dark-card border-2 border-flame-500/40 flex items-center justify-center text-flame-400 font-extrabold text-2xl overflow-hidden shadow-inner">
+                      {profileImageMode === 'REMOVE' ? (
+                        <span className="text-zinc-500 font-mono text-sm">Default</span>
+                      ) : (profileImagePreview || profileImageInput) ? (
+                        <img
+                          src={profileImagePreview || profileImageInput}
+                          alt="Avatar Preview"
+                          className="w-full h-full object-cover"
+                          onError={() => toast.error('Failed to load image preview from provided URL.')}
+                        />
+                      ) : selectedUserDetails?.profileImage ? (
+                        <img
+                          src={selectedUserDetails.profileImage}
+                          alt="Current Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        selectedUserDetails?.name?.slice(0, 2).toUpperCase() ||
+                        selectedUserDetails?.username?.slice(0, 2).toUpperCase() ||
+                        'U'
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-zinc-400 font-medium">
+                    {profileImageMode === 'REMOVE'
+                      ? 'Will revert to default initial avatar'
+                      : (profileImagePreview || profileImageInput)
+                      ? 'New Avatar Preview'
+                      : 'Current Active Avatar'}
+                  </span>
+                </div>
+
+                {profileImageMode === 'UPLOAD' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Upload Image File (JPEG, PNG, WebP • Max {selectedUserDetails?.profileImageLimitMb || 5}MB)
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleProfileImageFileChange}
+                      className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-flame-500 file:text-zinc-950 hover:file:bg-flame-400 cursor-pointer"
+                    />
+                  </div>
+                )}
+
+                {profileImageMode === 'URL' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                      Direct Image URL (HTTP / HTTPS)
+                    </label>
+                    <input
+                      type="url"
+                      value={profileImageInput}
+                      onChange={(e) => {
+                        setProfileImageInput(e.target.value);
+                        setProfileImagePreview(null);
+                      }}
+                      placeholder="https://example.com/avatar.png"
+                      className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                      required
+                    />
+                  </div>
+                )}
+
+                {profileImageMode === 'REMOVE' && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 leading-relaxed">
+                    Removing this profile picture will immediately clear custom photo data and restore default username initials across all leaderboards, groups, and friend feeds.
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                    Upload Image File (JPEG, PNG, WebP • Max 5MB)
+                    Mandatory Administrative Reason
                   </label>
                   <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleProfileImageFileChange}
-                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-flame-500 file:text-zinc-950 hover:file:bg-flame-400 cursor-pointer"
-                  />
-                </div>
-              )}
-
-              {profileImageMode === 'URL' && (
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                    Direct Image URL (HTTP / HTTPS)
-                  </label>
-                  <input
-                    type="url"
-                    value={profileImageInput}
-                    onChange={(e) => {
-                      setProfileImageInput(e.target.value);
-                      setProfileImagePreview(null);
-                    }}
-                    placeholder="https://example.com/avatar.png"
+                    type="text"
+                    value={profileImageReason}
+                    onChange={(e) => setProfileImageReason(e.target.value)}
+                    placeholder="e.g. Administrative profile image update upon verified user request"
                     className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                     required
                   />
                 </div>
-              )}
 
-              {profileImageMode === 'REMOVE' && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 leading-relaxed">
-                  Removing this profile picture will immediately clear custom photo data and restore default username initials across all leaderboards, groups, and friend feeds.
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Mandatory Administrative Reason
-                </label>
-                <input
-                  type="text"
-                  value={profileImageReason}
-                  onChange={(e) => setProfileImageReason(e.target.value)}
-                  placeholder="e.g. Administrative profile image update upon verified user request"
-                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                  required
-                />
+                {renderNotificationOptions()}
               </div>
 
-              {renderNotificationOptions()}
-
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setProfileImageModalOpen(false)}
@@ -5353,46 +5909,58 @@ export const AdminControlPage: React.FC = () => {
       {/* SENSITIVE ACTION PASSWORD CONFIRMATION MODAL             */}
       {/* ======================================================== */}
       {pinModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-dark-card border border-rose-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center gap-3 text-rose-400">
-              <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
-                <Lock className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-md max-h-[92vh] flex flex-col bg-dark-card border border-rose-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative my-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
+              <div className="flex items-center gap-3 text-rose-400">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-zinc-100">{pinModalTitle}</h3>
+                  <p className="text-[11px] text-zinc-400">Secondary Sensitive Password Required</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-zinc-100">{pinModalTitle}</h3>
-                <p className="text-[11px] text-zinc-400">Secondary Sensitive Password Required</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setPinModalOpen(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-200 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <p className="text-xs text-zinc-300 leading-relaxed">{pinModalDescription}</p>
+            <form onSubmit={executePinAction} className="flex-1 flex flex-col min-h-0 pt-3">
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 sm:pr-2 space-y-4 text-xs">
+                <p className="text-xs text-zinc-300 leading-relaxed">{pinModalDescription}</p>
 
-            <form onSubmit={executePinAction} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Super Admin Sensitive Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPinPassword ? 'text' : 'password'}
-                    value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value)}
-                    placeholder="Enter sensitive action password"
-                    className="w-full px-4 py-2.5 pr-10 bg-dark-surface border border-rose-500/30 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400"
-                    autoFocus
-                    required
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPinPassword(!showPinPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-                  >
-                    {showPinPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Super Admin Sensitive Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPinPassword ? 'text' : 'password'}
+                      value={pinInput}
+                      onChange={(e) => setPinInput(e.target.value)}
+                      placeholder="••••••••"
+                      autoComplete="off"
+                      className="w-full px-4 py-2.5 pr-10 bg-dark-surface border border-rose-500/30 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPinPassword(!showPinPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+                    >
+                      {showPinPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setPinModalOpen(false)}

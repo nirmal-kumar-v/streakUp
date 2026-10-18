@@ -128,9 +128,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-      <div className="relative w-full max-w-2xl bg-dark-surface border border-dark-border rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden my-auto">
+      <div className="relative w-full max-w-2xl bg-dark-surface border border-dark-border rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden my-auto">
         {/* Header */}
-        <div className="p-6 border-b border-dark-border flex items-start justify-between bg-dark-bg/50">
+        <div className="p-6 border-b border-dark-border flex items-start justify-between bg-dark-bg/50 shrink-0">
           <div>
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="text-[11px] font-mono uppercase tracking-wider text-flame-400 font-bold px-2 py-0.5 rounded-md bg-flame-500/10 border border-flame-500/20">
@@ -184,7 +184,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-dark-border px-6 bg-dark-bg/30">
+        <div className="flex border-b border-dark-border px-6 bg-dark-bg/30 shrink-0">
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
@@ -221,7 +221,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         </div>
 
         {/* Content Area */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+        <div className="p-6 overflow-y-auto flex-1 min-h-0 space-y-6">
           {isLoading ? (
             <div className="py-16 flex flex-col items-center justify-center text-zinc-400 gap-3">
               <div className="w-6 h-6 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />

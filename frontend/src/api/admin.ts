@@ -49,6 +49,7 @@ export interface AdminUser {
   emailLastChangedAt?: string | null;
   isEmailVerified?: boolean;
   maxStarredNotifications: number | null;
+  profileImageLimitMb?: number;
   createdAt: string;
   _count?: {
     tasks: number;
@@ -516,6 +517,21 @@ export async function overrideDiscoverGroupsLimit(
   return res.data;
 }
 
+export async function overrideProfileImageLimit(
+  userId: string,
+  data: { profileImageLimitMb: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; profileImageLimitMb: number }>(
+    `/admin/users/${userId}/override-profile-image-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function adminUpdateUserProfileImage(
   userId: string,
   data: {
@@ -534,5 +550,6 @@ export async function adminUpdateUserProfileImage(
   );
   return res.data;
 }
+
 
 

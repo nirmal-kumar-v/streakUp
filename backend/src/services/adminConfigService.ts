@@ -93,11 +93,40 @@ export function setUserDiscoverGroupsLimit(userId: string, limit: number): void 
   writeAllConfigs(configs);
 }
 
+export function getUserProfileImageLimitMb(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.profileImageLimitMb === 'number' && userConf.profileImageLimitMb > 0) {
+    return userConf.profileImageLimitMb;
+  }
+  return 5; // Default 5 MB profile image upload quota
+}
+
+export function setUserProfileImageLimitMb(userId: string, limitMb: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].profileImageLimitMb = Math.max(1, Math.min(100, Math.round(limitMb)));
+  writeAllConfigs(configs);
+}
+
 export function getUserAdminConfig(userId: string): UserAdminConfig {
   const configs = readAllConfigs();
   return configs[userId] || {
     leaderboardLimit: 10,
     reminderLimit: 3,
     discoverGroupsLimit: 5,
+    profileImageLimitMb: 5,
   };
 }
+
+export function deleteUserAdminConfig(userId: string): void {
+  const configs = readAllConfigs();
+  if (configs[userId]) {
+    delete configs[userId];
+    writeAllConfigs(configs);
+  }
+}
+
+

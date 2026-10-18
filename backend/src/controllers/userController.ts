@@ -7,6 +7,7 @@ import { recalculateUserStreaks } from '../services/streakService';
 import { OtpPurpose, NotificationCategory } from '@prisma/client';
 import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
 import { sendEmail, buildChangeEmailOtpEmail } from '../services/emailService';
+import { getUserProfileImageLimitMb } from '../services/adminConfigService';
 
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(50).optional(),
@@ -202,14 +203,15 @@ export async function uploadProfileImage(req: AuthenticatedRequest, res: Respons
     const mimeType = match[1].toLowerCase();
     const base64Data = match[2];
 
-    // Check size limit: max 5MB (Base64 string ~ 7MB)
+    // Check dynamic per-user size limit (default 5MB or customized by Admin)
     const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
-    const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+    const limitMb = getUserProfileImageLimitMb(userId);
+    const MAX_SIZE_BYTES = limitMb * 1024 * 1024;
 
     if (sizeInBytes > MAX_SIZE_BYTES) {
       return res.status(400).json({
         success: false,
-        error: `File size exceeds the 5 MB limit. Your file is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
+        error: `File size exceeds your ${limitMb} MB limit. Your file is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
       });
     }
 

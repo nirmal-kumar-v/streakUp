@@ -322,10 +322,10 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
           onClick={() => setSelectedDateDetail(null)}
         >
           <div
-            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp my-auto"
+            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-dark-border pb-3">
+            <div className="flex items-center justify-between border-b border-dark-border pb-3 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                   <CheckCircle2 className="w-4 h-4" />
@@ -349,11 +349,11 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
             </div>
 
             {selectedDateDetail.tasks.length === 0 ? (
-              <div className="py-6 text-center text-xs text-dark-muted">
+              <div className="py-6 text-center text-xs text-dark-muted flex-1">
                 No habit completions recorded on this date.
               </div>
             ) : (
-              <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+              <div className="space-y-2.5 min-h-0 overflow-y-auto pr-1 flex-1">
                 {selectedDateDetail.tasks.map((task, idx) => (
                   <div
                     key={idx}
@@ -379,7 +379,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
 
             <button
               onClick={() => setSelectedDateDetail(null)}
-              className="w-full py-2 bg-dark-surface hover:bg-dark-hover active:scale-95 text-zinc-200 text-xs font-bold rounded-xl border border-dark-border transition-all"
+              className="w-full py-2 bg-dark-surface hover:bg-dark-hover active:scale-95 text-zinc-200 text-xs font-bold rounded-xl border border-dark-border transition-all shrink-0"
             >
               Close
             </button>

@@ -32,6 +32,7 @@ import {
   Flame,
   Send,
   XCircle,
+  X,
   Inbox,
   Mail,
 } from 'lucide-react';
@@ -928,18 +929,28 @@ export const GroupsPage: React.FC = () => {
       {/* CREATE GROUP MODAL */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative my-auto">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
-                <Sparkles className="w-5 h-5" />
+          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative my-auto max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border mb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-100">Create Shared Group Task</h3>
+                  <p className="text-xs text-dark-muted">Everyone who joins shares this task definition & schedule</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-zinc-100">Create Shared Group Task</h3>
-                <p className="text-xs text-dark-muted">Everyone who joins shares this task definition & schedule</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateOpen(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="space-y-4">
+            <form onSubmit={handleCreateGroup} className="flex-1 flex flex-col min-h-0">
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1">
               <div>
                 <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
                   Group Task Name <span className="text-flame-400">*</span>
@@ -1014,9 +1025,10 @@ export const GroupsPage: React.FC = () => {
                     );
                   })}
                 </div>
+                </div>
               </div>
 
-              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3 shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setIsCreateOpen(false)}
@@ -1040,34 +1052,45 @@ export const GroupsPage: React.FC = () => {
       {/* JOIN GROUP WITH CODE MODAL */}
       {isJoinOpen && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl relative my-auto">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                <KeyRound className="w-5 h-5" />
+          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative my-auto max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border mb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-100">Join with Code</h3>
+                  <p className="text-xs text-dark-muted">Enter group code (e.g. GATE-X7K2)</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-zinc-100">Join with Code</h3>
-                <p className="text-xs text-dark-muted">Enter group code (e.g. GATE-X7K2)</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsJoinOpen(false)}
+                className="p-1.5 text-zinc-400 hover:text-zinc-200 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <form onSubmit={handleQuickJoinByCode} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Unique Group Code
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={15}
-                  value={joinCodeInput}
-                  onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. GATE-X7K2"
-                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-base text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono tracking-widest text-center uppercase"
-                />
+            <form onSubmit={handleQuickJoinByCode} className="flex-1 flex flex-col min-h-0">
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                    Unique Group Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={15}
+                    value={joinCodeInput}
+                    onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                    placeholder="e.g. GATE-X7K2"
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-base text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono tracking-widest text-center uppercase"
+                  />
+                </div>
               </div>
 
-              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3 shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setIsJoinOpen(false)}

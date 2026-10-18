@@ -220,9 +220,9 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 overflow-y-auto overscroll-contain">
-      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto">
+      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-flame-500/10 border border-flame-500/20 flex items-center justify-center text-flame-400">
               <Sparkles className="w-4 h-4" />
@@ -245,7 +245,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+          <div className="p-6 space-y-4 flex-1 overflow-y-auto min-h-0">
           {error && (
             <div className="flex items-center gap-2 p-3 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-xl">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -684,9 +685,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               )}
             </div>
           </div>
+        </div>
 
           {/* Modal Actions */}
-          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-4 border-t border-dark-border mt-6">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 px-6 py-4 border-t border-dark-border shrink-0 bg-dark-card/95">
             <button
               type="button"
               onClick={onClose}

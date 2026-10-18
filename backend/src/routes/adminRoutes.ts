@@ -30,6 +30,7 @@ import {
   overrideLeaderboardLimit,
   overrideReminderLimit,
   overrideDiscoverGroupsLimit,
+  overrideProfileImageLimit,
   adminUpdateUserProfileImage,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
@@ -67,6 +68,7 @@ router.post('/users/:userId/override-starred-limit', requireSensitiveAuth, overr
 router.post('/users/:userId/override-leaderboard-limit', requireSensitiveAuth, overrideLeaderboardLimit);
 router.post('/users/:userId/override-reminder-limit', requireSensitiveAuth, overrideReminderLimit);
 router.post('/users/:userId/override-discover-groups-limit', requireSensitiveAuth, overrideDiscoverGroupsLimit);
+router.post('/users/:userId/override-profile-image-limit', requireSensitiveAuth, overrideProfileImageLimit);
 router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);

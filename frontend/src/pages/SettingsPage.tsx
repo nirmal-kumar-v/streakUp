@@ -415,11 +415,12 @@ export const SettingsPage: React.FC = () => {
       return;
     }
 
-    // Validate size: max 5 MB
-    const maxBytes = 5 * 1024 * 1024;
+    // Validate size: max dynamic MB (default 5 MB, or custom user quota from admin)
+    const allowedMb = (user as any)?.profileImageLimitMb || 5;
+    const maxBytes = allowedMb * 1024 * 1024;
     if (file.size > maxBytes) {
       setImageError(
-        `File is too large (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maximum allowed size is 5 MB.`
+        `File is too large (${(file.size / (1024 * 1024)).toFixed(2)} MB). Maximum allowed size is ${allowedMb} MB.`
       );
       return;
     }
@@ -594,7 +595,7 @@ export const SettingsPage: React.FC = () => {
             Profile Picture
           </h2>
           <p className="text-xs text-dark-muted mt-0.5">
-            Upload a picture from your device (JPEG, PNG, WebP up to 5 MB).
+            Upload a picture from your device (JPEG, PNG, WebP up to {(user as any)?.profileImageLimitMb || 5} MB).
           </p>
         </div>
 
@@ -1336,9 +1337,9 @@ export const SettingsPage: React.FC = () => {
       {/* Delete Account Confirmation Modal */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative my-auto">
-            <div className="flex items-center gap-3 text-rose-400 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
+          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl relative my-auto max-h-[92vh] flex flex-col">
+            <div className="flex items-center gap-3 text-rose-400 mb-4 shrink-0 pb-3 border-b border-rose-500/20">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
                 <AlertCircle className="w-6 h-6" />
               </div>
               <div>
@@ -1346,18 +1347,6 @@ export const SettingsPage: React.FC = () => {
                 <p className="text-xs text-rose-400 font-medium">Irreversible action</p>
               </div>
             </div>
-
-            <div className="p-4 bg-rose-950/20 border border-rose-500/20 rounded-xl text-xs text-zinc-300 leading-relaxed mb-5">
-              <p className="font-semibold text-rose-300 mb-1">Are you absolutely sure?</p>
-              This will permanently delete your user profile, habits, completion logs, streaks, points, study notes, friend relationships, and group memberships. Any groups you own with active members will transfer ownership to the next earliest member.
-            </div>
-
-            {deleteError && (
-              <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>{deleteError}</span>
-              </div>
-            )}
 
             <form
               onSubmit={async (e) => {
@@ -1386,37 +1375,51 @@ export const SettingsPage: React.FC = () => {
                   setIsDeletingAccount(false);
                 }
               }}
-              className="space-y-4"
+              className="flex-1 flex flex-col min-h-0"
             >
-              <div>
-                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Type <span className="text-rose-400 font-mono font-black">DELETE</span> to confirm
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={deleteConfirmationText}
-                  onChange={(e) => setDeleteConfirmationText(e.target.value)}
-                  placeholder="DELETE"
-                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-rose-500/30 rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500 font-mono"
-                />
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1">
+                <div className="p-4 bg-rose-950/20 border border-rose-500/20 rounded-xl text-xs text-zinc-300 leading-relaxed">
+                  <p className="font-semibold text-rose-300 mb-1">Are you absolutely sure?</p>
+                  This will permanently delete your user profile, habits, completion logs, streaks, points, study notes, friend relationships, and group memberships. Any groups you own with active members will transfer ownership to the next earliest member.
+                </div>
+
+                {deleteError && (
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                    <span>{deleteError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                    Type <span className="text-rose-400 font-mono font-black">DELETE</span> to confirm
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={deleteConfirmationText}
+                    onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                    placeholder="DELETE"
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-rose-500/30 rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
+                    Confirm Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Confirm Password
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="Enter your current password"
-                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-rose-500"
-                />
-              </div>
-
-              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3 shrink-0 mt-3">
                 <button
                   type="button"
                   disabled={isDeletingAccount}
@@ -1447,8 +1450,8 @@ export const SettingsPage: React.FC = () => {
       {/* App Lock: Setup PIN Modal */}
       {appLockModal === 'setup' && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-flame-400" />
                 <h3 className="text-sm font-bold text-zinc-100">Setup App Lock PIN</h3>
@@ -1462,85 +1465,87 @@ export const SettingsPage: React.FC = () => {
               </button>
             </div>
 
-            {appLockModalError && (
-              <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
-                {appLockModalError}
-              </div>
-            )}
+            <form onSubmit={handleSetupPinSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1 pt-3">
+                {appLockModalError && (
+                  <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
+                    {appLockModalError}
+                  </div>
+                )}
 
-            <form onSubmit={handleSetupPinSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Enter 4-Digit PIN
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                  autoFocus
-                  placeholder="••••"
-                  value={appLockPin}
-                  onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Confirm 4-Digit PIN
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                  placeholder="••••"
-                  value={appLockConfirmPin}
-                  onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
-              </div>
-
-              {/* Security Question for Recovery */}
-              <div className="pt-2 border-t border-dark-border/60 space-y-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-flame-400">
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  <span>PIN Recovery Security Question</span>
-                </div>
-                <p className="text-[11px] text-dark-muted">
-                  Used to reset your PIN if forgotten, without requiring email or SMS OTP.
-                </p>
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Select Question
-                  </label>
-                  <CustomSelect
-                    value={appLockSecQuestion}
-                    onChange={(val) => setAppLockSecQuestion(val)}
-                    options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
-                    size="sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                    Your Answer
+                    Enter 4-Digit PIN
                   </label>
                   <input
-                    type="text"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
                     required
-                    placeholder="Enter memorable answer"
-                    value={appLockSecAnswer}
-                    onChange={(e) => setAppLockSecAnswer(e.target.value)}
-                    className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                    autoFocus
+                    placeholder="••••"
+                    value={appLockPin}
+                    onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
                   />
-                  <p className="text-[10px] text-zinc-500 mt-1">
-                    Your answer is cryptographically hashed with salt and never stored in plain text.
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Confirm 4-Digit PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                    placeholder="••••"
+                    value={appLockConfirmPin}
+                    onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
+                </div>
+
+                {/* Security Question for Recovery */}
+                <div className="pt-2 border-t border-dark-border/60 space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-flame-400">
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>PIN Recovery Security Question</span>
+                  </div>
+                  <p className="text-[11px] text-dark-muted">
+                    Used to reset your PIN if forgotten, without requiring email or SMS OTP.
                   </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Select Question
+                    </label>
+                    <CustomSelect
+                      value={appLockSecQuestion}
+                      onChange={(val) => setAppLockSecQuestion(val)}
+                      options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Your Answer
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter memorable answer"
+                      value={appLockSecAnswer}
+                      onChange={(e) => setAppLockSecAnswer(e.target.value)}
+                      className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                    />
+                    <p className="text-[10px] text-zinc-500 mt-1">
+                      Your answer is cryptographically hashed with salt and never stored in plain text.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setAppLockModal('none')}
@@ -1564,8 +1569,8 @@ export const SettingsPage: React.FC = () => {
       {/* App Lock: Change PIN Modal */}
       {appLockModal === 'change' && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-flame-400" />
                 <h3 className="text-sm font-bold text-zinc-100">Change Security PIN</h3>
@@ -1579,84 +1584,86 @@ export const SettingsPage: React.FC = () => {
               </button>
             </div>
 
-            {appLockModalError && (
-              <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
-                {appLockModalError}
-              </div>
-            )}
+            <form onSubmit={handleChangePinSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1 pt-3">
+                {appLockModalError && (
+                  <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
+                    {appLockModalError}
+                  </div>
+                )}
 
-            <form onSubmit={handleChangePinSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Current PIN
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                  autoFocus
-                  placeholder="••••"
-                  value={appLockCurrentPin}
-                  onChange={(e) => setAppLockCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  New 4-Digit PIN
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                  placeholder="••••"
-                  value={appLockPin}
-                  onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Confirm New PIN
-                </label>
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                  placeholder="••••"
-                  value={appLockConfirmPin}
-                  onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
-              </div>
-
-              {/* Optional Security Question update */}
-              <div className="pt-2 border-t border-dark-border/60 space-y-2.5">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
-                  <HelpCircle className="w-3.5 h-3.5 text-flame-400" />
-                  <span>Update Security Question (Optional)</span>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Current PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                    autoFocus
+                    placeholder="••••"
+                    value={appLockCurrentPin}
+                    onChange={(e) => setAppLockCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
                 </div>
-                <CustomSelect
-                  value={appLockSecQuestion}
-                  onChange={(val) => setAppLockSecQuestion(val)}
-                  options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
-                  size="sm"
-                />
-                <input
-                  type="text"
-                  placeholder="New answer (leave blank to keep existing)"
-                  value={appLockSecAnswer}
-                  onChange={(e) => setAppLockSecAnswer(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
-                />
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    New 4-Digit PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                    placeholder="••••"
+                    value={appLockPin}
+                    onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Confirm New PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    required
+                    placeholder="••••"
+                    value={appLockConfirmPin}
+                    onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
+                </div>
+
+                {/* Optional Security Question update */}
+                <div className="pt-2 border-t border-dark-border/60 space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
+                    <HelpCircle className="w-3.5 h-3.5 text-flame-400" />
+                    <span>Update Security Question (Optional)</span>
+                  </div>
+                  <CustomSelect
+                    value={appLockSecQuestion}
+                    onChange={(val) => setAppLockSecQuestion(val)}
+                    options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
+                    size="sm"
+                  />
+                  <input
+                    type="text"
+                    placeholder="New answer (leave blank to keep existing)"
+                    value={appLockSecAnswer}
+                    onChange={(e) => setAppLockSecAnswer(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
+                </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border shrink-0 mt-3">
                 <button
                   type="button"
                   onClick={() => setAppLockModal('none')}

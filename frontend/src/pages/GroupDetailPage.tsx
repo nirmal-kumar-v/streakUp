@@ -1648,8 +1648,8 @@ export const GroupDetailPage: React.FC = () => {
       {/* Edit Group Modal (Owner only) */}
       {isEditGroupOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto">
-            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
+          <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-flame-500/10 border border-flame-500/20 flex items-center justify-center text-flame-400">
                   <Edit3 className="w-4 h-4" />
@@ -1668,10 +1668,11 @@ export const GroupDetailPage: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveGroup} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Group Name <span className="text-flame-400">*</span>
+            <form onSubmit={handleSaveGroup} className="flex-1 flex flex-col min-h-0">
+              <div className="p-6 space-y-4 flex-1 overflow-y-auto min-h-0">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Group Name <span className="text-flame-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -1965,28 +1966,29 @@ export const GroupDetailPage: React.FC = () => {
                   </div>
                 )}
               </div>
+            </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-dark-border">
-                <button
-                  type="button"
-                  onClick={() => setIsEditGroupOpen(false)}
-                  disabled={isSavingGroup}
-                  className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingGroup}
-                  className="px-5 py-2 text-sm bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold rounded-xl shadow-md shadow-flame-500/20 disabled:opacity-50 cursor-pointer"
-                >
-                  {isSavingGroup ? 'Saving...' : 'Save Group'}
-                </button>
-              </div>
-            </form>
-          </div>
+            <div className="flex items-center justify-end gap-2.5 px-6 py-4 border-t border-dark-border shrink-0 bg-dark-card/95">
+              <button
+                type="button"
+                onClick={() => setIsEditGroupOpen(false)}
+                disabled={isSavingGroup}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 rounded-xl cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingGroup}
+                className="px-5 py-2 text-sm bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold rounded-xl shadow-md shadow-flame-500/20 disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingGroup ? 'Saving...' : 'Save Group'}
+              </button>
+            </div>
+          </form>
         </div>
-      )}
+      </div>
+    )}
 
       {/* Invite to Group Modal */}
       {isInviteOpen && (

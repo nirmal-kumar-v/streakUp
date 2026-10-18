@@ -82,9 +82,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl shadow-black/80 space-y-4 animate-scaleUp">
+      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl shadow-black/80 space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${variantStyles.iconBg}`}>
               {variantStyles.icon}
@@ -106,12 +106,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         {/* Message body */}
-        <div id="confirm-modal-desc" className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+        <div id="confirm-modal-desc" className="text-xs sm:text-sm text-zinc-300 leading-relaxed overflow-y-auto min-h-0 flex-1 pr-1">
           {message}
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-800/80">
+        <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-800/80 shrink-0">
           <button
             ref={cancelBtnRef}
             type="button"

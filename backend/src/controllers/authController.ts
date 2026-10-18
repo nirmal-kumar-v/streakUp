@@ -23,6 +23,7 @@ import {
   getAppBaseUrl,
 } from '../services/emailService';
 import { getOrCreateNotificationPreferences } from '../services/notificationService';
+import { getUserProfileImageLimitMb } from '../services/adminConfigService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
 const JWT_EXPIRES_IN = '365d';
@@ -751,9 +752,14 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
+    const safeUser = {
+      ...user,
+      profileImageLimitMb: getUserProfileImageLimitMb(user.id),
+    };
+
     return res.json({
       success: true,
-      user
+      user: safeUser
     });
   } catch (err: any) {
     console.error('getMe error:', err);

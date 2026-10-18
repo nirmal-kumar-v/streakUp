@@ -15,6 +15,8 @@ import {
   setUserReminderLimit,
   getUserDiscoverGroupsLimit,
   setUserDiscoverGroupsLimit,
+  getUserProfileImageLimitMb,
+  setUserProfileImageLimitMb,
 } from '../services/adminConfigService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
@@ -34,11 +36,10 @@ async function ensureDefaultAdmin() {
     where: { username: defaultUsername },
   });
 
-  const salt = await bcrypt.genSalt(10);
-  const passwordHash = await bcrypt.hash(defaultPassword, salt);
-  const pinHash = await bcrypt.hash(defaultSensitivePin, salt);
-
   if (!existingAdmin) {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(defaultPassword, salt);
+    const pinHash = await bcrypt.hash(defaultSensitivePin, salt);
     await prisma.adminAccount.create({
       data: {
         username: defaultUsername,
@@ -48,15 +49,6 @@ async function ensureDefaultAdmin() {
       },
     });
     console.log(`[Admin] Initial Super Admin account created: @${defaultUsername}`);
-  } else {
-    await prisma.adminAccount.update({
-      where: { id: existingAdmin.id },
-      data: {
-        passwordHash,
-        sensitivePinHash: pinHash,
-        role: 'SUPER_ADMIN',
-      },
-    });
   }
 }
 
@@ -562,6 +554,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).leaderboardLimit = getUserLeaderboardLimit(userId);
     (safeUser as any).reminderLimit = getUserReminderLimit(userId);
     (safeUser as any).discoverGroupsLimit = getUserDiscoverGroupsLimit(userId);
+    (safeUser as any).profileImageLimitMb = getUserProfileImageLimitMb(userId);
 
     return res.json({
       success: true,
@@ -2293,6 +2286,72 @@ export async function overrideDiscoverGroupsLimit(req: AdminAuthenticatedRequest
 }
 
 /**
+ * Override the maximum profile picture upload size limit (in MB) for a specific user
+ */
+export async function overrideProfileImageLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      profileImageLimitMb,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof profileImageLimitMb !== 'number' || profileImageLimitMb < 1 || profileImageLimitMb > 100) {
+      return res.status(400).json({ success: false, error: 'Profile image size quota must be between 1 MB and 100 MB.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserProfileImageLimitMb(userId);
+    setUserProfileImageLimitMb(userId, profileImageLimitMb);
+
+    const changesSummary = `Profile picture max upload size quota changed from ${beforeLimit} MB to ${profileImageLimitMb} MB.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_PROFILE_IMAGE_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { profileImageLimitMb: beforeLimit },
+      afterState: { profileImageLimitMb },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Profile Picture Upload Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Profile picture max upload size for @${user.username} updated to ${profileImageLimitMb} MB.`,
+      profileImageLimitMb,
+    });
+  } catch (err: any) {
+    console.error('overrideProfileImageLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update profile image limit.' });
+  }
+}
+
+/**
  * Super Admin updates or removes profile picture for a specific user
  */
 export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest, res: Response) {
@@ -2330,11 +2389,12 @@ export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest
       if (dataUriMatch) {
         const base64Data = dataUriMatch[2];
         const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
-        const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+        const limitMb = getUserProfileImageLimitMb(userId);
+        const MAX_SIZE_BYTES = limitMb * 1024 * 1024;
         if (sizeInBytes > MAX_SIZE_BYTES) {
           return res.status(400).json({
             success: false,
-            error: `Image size exceeds the 5 MB limit. Provided image is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
+            error: `Image size exceeds the ${limitMb} MB limit. Provided image is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
           });
         }
         newImage = profileImage;

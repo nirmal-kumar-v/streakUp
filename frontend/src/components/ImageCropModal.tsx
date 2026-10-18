@@ -200,11 +200,11 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden my-auto"
+        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative my-auto max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-5">
+        <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-dark-border mb-4 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-flame-500/15 border border-flame-500/30 flex items-center justify-center text-flame-400">
               <Crop className="w-4 h-4" />
@@ -228,7 +228,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
         </div>
 
         {/* Cropping Viewport Area */}
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center flex-1 overflow-y-auto min-h-0 pr-1">
           <div
             className="relative rounded-2xl overflow-hidden bg-zinc-950 border border-zinc-800 shadow-inner select-none cursor-grab active:cursor-grabbing touch-none"
             style={{ width: CROP_SIZE, height: CROP_SIZE }}
@@ -364,7 +364,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
         </div>
 
         {/* Modal Action Buttons */}
-        <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-2.5 mt-6 pt-4 border-t border-dark-border">
+        <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-2.5 mt-4 pt-3 sm:pt-4 border-t border-dark-border shrink-0">
           {onSkipCrop ? (
             <button
               type="button"
