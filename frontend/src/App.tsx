@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BadgeProvider } from './context/BadgeContext';
 import { ToastProvider } from './context/ToastContext';
+import { AppLockProvider } from './context/AppLockContext';
+import { AppLockScreen } from './components/AppLockScreen';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
@@ -69,6 +71,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100 overflow-x-hidden">
+      <AppLockScreen />
       <OfflineBanner />
       <Navbar />
       <StreakCelebration />
@@ -204,11 +207,13 @@ export const App: React.FC = () => {
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ErrorBoundary>
         <AuthProvider>
-          <BadgeProvider>
-            <ToastProvider>
-              <AppContent />
-            </ToastProvider>
-          </BadgeProvider>
+          <AppLockProvider>
+            <BadgeProvider>
+              <ToastProvider>
+                <AppContent />
+              </ToastProvider>
+            </BadgeProvider>
+          </AppLockProvider>
         </AuthProvider>
       </ErrorBoundary>
     </BrowserRouter>

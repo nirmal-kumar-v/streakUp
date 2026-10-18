@@ -32,12 +32,152 @@ import {
   ArrowRight,
   Mail,
   RotateCw,
+  Lock,
+  Fingerprint,
+  ScanFace,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { useAppLock, LockTimeout } from '../context/AppLockContext';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, updateUser, logout } = useAuth();
+
+  // App Lock Context & State
+  const {
+    isAppLockEnabled,
+    biometricsEnabled,
+    lockTimeout,
+    isBiometricsAvailable,
+    isMedianApp,
+    biometryType,
+    setupPin,
+    changePin,
+    disableAppLock,
+    setBiometricsEnabled,
+    setLockTimeout,
+    lockApp,
+  } = useAppLock();
+
+  const [appLockModal, setAppLockModal] = useState<'none' | 'setup' | 'change' | 'disable'>('none');
+  const [appLockPin, setAppLockPin] = useState('');
+  const [appLockConfirmPin, setAppLockConfirmPin] = useState('');
+  const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
+  const [appLockEnableBio, setAppLockEnableBio] = useState(true);
+  const [appLockModalError, setAppLockModalError] = useState('');
+  const [appLockModalLoading, setAppLockModalLoading] = useState(false);
+  const [appLockSuccessMsg, setAppLockSuccessMsg] = useState('');
+
+  const handleOpenSetupModal = () => {
+    setAppLockPin('');
+    setAppLockConfirmPin('');
+    setAppLockEnableBio(isBiometricsAvailable);
+    setAppLockModalError('');
+    setAppLockModal('setup');
+  };
+
+  const handleOpenChangePinModal = () => {
+    setAppLockCurrentPin('');
+    setAppLockPin('');
+    setAppLockConfirmPin('');
+    setAppLockModalError('');
+    setAppLockModal('change');
+  };
+
+  const handleOpenDisableModal = () => {
+    setAppLockCurrentPin('');
+    setAppLockModalError('');
+    setAppLockModal('disable');
+  };
+
+  const handleSetupPinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (appLockPin.length !== 4 || !/^\d{4}$/.test(appLockPin)) {
+      setAppLockModalError('PIN must be exactly 4 numeric digits.');
+      return;
+    }
+    if (appLockPin !== appLockConfirmPin) {
+      setAppLockModalError('PINs do not match. Please verify.');
+      return;
+    }
+
+    setAppLockModalLoading(true);
+    setAppLockModalError('');
+    try {
+      const success = await setupPin(appLockPin, appLockEnableBio);
+      if (success) {
+        setAppLockModal('none');
+        setAppLockSuccessMsg('App Lock enabled successfully!');
+        setTimeout(() => setAppLockSuccessMsg(''), 4000);
+      } else {
+        setAppLockModalError('Failed to setup PIN. Please try again.');
+      }
+    } catch {
+      setAppLockModalError('An unexpected error occurred.');
+    } finally {
+      setAppLockModalLoading(false);
+    }
+  };
+
+  const handleChangePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (appLockCurrentPin.length < 4) {
+      setAppLockModalError('Please enter your current PIN.');
+      return;
+    }
+    if (appLockPin.length !== 4 || !/^\d{4}$/.test(appLockPin)) {
+      setAppLockModalError('New PIN must be exactly 4 numeric digits.');
+      return;
+    }
+    if (appLockPin !== appLockConfirmPin) {
+      setAppLockModalError('New PINs do not match.');
+      return;
+    }
+
+    setAppLockModalLoading(true);
+    setAppLockModalError('');
+    try {
+      const res = await changePin(appLockCurrentPin, appLockPin);
+      if (res.success) {
+        setAppLockModal('none');
+        setAppLockSuccessMsg('PIN updated successfully!');
+        setTimeout(() => setAppLockSuccessMsg(''), 4000);
+      } else {
+        setAppLockModalError(res.error || 'Failed to update PIN.');
+      }
+    } catch {
+      setAppLockModalError('An unexpected error occurred.');
+    } finally {
+      setAppLockModalLoading(false);
+    }
+  };
+
+  const handleDisableSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (appLockCurrentPin.length < 4) {
+      setAppLockModalError('Please enter your current PIN to confirm.');
+      return;
+    }
+
+    setAppLockModalLoading(true);
+    setAppLockModalError('');
+    try {
+      const res = await disableAppLock(appLockCurrentPin);
+      if (res.success) {
+        setAppLockModal('none');
+        setAppLockSuccessMsg('App Lock has been disabled.');
+        setTimeout(() => setAppLockSuccessMsg(''), 4000);
+      } else {
+        setAppLockModalError(res.error || 'Incorrect PIN.');
+      }
+    } catch {
+      setAppLockModalError('An unexpected error occurred.');
+    } finally {
+      setAppLockModalLoading(false);
+    }
+  };
 
   // Delete Account State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -957,6 +1097,149 @@ export const SettingsPage: React.FC = () => {
         </div>
       </form>
 
+      {/* SECTION: APP LOCK & BIOMETRICS (OPTIONAL) */}
+      <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-flame-400" />
+              <h2 className="text-base font-bold text-zinc-100">App Lock & Biometrics</h2>
+              <span
+                className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                  isAppLockEnabled
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700/60'
+                }`}
+              >
+                {isAppLockEnabled ? 'Active' : 'Disabled'}
+              </span>
+            </div>
+            <p className="text-xs text-dark-muted mt-1">
+              Protect your StreakUp session with a 4-digit PIN and native device biometrics when returning from the background.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={isAppLockEnabled ? handleOpenDisableModal : handleOpenSetupModal}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 ${
+              isAppLockEnabled
+                ? 'bg-rose-500/10 text-rose-300 border border-rose-500/25 hover:bg-rose-500/20'
+                : 'bg-flame-500 hover:bg-flame-400 text-zinc-950 shadow-sm shadow-flame-500/20'
+            }`}
+          >
+            {isAppLockEnabled ? 'Disable App Lock' : 'Enable App Lock'}
+          </button>
+        </div>
+
+        {appLockSuccessMsg && (
+          <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold rounded-xl animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{appLockSuccessMsg}</span>
+          </div>
+        )}
+
+        {isAppLockEnabled && (
+          <div className="space-y-4 pt-2 border-t border-dark-border/60">
+            {/* PIN Settings */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-dark-surface/50 border border-dark-border rounded-2xl">
+              <div>
+                <div className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-flame-500" />
+                  <span>Security PIN</span>
+                </div>
+                <p className="text-[11px] text-dark-muted mt-0.5">
+                  Salted cryptographic hash stored locally. Your plaintext PIN is never saved.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenChangePinModal}
+                className="px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-semibold text-zinc-200 hover:text-flame-400 rounded-lg transition-colors shrink-0"
+              >
+                Change PIN
+              </button>
+            </div>
+
+            {/* Lock Timeout Selection */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-dark-surface/50 border border-dark-border rounded-2xl">
+              <div>
+                <div className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  <span>Lock Policy</span>
+                </div>
+                <p className="text-[11px] text-dark-muted mt-0.5">
+                  When StreakUp returns from the background or phone lock screen
+                </p>
+              </div>
+              <select
+                value={lockTimeout}
+                onChange={(e) => setLockTimeout(e.target.value as LockTimeout)}
+                className="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-lg text-xs font-semibold text-zinc-200 focus:outline-none focus:border-flame-500/80 cursor-pointer"
+              >
+                <option value="immediate">Immediately upon exit</option>
+                <option value="1m">After 1 minute in background</option>
+                <option value="5m">After 5 minutes in background</option>
+                <option value="15m">After 15 minutes in background</option>
+              </select>
+            </div>
+
+            {/* Biometric Toggle & Native Status */}
+            <div className="p-4 bg-dark-surface/50 border border-dark-border rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  {biometryType === 'face' ? (
+                    <ScanFace className="w-5 h-5 text-flame-400" />
+                  ) : (
+                    <Fingerprint className="w-5 h-5 text-flame-400" />
+                  )}
+                  <div>
+                    <div className="text-xs font-bold text-zinc-200">
+                      Biometric Unlock (Face ID / Fingerprint)
+                    </div>
+                    <p className="text-[11px] text-dark-muted mt-0.5">
+                      Fast hardware-backed unlock using Median.co native bridge integration
+                    </p>
+                  </div>
+                </div>
+
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={biometricsEnabled}
+                    onChange={(e) => setBiometricsEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-flame-500"></div>
+                </label>
+              </div>
+
+              {/* Status indicator banner */}
+              <div className="text-[11px] p-2.5 rounded-xl border flex items-center gap-2 bg-dark-bg/60 border-dark-border/80 text-zinc-400">
+                <ShieldCheck className={`w-4 h-4 shrink-0 ${isMedianApp ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <span>
+                  {isMedianApp
+                    ? `Native Median environment detected. ${biometryType ? biometryType.toUpperCase() : 'Biometric'} hardware bridge is operational.`
+                    : 'Web Browser mode. PIN fallback is fully active. Native biometrics activate automatically when running inside your Median iOS/Android app.'}
+                </span>
+              </div>
+            </div>
+
+            {/* Test Button */}
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={lockApp}
+                className="px-3.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover border border-dark-border rounded-xl transition-colors font-medium flex items-center gap-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Test Lock Screen Now</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Danger Zone: Permanent Account Deletion (Requirement 4 & 8) */}
       <div className="bg-rose-950/10 border border-rose-500/20 rounded-3xl p-6 sm:p-8 shadow-panel">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1090,6 +1373,259 @@ export const SettingsPage: React.FC = () => {
                   ) : (
                     <span>Permanently Delete</span>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* App Lock: Setup PIN Modal */}
+      {appLockModal === 'setup' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-2">
+                <Lock className="w-5 h-5 text-flame-400" />
+                <h3 className="text-sm font-bold text-zinc-100">Setup App Lock PIN</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppLockModal('none')}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {appLockModalError && (
+              <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
+                {appLockModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleSetupPinSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Enter 4-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  autoFocus
+                  placeholder="••••"
+                  value={appLockPin}
+                  onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Confirm 4-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  placeholder="••••"
+                  value={appLockConfirmPin}
+                  onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 pt-1">
+                <input
+                  type="checkbox"
+                  id="enableBioCheckbox"
+                  checked={appLockEnableBio}
+                  onChange={(e) => setAppLockEnableBio(e.target.checked)}
+                  className="w-4 h-4 rounded bg-dark-surface border-dark-border text-flame-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                />
+                <label htmlFor="enableBioCheckbox" className="text-xs text-zinc-300 cursor-pointer">
+                  Enable Biometrics (Face ID / Touch ID)
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
+                <button
+                  type="button"
+                  onClick={() => setAppLockModal('none')}
+                  className="px-3.5 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={appLockModalLoading || appLockPin.length !== 4 || appLockConfirmPin.length !== 4}
+                  className="px-5 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-40 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
+                >
+                  {appLockModalLoading ? 'Saving...' : 'Set PIN & Enable'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* App Lock: Change PIN Modal */}
+      {appLockModal === 'change' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-flame-400" />
+                <h3 className="text-sm font-bold text-zinc-100">Change Security PIN</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppLockModal('none')}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {appLockModalError && (
+              <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
+                {appLockModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePinSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Current PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  autoFocus
+                  placeholder="••••"
+                  value={appLockCurrentPin}
+                  onChange={(e) => setAppLockCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  New 4-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  placeholder="••••"
+                  value={appLockPin}
+                  onChange={(e) => setAppLockPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Confirm New PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  placeholder="••••"
+                  value={appLockConfirmPin}
+                  onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
+                <button
+                  type="button"
+                  onClick={() => setAppLockModal('none')}
+                  className="px-3.5 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={appLockModalLoading || appLockCurrentPin.length !== 4 || appLockPin.length !== 4 || appLockConfirmPin.length !== 4}
+                  className="px-5 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-40 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
+                >
+                  {appLockModalLoading ? 'Updating...' : 'Update PIN'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* App Lock: Disable Confirmation Modal */}
+      {appLockModal === 'disable' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-2">
+                <Lock className="w-5 h-5 text-rose-400" />
+                <h3 className="text-sm font-bold text-zinc-100">Disable App Lock</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAppLockModal('none')}
+                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-dark-muted leading-relaxed">
+              To disable App Lock, please verify your current 4-digit PIN.
+            </p>
+
+            {appLockModalError && (
+              <div className="p-3 text-xs bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl">
+                {appLockModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleDisableSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Current PIN
+                </label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  required
+                  autoFocus
+                  placeholder="••••"
+                  value={appLockCurrentPin}
+                  onChange={(e) => setAppLockCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
+                <button
+                  type="button"
+                  onClick={() => setAppLockModal('none')}
+                  className="px-3.5 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={appLockModalLoading || appLockCurrentPin.length !== 4}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-sm transition-all"
+                >
+                  {appLockModalLoading ? 'Verifying...' : 'Disable'}
                 </button>
               </div>
             </form>
