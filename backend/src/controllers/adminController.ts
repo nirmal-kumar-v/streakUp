@@ -308,6 +308,8 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
   try {
     const { userId } = req.params;
 
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -315,7 +317,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
           orderBy: { createdAt: 'desc' },
           include: {
             group: {
-              select: { id: true, name: true, joinCode: true },
+              select: { id: true, name: true, joinCode: true, ownerId: true },
             },
             _count: { select: { completions: true } },
           },
@@ -323,17 +325,49 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
         groupMemberships: {
           include: {
             group: {
-              select: { id: true, name: true, joinCode: true, ownerId: true },
+              select: {
+                id: true,
+                name: true,
+                joinCode: true,
+                ownerId: true,
+                hiddenFrom: true,
+                visibleOnlyTo: true,
+                _count: { select: { members: true } },
+              },
             },
           },
         },
         pointLedgers: {
-          take: 10,
+          take: 30,
           orderBy: { createdAt: 'desc' },
         },
         freezeLogs: {
-          take: 10,
+          take: 100,
           orderBy: { usedAt: 'desc' },
+        },
+        taskCompletions: {
+          where: { completionDate: { gte: oneYearAgo } },
+          select: {
+            id: true,
+            taskId: true,
+            completionDate: true,
+            studyNote: true,
+            completedAt: true,
+            reactions: {
+              select: { id: true, emoji: true, userId: true },
+            },
+          },
+          orderBy: { completionDate: 'desc' },
+        },
+        friendshipsAsUser1: {
+          include: {
+            user2: { select: { id: true, name: true, username: true } },
+          },
+        },
+        friendshipsAsUser2: {
+          include: {
+            user1: { select: { id: true, name: true, username: true } },
+          },
         },
       },
     });
@@ -797,3 +831,450 @@ export async function deleteUserAccountByAdmin(req: AdminAuthenticatedRequest, r
     return res.status(500).json({ success: false, error: 'Failed to delete user account.' });
   }
 }
+
+/**
+ * Override 14-day email change cooldown or update registered email directly
+ */
+export async function overrideEmailCooldown(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { newEmail, resetCooldownOnly = false, reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeState = {
+      email: user.email,
+      emailLastChangedAt: user.emailLastChangedAt,
+    };
+
+    let updatedUser;
+    if (resetCooldownOnly || !newEmail) {
+      updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: { emailLastChangedAt: null },
+        select: { id: true, email: true, emailLastChangedAt: true },
+      });
+    } else {
+      const cleanEmail = String(newEmail).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        return res.status(400).json({ success: false, error: 'Invalid email address format.' });
+      }
+      const existing = await prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existing && existing.id !== userId) {
+        return res.status(400).json({ success: false, error: `${cleanEmail} is already registered to another account.` });
+      }
+
+      updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          email: cleanEmail,
+          emailLastChangedAt: new Date(),
+        },
+        select: { id: true, email: true, emailLastChangedAt: true },
+      });
+    }
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'EMAIL_COOLDOWN_OVERRIDE',
+      targetUserId: userId,
+      targetUser: `@${user.username} (${user.email})`,
+      reason,
+      beforeState,
+      afterState: updatedUser,
+    });
+
+    return res.json({
+      success: true,
+      message: resetCooldownOnly
+        ? `Email 14-day restriction cleared for @${user.username}. They can now update their email in settings.`
+        : `Email updated to ${updatedUser.email} for @${user.username} by Admin override.`,
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    console.error('overrideEmailCooldown error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to override email cooldown.' });
+  }
+}
+
+/**
+ * Toggle or update email verification status
+ */
+export async function toggleUserEmailVerification(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { isEmailVerified, reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const newStatus = typeof isEmailVerified === 'boolean' ? isEmailVerified : !user.isEmailVerified;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { isEmailVerified: newStatus },
+      select: { id: true, username: true, isEmailVerified: true },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'TOGGLE_EMAIL_VERIFICATION',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { isEmailVerified: user.isEmailVerified },
+      afterState: { isEmailVerified: newStatus },
+    });
+
+    return res.json({
+      success: true,
+      message: `Email verification for @${user.username} set to ${newStatus ? 'VERIFIED' : 'UNVERIFIED'}.`,
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    console.error('toggleUserEmailVerification error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update email verification status.' });
+  }
+}
+
+/**
+ * Update user timezone with streak boundary recalculation notice
+ */
+export async function updateUserTimezone(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { timezone, reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (!timezone || typeof timezone !== 'string') {
+      return res.status(400).json({ success: false, error: 'Valid IANA timezone string is required.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { timezone: timezone.trim() },
+      select: { id: true, username: true, timezone: true },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_USER_TIMEZONE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { timezone: user.timezone },
+      afterState: { timezone: updatedUser.timezone },
+    });
+
+    return res.json({
+      success: true,
+      message: `Timezone for @${user.username} updated to ${updatedUser.timezone}.`,
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    console.error('updateUserTimezone error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update timezone.' });
+  }
+}
+
+/**
+ * Reset 12-hour friend nudge cooldown
+ */
+export async function resetNudgeCooldown(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const deleted = await prisma.notification.deleteMany({
+      where: {
+        userId,
+        category: 'FRIEND_NUDGE',
+      },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'RESET_NUDGE_COOLDOWN',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { deletedCount: deleted.count },
+      afterState: { cleared: true },
+    });
+
+    return res.json({
+      success: true,
+      message: `Cleared ${deleted.count} nudge notifications. 12-hour nudge cooldown has been reset for @${user.username}.`,
+    });
+  } catch (err: any) {
+    console.error('resetNudgeCooldown error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to reset nudge cooldown.' });
+  }
+}
+
+/**
+ * Update task privacy/visibility (hiddenFrom, visibleOnlyTo)
+ */
+export async function updateTaskVisibility(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { taskId } = req.params;
+    const { hiddenFrom = [], visibleOnlyTo = [], reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { user: { select: { username: true } } },
+    });
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+
+    const updatedTask = await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        hiddenFrom: Array.isArray(hiddenFrom) ? hiddenFrom : [],
+        visibleOnlyTo: Array.isArray(visibleOnlyTo) ? visibleOnlyTo : [],
+      },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_TASK_VISIBILITY',
+      targetUserId: task.userId,
+      targetUser: `@${task.user.username}`,
+      reason,
+      beforeState: { hiddenFrom: task.hiddenFrom, visibleOnlyTo: task.visibleOnlyTo },
+      afterState: { hiddenFrom: updatedTask.hiddenFrom, visibleOnlyTo: updatedTask.visibleOnlyTo },
+    });
+
+    return res.json({
+      success: true,
+      message: `Visibility rules for task "${task.title}" updated.`,
+      task: updatedTask,
+    });
+  } catch (err: any) {
+    console.error('updateTaskVisibility error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update task visibility.' });
+  }
+}
+
+/**
+ * Manage group membership role & group ownership transfer
+ */
+export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { groupId } = req.params;
+    const { targetUserId, role, reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (!['OWNER', 'ADMIN', 'MEMBER'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Invalid group role. Must be OWNER, ADMIN, or MEMBER.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: { members: true },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    const member = group.members.find((m) => m.userId === targetUserId);
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // If transferring ownership
+      if (role === 'OWNER') {
+        // Demote old owner to ADMIN in group members
+        await tx.groupMember.updateMany({
+          where: { groupId, userId: group.ownerId },
+          data: { role: 'ADMIN' },
+        });
+        // Set new owner on group
+        await tx.group.update({
+          where: { id: groupId },
+          data: { ownerId: targetUserId },
+        });
+        // Promote target user to OWNER in group members
+        await tx.groupMember.update({
+          where: { groupId_userId: { groupId, userId: targetUserId } },
+          data: { role: 'OWNER' },
+        });
+      } else {
+        await tx.groupMember.update({
+          where: { groupId_userId: { groupId, userId: targetUserId } },
+          data: { role: role as any },
+        });
+      }
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: role === 'OWNER' ? 'TRANSFER_GROUP_OWNERSHIP' : 'UPDATE_GROUP_MEMBER_ROLE',
+      targetUserId,
+      reason,
+      beforeState: { groupId, groupName: group.name, oldRole: member.role, previousOwnerId: group.ownerId },
+      afterState: { groupId, newRole: role, newOwnerId: role === 'OWNER' ? targetUserId : group.ownerId },
+    });
+
+    return res.json({
+      success: true,
+      message: role === 'OWNER'
+        ? `Transferred ownership of group "${group.name}" to member.`
+        : `Updated role in group "${group.name}" to ${role}.`,
+    });
+  } catch (err: any) {
+    console.error('adminManageGroupMember error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update group member role.' });
+  }
+}
+
+/**
+ * Recover archived group task back to active dashboard
+ */
+export async function adminRecoverGroupTask(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { taskId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { user: { select: { username: true } }, group: { select: { name: true } } },
+    });
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+
+    const updatedTask = await prisma.task.update({
+      where: { id: taskId },
+      data: { status: 'ACTIVE' },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'RECOVER_GROUP_TASK',
+      targetUserId: task.userId,
+      targetUser: `@${task.user.username}`,
+      reason,
+      beforeState: { taskId, status: task.status },
+      afterState: { taskId, status: 'ACTIVE' },
+    });
+
+    return res.json({
+      success: true,
+      message: `Task "${task.title}" has been restored to ACTIVE status on the dashboard.`,
+      task: updatedTask,
+    });
+  } catch (err: any) {
+    console.error('adminRecoverGroupTask error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to recover task.' });
+  }
+}
+
+/**
+ * Moderate study note or remove reactions without deleting streak completion
+ */
+export async function adminModerateStudyNote(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { completionId } = req.params;
+    const { studyNote, clearReactions = false, reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const completion = await prisma.taskCompletion.findUnique({
+      where: { id: completionId },
+      include: {
+        user: { select: { username: true } },
+        task: { select: { title: true } },
+        reactions: true,
+      },
+    });
+    if (!completion) {
+      return res.status(404).json({ success: false, error: 'Task completion record not found.' });
+    }
+
+    const beforeState = {
+      studyNote: completion.studyNote,
+      reactionsCount: completion.reactions.length,
+    };
+
+    if (clearReactions) {
+      await prisma.studyNoteReaction.deleteMany({ where: { completionId } });
+    }
+
+    const updatedCompletion = await prisma.taskCompletion.update({
+      where: { id: completionId },
+      data: {
+        studyNote: studyNote !== undefined ? (studyNote ? String(studyNote).trim() : null) : completion.studyNote,
+      },
+      include: { reactions: true },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'MODERATE_STUDY_NOTE',
+      targetUserId: completion.userId,
+      targetUser: `@${completion.user.username}`,
+      reason,
+      beforeState,
+      afterState: {
+        studyNote: updatedCompletion.studyNote,
+        reactionsCount: updatedCompletion.reactions.length,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Study note moderated successfully. Underlying completion record preserved.',
+      completion: updatedCompletion,
+    });
+  } catch (err: any) {
+    console.error('adminModerateStudyNote error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to moderate study note.' });
+  }
+}
+

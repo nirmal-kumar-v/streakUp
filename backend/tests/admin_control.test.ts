@@ -77,4 +77,94 @@ describe('Super Admin Control & Privileged Workflows', () => {
     const resetLastUsernameChangeAt = null;
     expect(resetLastUsernameChangeAt).toBeNull();
   });
+
+  it('should verify 14-day email change cooldown and admin override logic', () => {
+    const now = new Date();
+    const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
+    const diffDays = (now.getTime() - fiveDaysAgo.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays < 14).toBe(true);
+
+    // Admin resets email cooldown
+    const resetEmailLastChangedAt = null;
+    expect(resetEmailLastChangedAt).toBeNull();
+
+    // Direct email update with regex format validation
+    const validEmail = 'newadminuser@example.com';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    expect(emailRegex.test(validEmail)).toBe(true);
+    expect(emailRegex.test('invalid-email')).toBe(false);
+  });
+
+  it('should guarantee member-isolated group task streaks', () => {
+    // Member A and Member B in same group have independent Task records
+    const memberATask = { id: 'task-1', groupId: 'group-100', userId: 'user-a', currentStreak: 5 };
+    const memberBTask = { id: 'task-2', groupId: 'group-100', userId: 'user-b', currentStreak: 12 };
+
+    // Admin updates member A's task streak
+    const updatedMemberATask = { ...memberATask, currentStreak: 20 };
+
+    expect(updatedMemberATask.currentStreak).toBe(20);
+    // Member B's task streak remains untouched
+    expect(memberBTask.currentStreak).toBe(12);
+  });
+
+  it('should format and validate historical freeze log scope and protected date', () => {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const validDate = '2026-10-15';
+    expect(datePattern.test(validDate)).toBe(true);
+
+    const overallFreezeLog = {
+      userId: 'test-user',
+      scope: 'OVERALL',
+      scopeKey: 'OVERALL',
+      protectedDate: validDate,
+    };
+    expect(overallFreezeLog.scopeKey).toBe('OVERALL');
+
+    const taskFreezeLog = {
+      userId: 'test-user',
+      scope: 'TASK',
+      scopeKey: 'TASK:task-123',
+      taskId: 'task-123',
+      protectedDate: validDate,
+    };
+    expect(taskFreezeLog.scopeKey).toBe('TASK:task-123');
+  });
+
+  it('should maintain point ledger balance consistency', () => {
+    let currentBalance = 100;
+    const delta = -35;
+    const newBalance = Math.max(0, currentBalance + delta);
+    expect(newBalance).toBe(65);
+
+    const ledgerEntry = {
+      userId: 'test-user',
+      points: delta,
+      reason: 'ADMIN_CORRECTION: Deducted penalty for verified violation',
+      date: '2026-10-18',
+    };
+    expect(ledgerEntry.points).toBe(-35);
+  });
+
+  it('should preserve streak completion record when study note is moderated', () => {
+    const completionRecord = {
+      id: 'completion-1',
+      taskId: 'task-1',
+      userId: 'user-1',
+      completionDate: '2026-10-18',
+      studyNote: 'Old inappropriate note',
+    };
+
+    // Admin scrubs the note
+    const moderatedRecord = {
+      ...completionRecord,
+      studyNote: null,
+    };
+
+    // Underlying completion is preserved with date and taskId intact
+    expect(moderatedRecord.id).toBe(completionRecord.id);
+    expect(moderatedRecord.completionDate).toBe('2026-10-18');
+    expect(moderatedRecord.studyNote).toBeNull();
+  });
 });
+

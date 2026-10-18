@@ -12,6 +12,8 @@ export interface AdminUser {
   overallFreezeBalance: number;
   overallFreezeRechargeDays: number;
   lastUsernameChangeAt: string | null;
+  emailLastChangedAt?: string | null;
+  isEmailVerified?: boolean;
   maxStarredNotifications: number | null;
   createdAt: string;
   _count?: {
@@ -188,3 +190,92 @@ export async function deleteUserAccountByAdmin(
   );
   return res.data;
 }
+
+export async function overrideEmailCooldown(
+  userId: string,
+  data: { newEmail?: string; resetCooldownOnly?: boolean; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+    `/admin/users/${userId}/override-email-cooldown`,
+    data
+  );
+  return res.data;
+}
+
+export async function toggleUserEmailVerification(
+  userId: string,
+  data: { isEmailVerified?: boolean; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+    `/admin/users/${userId}/toggle-email-verification`,
+    data
+  );
+  return res.data;
+}
+
+export async function updateUserTimezone(
+  userId: string,
+  data: { timezone: string; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; user: any }>(
+    `/admin/users/${userId}/update-timezone`,
+    data
+  );
+  return res.data;
+}
+
+export async function resetNudgeCooldown(
+  userId: string,
+  data: { reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string }>(
+    `/admin/users/${userId}/reset-nudge-cooldown`,
+    data
+  );
+  return res.data;
+}
+
+export async function updateTaskVisibility(
+  taskId: string,
+  data: { hiddenFrom: string[]; visibleOnlyTo: string[]; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/tasks/${taskId}/visibility`,
+    data
+  );
+  return res.data;
+}
+
+export async function adminManageGroupMember(
+  groupId: string,
+  data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER'; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string }>(
+    `/admin/groups/${groupId}/manage-member`,
+    data
+  );
+  return res.data;
+}
+
+export async function adminRecoverGroupTask(
+  taskId: string,
+  data: { reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/tasks/${taskId}/recover`,
+    data
+  );
+  return res.data;
+}
+
+export async function adminModerateStudyNote(
+  completionId: string,
+  data: { studyNote?: string | null; clearReactions?: boolean; reason: string }
+) {
+  const res = await apiClient.post<{ success: boolean; message: string; completion: any }>(
+    `/admin/completions/${completionId}/moderate`,
+    data
+  );
+  return res.data;
+}
+
