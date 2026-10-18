@@ -3,6 +3,7 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString } from '../services/timezoneService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbError';
+import { getUserLeaderboardLimit } from '../services/adminConfigService';
 
 /**
  * Global Leaderboard (Public access, optional authentication)
@@ -11,9 +12,10 @@ import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbErro
 export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Response) {
   try {
     const currentUserId = req.user?.userId;
+    const userLimit = currentUserId ? getUserLeaderboardLimit(currentUserId) : 10;
     const type = req.query.type === 'points' ? 'points' : 'streak';
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || userLimit));
     const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
     const skip = (page - 1) * limit;
 
@@ -207,7 +209,8 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
         totalUsers,
         totalPages: Math.ceil(totalUsers / limit)
       },
-      currentUserRankInfo
+      currentUserRankInfo,
+      userLeaderboardLimit: userLimit
     });
   } catch (err: any) {
     if (isDatabaseConnectionError(err)) {

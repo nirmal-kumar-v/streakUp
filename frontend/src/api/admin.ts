@@ -361,7 +361,7 @@ export async function updateTaskVisibility(
 
 export async function adminManageGroupMember(
   groupId: string,
-  data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER'; reason: string }
+  data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'REMOVE'; reason: string }
 ) {
   const res = await adminApiClient.post<{ success: boolean; message: string }>(
     `/admin/groups/${groupId}/manage-member`,
@@ -391,3 +391,95 @@ export async function adminModerateStudyNote(
   );
   return res.data;
 }
+
+export async function adminUpdateTaskFull(
+  taskId: string,
+  data: {
+    title?: string;
+    description?: string;
+    category?: string;
+    priority?: 'LOW' | 'MEDIUM' | 'HIGH';
+    recurrence?: 'DAILY' | 'ONE_TIME';
+    status?: 'ACTIVE' | 'ARCHIVED';
+    hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/tasks/${taskId}/update-full`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminUpdateGroupFull(
+  groupId: string,
+  data: {
+    name?: string;
+    description?: string;
+    joinCode?: string;
+    ownerId?: string;
+    hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; group: any }>(
+    `/admin/groups/${groupId}/update-full`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function unfreezeUserDate(
+  userId: string,
+  date: string,
+  data: { reason: string; sensitivePin?: string }
+) {
+  const res = await adminApiClient.delete<{ success: boolean; message: string; streaks: any }>(
+    `/admin/users/${userId}/freeze/${date}`,
+    {
+      data: { reason: data.reason },
+      headers: data.sensitivePin ? { 'x-admin-pin': data.sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminDeleteReminderSchedule(
+  reminderId: string,
+  reason?: string
+) {
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
+    `/admin/reminders/${reminderId}`,
+    {
+      data: { reason: reason || 'Deleted by admin' },
+    }
+  );
+  return res.data;
+}
+
+export async function overrideLeaderboardLimit(
+  userId: string,
+  data: { leaderboardLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; leaderboardLimit: number }>(
+    `/admin/users/${userId}/override-leaderboard-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+

@@ -23,6 +23,11 @@ import {
   adminRecoverGroupTask,
   adminModerateStudyNote,
   deleteUserAccountByAdmin,
+  adminUpdateTaskFull,
+  adminUpdateGroupFull,
+  unfreezeUserDate,
+  adminDeleteReminderSchedule,
+  overrideLeaderboardLimit,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
@@ -56,12 +61,17 @@ router.post('/users/:userId/grant-day-streak', requireSensitiveAuth, grantDayStr
 router.post('/users/:userId/adjust-freezes', requireSensitiveAuth, adjustFreezes);
 router.post('/users/:userId/adjust-points', requireSensitiveAuth, adjustPoints);
 router.post('/users/:userId/override-starred-limit', requireSensitiveAuth, overrideLimit15);
+router.post('/users/:userId/override-leaderboard-limit', requireSensitiveAuth, overrideLeaderboardLimit);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
+router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);
+router.delete('/reminders/:reminderId', adminDeleteReminderSchedule);
 
 // Task & Group Management
 router.post('/tasks/:taskId/visibility', updateTaskVisibility);
+router.post('/tasks/:taskId/update-full', adminUpdateTaskFull);
 router.post('/tasks/:taskId/recover', adminRecoverGroupTask);
 router.post('/groups/:groupId/manage-member', adminManageGroupMember);
+router.post('/groups/:groupId/update-full', adminUpdateGroupFull);
 router.post('/completions/:completionId/moderate', adminModerateStudyNote);
 
 // High-Risk Sensitive Operations (Requires Sensitive PIN confirmation)

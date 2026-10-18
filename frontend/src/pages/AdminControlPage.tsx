@@ -28,6 +28,9 @@ import {
   Eye,
   EyeOff,
   Mail,
+  X,
+  Sliders,
+  Globe,
 } from 'lucide-react';
 import {
   adminLogin,
@@ -48,11 +51,15 @@ import {
   adjustUserPoints,
   overrideUserLimit15,
   resetNudgeCooldown,
-  updateTaskVisibility,
   adminManageGroupMember,
   adminRecoverGroupTask,
   adminModerateStudyNote,
   deleteUserAccountByAdmin,
+  adminUpdateTaskFull,
+  adminUpdateGroupFull,
+  unfreezeUserDate,
+  adminDeleteReminderSchedule,
+  overrideLeaderboardLimit,
   AdminUser,
   AdminAuditLogItem,
 } from '../api/admin';
@@ -88,7 +95,7 @@ export const AdminControlPage: React.FC = () => {
 
   // Sub-tabs inside Selected User Control Center
   const [userTab, setUserTab] = useState<
-    'overview' | 'username_email' | 'streaks' | 'freezes' | 'points' | 'limits' | 'tasks_groups' | 'danger'
+    'overview' | 'username_email' | 'streaks' | 'points' | 'limits' | 'tasks_groups' | 'danger'
   >('overview');
 
   // ------------------------------------------
@@ -115,7 +122,7 @@ export const AdminControlPage: React.FC = () => {
   // ------------------------------------------
   const [dayModalOpen, setDayModalOpen] = useState(false);
   const [dayModalDate, setDayModalDate] = useState('');
-  const [dayModalMode, setDayModalMode] = useState<'STREAK' | 'FREEZE'>('STREAK');
+  const [dayModalMode, setDayModalMode] = useState<'STREAK' | 'FREEZE' | 'UNFREEZE'>('STREAK');
   const [dayModalTaskId, setDayModalTaskId] = useState('');
   const [dayModalNote, setDayModalNote] = useState('');
   const [dayModalReason, setDayModalReason] = useState('');
@@ -146,13 +153,6 @@ export const AdminControlPage: React.FC = () => {
   const [streakReason, setStreakReason] = useState('');
   const [isSubmittingStreak, setIsSubmittingStreak] = useState(false);
 
-  // Freezes
-  const [newFreezeBalance, setNewFreezeBalance] = useState<number>(0);
-  const [newFreezeRechargeDays, setNewFreezeRechargeDays] = useState<number>(0);
-  const [historicalFreezeDate, setHistoricalFreezeDate] = useState('');
-  const [historicalFreezeTaskId, setHistoricalFreezeTaskId] = useState('');
-  const [freezeReason, setFreezeReason] = useState('');
-  const [isSubmittingFreeze, setIsSubmittingFreeze] = useState(false);
 
   // Points
   const [pointsDelta, setPointsDelta] = useState<number>(0);
@@ -164,19 +164,48 @@ export const AdminControlPage: React.FC = () => {
   const [limitReason, setLimitReason] = useState('');
   const [isSubmittingLimit, setIsSubmittingLimit] = useState(false);
 
+  const [newLeaderboardLimit, setNewLeaderboardLimit] = useState<number>(10);
+  const [leaderboardReason, setLeaderboardReason] = useState('');
+  const [isSubmittingLeaderboardLimit, setIsSubmittingLeaderboardLimit] = useState(false);
+
+  // Full Task Settings Modal State
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [taskEditTitle, setTaskEditTitle] = useState('');
+  const [taskEditDescription, setTaskEditDescription] = useState('');
+  const [taskEditCategory, setTaskEditCategory] = useState('');
+  const [taskEditPriority, setTaskEditPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
+  const [taskEditRecurrence, setTaskEditRecurrence] = useState<'DAILY' | 'ONE_TIME'>('DAILY');
+  const [taskEditStatus, setTaskEditStatus] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
+  const [taskEditHiddenFrom, setTaskEditHiddenFrom] = useState<string[]>([]);
+  const [taskEditVisibleOnlyTo, setTaskEditVisibleOnlyTo] = useState<string[]>([]);
+  const [taskEditReason, setTaskEditReason] = useState('');
+  const [isSubmittingTaskEdit, setIsSubmittingTaskEdit] = useState(false);
+
+  // Full Group Settings Modal State
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [groupEditName, setGroupEditName] = useState('');
+  const [groupEditDescription, setGroupEditDescription] = useState('');
+  const [groupEditJoinCode, setGroupEditJoinCode] = useState('');
+  const [groupEditOwnerId, setGroupEditOwnerId] = useState('');
+  const [groupEditHiddenFrom, setGroupEditHiddenFrom] = useState<string[]>([]);
+  const [groupEditVisibleOnlyTo, setGroupEditVisibleOnlyTo] = useState<string[]>([]);
+  const [groupEditReason, setGroupEditReason] = useState('');
+  const [isSubmittingGroupEdit, setIsSubmittingGroupEdit] = useState(false);
+
+  // User Search Autocomplete State (for privacy chips & group transfer)
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchMatches, setUserSearchMatches] = useState<AdminUser[]>([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [activeSearchTarget, setActiveSearchTarget] = useState<
+    'TASK_HIDDEN' | 'TASK_VISIBLE' | 'GROUP_HIDDEN' | 'GROUP_VISIBLE' | 'GROUP_OWNER' | null
+  >(null);
+
   // Moderation & Tasks
   const [editingCompletionId, setEditingCompletionId] = useState<string | null>(null);
   const [editingStudyNote, setEditingStudyNote] = useState('');
   const [clearNoteReactions, setClearNoteReactions] = useState(false);
   const [moderationReason, setModerationReason] = useState('');
   const [isSubmittingModeration, setIsSubmittingModeration] = useState(false);
-
-  // Task Visibility Modal
-  const [visibilityTaskId, setVisibilityTaskId] = useState<string | null>(null);
-  const [visibilityHiddenFrom, setVisibilityHiddenFrom] = useState('');
-  const [visibilityVisibleOnlyTo, setVisibilityVisibleOnlyTo] = useState('');
-  const [visibilityReason, setVisibilityReason] = useState('');
-  const [isSubmittingVisibility, setIsSubmittingVisibility] = useState(false);
 
   // Delete User
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -303,13 +332,11 @@ export const AdminControlPage: React.FC = () => {
         // Pre-fill fields for smooth experience
         setNewCurrentStreak(u.currentStreak || 0);
         setNewLongestStreak(u.longestStreak || 0);
-        setNewFreezeBalance(u.overallFreezeBalance || 0);
-        setNewFreezeRechargeDays(u.overallFreezeRechargeDays || 0);
         setNewStarredLimit(u.maxStarredNotifications || 15);
+        setNewLeaderboardLimit(u.leaderboardLimit || 10);
         setSelectedTimezone(u.timezone || 'Asia/Kolkata');
         if (u.tasks && u.tasks.length > 0) {
           setSelectedTaskId(u.tasks[0].id);
-          setHistoricalFreezeTaskId(u.tasks[0].id);
         }
       }
     } catch (err: any) {
@@ -569,46 +596,6 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
-  // F. Freeze Adjustment & Shield Count (0 to 7)
-  const handleFreezeAdjustment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUserId) return;
-    if (!freezeReason.trim()) {
-      toast.error('An administrative reason is mandatory for audit logging.');
-      return;
-    }
-
-    openPinPrompt(
-      'Authorize Freeze Adjustment',
-      `Enter Super Admin Sensitive Password to update shield count to ${newFreezeBalance}/7 or freeze date.`,
-      async (pin) => {
-        setIsSubmittingFreeze(true);
-        try {
-          const res = await adjustUserFreezes(selectedUserId, {
-            overallFreezeBalance: Number(newFreezeBalance),
-            overallFreezeRechargeDays: Number(newFreezeRechargeDays),
-            historicalFreezeDate: historicalFreezeDate.trim() || undefined,
-            taskId: historicalFreezeTaskId.trim() || undefined,
-            reason: freezeReason.trim(),
-            sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
-          });
-          if (res.success) {
-            toast.info(res.message);
-            setFreezeReason('');
-            setHistoricalFreezeDate('');
-            refreshCurrentUser();
-          }
-        } finally {
-          setIsSubmittingFreeze(false);
-        }
-      }
-    );
-  };
-
   // G. Points Adjustment
   const handlePointsAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -696,8 +683,18 @@ export const AdminControlPage: React.FC = () => {
     }
 
     openPinPrompt(
-      dayModalMode === 'STREAK' ? 'Authorize Day Streak Grant' : 'Authorize Day Freeze Protection',
-      `Enter Super Admin Sensitive Password to apply ${dayModalMode === 'STREAK' ? 'streak completion' : 'freeze'} on ${dayModalDate}.`,
+      dayModalMode === 'STREAK'
+        ? 'Authorize Day Streak Grant'
+        : dayModalMode === 'UNFREEZE'
+        ? 'Authorize Freeze Removal'
+        : 'Authorize Day Freeze Protection',
+      `Enter Super Admin Sensitive Password to ${
+        dayModalMode === 'STREAK'
+          ? 'grant streak completion'
+          : dayModalMode === 'UNFREEZE'
+          ? 'remove freeze'
+          : 'apply freeze'
+      } on ${dayModalDate}.`,
       async (pin) => {
         setIsSubmittingDayAction(true);
         try {
@@ -712,6 +709,16 @@ export const AdminControlPage: React.FC = () => {
               sendEmail: notifyEmail,
               includeReason: notifyIncludeReason,
               includeChanges: notifyIncludeChanges,
+            });
+            if (res.success) {
+              toast.info(res.message);
+              setDayModalOpen(false);
+              refreshCurrentUser();
+            }
+          } else if (dayModalMode === 'UNFREEZE') {
+            const res = await unfreezeUserDate(selectedUserId, dayModalDate, {
+              reason: dayModalReason.trim(),
+              sensitivePin: pin,
             });
             if (res.success) {
               toast.info(res.message);
@@ -739,6 +746,236 @@ export const AdminControlPage: React.FC = () => {
         }
       }
     );
+  };
+
+  // Direct Unfreeze on a date
+  const handleUnfreezeDay = (date: string) => {
+    if (!selectedUserId) return;
+    openPinPrompt(
+      'Authorize Freeze Removal',
+      `Enter Super Admin Sensitive Password to remove streak freeze protection on ${date}. Streaks will be recalculated automatically.`,
+      async (pin) => {
+        try {
+          const res = await unfreezeUserDate(selectedUserId, date, {
+            reason: `Admin unfreezed date ${date}`,
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            if (dayModalOpen && dayModalDate === date) {
+              setDayModalOpen(false);
+            }
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to remove freeze.'));
+        }
+      }
+    );
+  };
+
+  // Delete a Reminder Schedule
+  const handleDeleteReminder = async (reminderId: string) => {
+    if (!selectedUserId) return;
+    try {
+      const res = await adminDeleteReminderSchedule(reminderId, 'Admin removed scheduled reminder quota');
+      if (res.success) {
+        toast.info(res.message);
+        refreshCurrentUser();
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to delete reminder schedule.'));
+    }
+  };
+
+  // Leaderboard Cohort Limit Override
+  const handleOverrideLeaderboard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!leaderboardReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Leaderboard Limit Override',
+      `Enter Super Admin Sensitive Password to set visible leaderboard cohort to Top ${newLeaderboardLimit}.`,
+      async (pin) => {
+        setIsSubmittingLeaderboardLimit(true);
+        try {
+          const res = await overrideLeaderboardLimit(selectedUserId, {
+            leaderboardLimit: Number(newLeaderboardLimit),
+            reason: leaderboardReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setLeaderboardReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update leaderboard limit.'));
+        } finally {
+          setIsSubmittingLeaderboardLimit(false);
+        }
+      }
+    );
+  };
+
+  // Open Full Task Editor Modal
+  const handleOpenTaskEditor = (task: any) => {
+    setEditingTask(task);
+    setTaskEditTitle(task.title || '');
+    setTaskEditDescription(task.description || '');
+    setTaskEditCategory(task.category || 'General');
+    setTaskEditPriority(task.priority || 'MEDIUM');
+    setTaskEditRecurrence(task.recurrence || 'DAILY');
+    setTaskEditStatus(task.status || 'ACTIVE');
+    setTaskEditHiddenFrom(Array.isArray(task.hiddenFrom) ? [...task.hiddenFrom] : []);
+    setTaskEditVisibleOnlyTo(Array.isArray(task.visibleOnlyTo) ? [...task.visibleOnlyTo] : []);
+    setTaskEditReason(`Admin updated task "${task.title}" settings`);
+    setUserSearchQuery('');
+    setUserSearchMatches([]);
+    setActiveSearchTarget(null);
+  };
+
+  // Save Full Task Settings
+  const handleSaveTaskFull = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+    if (!taskEditReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    setIsSubmittingTaskEdit(true);
+    try {
+      const res = await adminUpdateTaskFull(editingTask.id, {
+        title: taskEditTitle.trim(),
+        description: taskEditDescription,
+        category: taskEditCategory.trim(),
+        priority: taskEditPriority,
+        recurrence: taskEditRecurrence,
+        status: taskEditStatus,
+        hiddenFrom: taskEditHiddenFrom,
+        visibleOnlyTo: taskEditVisibleOnlyTo,
+        reason: taskEditReason.trim(),
+        sendInApp: notifyInApp,
+        sendEmail: notifyEmail,
+        includeReason: notifyIncludeReason,
+        includeChanges: notifyIncludeChanges,
+      });
+      if (res.success) {
+        toast.info(res.message);
+        setEditingTask(null);
+        refreshCurrentUser();
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to update task settings.'));
+    } finally {
+      setIsSubmittingTaskEdit(false);
+    }
+  };
+
+  // Open Full Group Editor Modal
+  const handleOpenGroupEditor = (group: any) => {
+    setEditingGroup(group);
+    setGroupEditName(group.name || '');
+    setGroupEditDescription(group.description || '');
+    setGroupEditJoinCode(group.joinCode || '');
+    setGroupEditOwnerId(group.ownerId || '');
+    setGroupEditHiddenFrom(Array.isArray(group.hiddenFrom) ? [...group.hiddenFrom] : []);
+    setGroupEditVisibleOnlyTo(Array.isArray(group.visibleOnlyTo) ? [...group.visibleOnlyTo] : []);
+    setGroupEditReason(`Admin updated group "${group.name}" settings`);
+    setUserSearchQuery('');
+    setUserSearchMatches([]);
+    setActiveSearchTarget(null);
+  };
+
+  // Save Full Group Settings
+  const handleSaveGroupFull = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGroup) return;
+    if (!groupEditReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    setIsSubmittingGroupEdit(true);
+    try {
+      const res = await adminUpdateGroupFull(editingGroup.id, {
+        name: groupEditName.trim(),
+        description: groupEditDescription,
+        joinCode: groupEditJoinCode.trim(),
+        ownerId: groupEditOwnerId || undefined,
+        hiddenFrom: groupEditHiddenFrom,
+        visibleOnlyTo: groupEditVisibleOnlyTo,
+        reason: groupEditReason.trim(),
+        sendInApp: notifyInApp,
+        sendEmail: notifyEmail,
+        includeReason: notifyIncludeReason,
+        includeChanges: notifyIncludeChanges,
+      });
+      if (res.success) {
+        toast.info(res.message);
+        setEditingGroup(null);
+        refreshCurrentUser();
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to update group settings.'));
+    } finally {
+      setIsSubmittingGroupEdit(false);
+    }
+  };
+
+  // Remove Member from Group
+  const handleRemoveGroupMember = (groupId: string, memberUserId: string, memberUsername: string) => {
+    openPinPrompt(
+      `Remove @${memberUsername} from Group`,
+      `Are you sure you want to remove @${memberUsername} from this group? This will revoke their membership immediately.`,
+      async () => {
+        try {
+          const res = await adminManageGroupMember(groupId, {
+            targetUserId: memberUserId,
+            role: 'REMOVE',
+            reason: `Admin removed @${memberUsername} from group`,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            if (editingGroup && editingGroup.members) {
+              setEditingGroup({
+                ...editingGroup,
+                members: editingGroup.members.filter((m: any) => m.userId !== memberUserId),
+              });
+            }
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to remove member.'));
+        }
+      }
+    );
+  };
+
+  // Live substring user search for privacy / owner selection
+  const searchUsersForPrivacy = async (query: string) => {
+    setUserSearchQuery(query);
+    if (!query.trim()) {
+      setUserSearchMatches([]);
+      return;
+    }
+    setIsSearchingUsers(true);
+    try {
+      const res = await searchAdminUsers(query.trim());
+      if (res.success) {
+        setUserSearchMatches(res.users || []);
+      }
+    } catch (err) {
+      console.error('Error searching users:', err);
+    } finally {
+      setIsSearchingUsers(false);
+    }
   };
 
   // Delete Individual Audit Log
@@ -808,17 +1045,27 @@ export const AdminControlPage: React.FC = () => {
   const handleManageGroupMember = async (
     groupId: string,
     role: 'OWNER' | 'ADMIN' | 'MEMBER',
-    groupName: string
+    groupName: string,
+    targetUserId?: string
   ) => {
-    if (!selectedUserId) return;
+    const userId = targetUserId || selectedUserId;
+    if (!userId) return;
     try {
       const res = await adminManageGroupMember(groupId, {
-        targetUserId: selectedUserId,
+        targetUserId: userId,
         role,
         reason: `Admin updated role to ${role} in group "${groupName}"`,
       });
       if (res.success) {
         toast.info(res.message);
+        if (editingGroup && editingGroup.members) {
+          setEditingGroup({
+            ...editingGroup,
+            members: editingGroup.members.map((m: any) =>
+              m.userId === userId ? { ...m, role } : m
+            ),
+          });
+        }
         refreshCurrentUser();
       }
     } catch (err: any) {
@@ -857,45 +1104,6 @@ export const AdminControlPage: React.FC = () => {
     }
   };
 
-  // M. Task Visibility Rules Update
-  const handleUpdateTaskVisibility = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!visibilityTaskId) return;
-    if (!visibilityReason.trim()) {
-      toast.error('An administrative reason is mandatory for audit logging.');
-      return;
-    }
-
-    const hiddenList = visibilityHiddenFrom
-      .split(',')
-      .map((s) => s.trim().replace(/^@/, ''))
-      .filter(Boolean);
-    const visibleList = visibilityVisibleOnlyTo
-      .split(',')
-      .map((s) => s.trim().replace(/^@/, ''))
-      .filter(Boolean);
-
-    setIsSubmittingVisibility(true);
-    try {
-      const res = await updateTaskVisibility(visibilityTaskId, {
-        hiddenFrom: hiddenList,
-        visibleOnlyTo: visibleList,
-        reason: visibilityReason.trim(),
-      });
-      if (res.success) {
-        toast.info(res.message);
-        setVisibilityTaskId(null);
-        setVisibilityHiddenFrom('');
-        setVisibilityVisibleOnlyTo('');
-        setVisibilityReason('');
-        refreshCurrentUser();
-      }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to update task visibility rules.'));
-    } finally {
-      setIsSubmittingVisibility(false);
-    }
-  };
 
   // N. Delete User Account (High-Risk Sensitive Action)
   const handleDeleteUserAccount = () => {
@@ -1100,7 +1308,7 @@ export const AdminControlPage: React.FC = () => {
                 type="text"
                 value={adminUsername}
                 onChange={(e) => setAdminUsername(e.target.value)}
-                placeholder="admin"
+                placeholder="Enter admin username"
                 className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
                 required
               />
@@ -1111,7 +1319,7 @@ export const AdminControlPage: React.FC = () => {
                 type="password"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="Admin@123"
+                placeholder="••••••••"
                 className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
                 required
               />
@@ -1135,11 +1343,6 @@ export const AdminControlPage: React.FC = () => {
               )}
             </button>
           </form>
-
-          <div className="mt-6 pt-4 border-t border-dark-border text-[11px] text-zinc-400 text-center leading-relaxed space-y-1">
-            <p className="font-semibold text-zinc-300">Credentials: admin / Admin@123</p>
-            <p className="text-zinc-500 text-[10px]">Sensitive Password: Nirmal@31/08/2006</p>
-          </div>
         </div>
       </div>
     );
@@ -1503,17 +1706,6 @@ export const AdminControlPage: React.FC = () => {
                     }`}
                   >
                     Streaks & Heatmap
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setUserTab('freezes')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
-                      userTab === 'freezes'
-                        ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Freeze Controls
                   </button>
                   <button
                     type="button"
@@ -1917,16 +2109,80 @@ export const AdminControlPage: React.FC = () => {
                 {/* SUB-TAB C: STREAKS & INTERACTIVE HEATMAP */}
                 {userTab === 'streaks' && (
                   <div className="space-y-6">
+                    {/* 4 Prominent Stat Badges */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400">
+                          <Flame className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                            Current Streak
+                          </span>
+                          <span className="text-xl font-black text-flame-400 font-mono">
+                            {selectedUserDetails?.currentStreak || 0}{' '}
+                            <span className="text-xs font-bold text-zinc-400">Days</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                          <Award className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                            Longest Streak
+                          </span>
+                          <span className="text-xl font-black text-amber-400 font-mono">
+                            {selectedUserDetails?.longestStreak || 0}{' '}
+                            <span className="text-xs font-bold text-zinc-400">Days</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                          <Snowflake className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                            Protected Freezes
+                          </span>
+                          <span className="text-xl font-black text-sky-400 font-mono">
+                            {selectedUserDetails?.freezeLogs?.length || 0}{' '}
+                            <span className="text-xs font-bold text-zinc-400">Days</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                            Total Check-ins
+                          </span>
+                          <span className="text-xl font-black text-emerald-400 font-mono">
+                            {selectedUserDetails?.taskCompletions?.length ||
+                              selectedUserDetails?._count?.taskCompletions ||
+                              0}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Interactive 365-Day Activity Heatmap */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
                             <Calendar className="w-4 h-4 text-flame-400" />
                             <span>Interactive 365-Day Activity & Freeze Heatmap</span>
                           </h3>
                           <p className="text-[11px] text-zinc-400">
-                            Click any day to Grant a Streak (with study note/points) or apply a Freeze directly to that day.
+                            Click any day to Freeze that day, Unfreeze it, or Grant a Streak directly on that calendar date.
                           </p>
                         </div>
                         {/* Legend */}
@@ -1959,7 +2215,7 @@ export const AdminControlPage: React.FC = () => {
                                   : d.isCompleted
                                   ? 'Habit Completed'
                                   : 'No Completion'
-                              } — Click to Grant Streak or Freeze`}
+                              } — Click to Freeze or Grant Streak`}
                               className={`w-3.5 h-3.5 rounded-sm cursor-pointer transition-all hover:scale-125 ${
                                 d.isFrozen
                                   ? 'bg-sky-400 hover:ring-2 hover:ring-sky-300'
@@ -1973,11 +2229,66 @@ export const AdminControlPage: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Authoritative Active FreezeLog Table with Direct Remove Action */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                          <Snowflake className="w-4 h-4 text-sky-400" />
+                          <span>Active Protected Freeze Dates ({selectedUserDetails?.freezeLogs?.length || 0})</span>
+                        </h4>
+                        <span className="text-[10px] text-zinc-400">
+                          Admin can remove freeze from any date to recalculate streaks
+                        </span>
+                      </div>
+                      {selectedUserDetails?.freezeLogs?.length === 0 ? (
+                        <p className="text-xs text-zinc-500 py-3">No freeze log records found for this user. Click any day on the heatmap to freeze it.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-dark-border text-zinc-400">
+                                <th className="py-2 px-3">Protected Date</th>
+                                <th className="py-2 px-3">Scope Key</th>
+                                <th className="py-2 px-3">Scope</th>
+                                <th className="py-2 px-3">Applied At</th>
+                                <th className="py-2 px-3 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-dark-border">
+                              {selectedUserDetails?.freezeLogs?.map((f: any) => (
+                                <tr key={f.id} className="text-zinc-300 hover:bg-dark-surface/40">
+                                  <td className="py-2 px-3 font-mono text-sky-400 font-bold">
+                                    {f.protectedDate}
+                                  </td>
+                                  <td className="py-2 px-3 font-mono">{f.scopeKey}</td>
+                                  <td className="py-2 px-3">{f.scope}</td>
+                                  <td className="py-2 px-3 text-zinc-500">
+                                    {new Date(f.usedAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="py-2 px-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnfreezeDay(f.protectedDate)}
+                                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1"
+                                      title="Remove freeze protection on this date"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove Freeze</span>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Streak Value Adjustment Form */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
                         <Flame className="w-4 h-4 text-flame-400" />
-                        <span>Streak Value Correction</span>
+                        <span>Manual Streak Value Correction</span>
                       </h3>
                       <p className="text-xs text-zinc-400 leading-relaxed">
                         Streak adjustments update current and longest streak tallies. For durable persistence against
@@ -2133,195 +2444,6 @@ export const AdminControlPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* SUB-TAB D: SIMPLIFIED FREEZE MANAGEMENT */}
-                {userTab === 'freezes' && (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* 1. Change Freeze Shield Count (0 to 7) */}
-                      <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
-                            <Snowflake className="w-4 h-4 text-sky-400" />
-                            <span>Current Freeze Shields (Out of 7)</span>
-                          </h3>
-                          <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 font-extrabold text-xs">
-                            {newFreezeBalance} / 7 Shields
-                          </span>
-                        </div>
-                        <p className="text-xs text-zinc-400">
-                          Directly set the user's active freeze shield count (0 to 7).
-                        </p>
-
-                        {/* Visual 7-Shield Row */}
-                        <div className="flex items-center justify-center gap-2 p-3 bg-dark-surface rounded-xl border border-dark-border">
-                          {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                            <button
-                              key={num}
-                              type="button"
-                              onClick={() => setNewFreezeBalance(num === newFreezeBalance ? num - 1 : num)}
-                              className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold transition-all ${
-                                num <= newFreezeBalance
-                                  ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/30 scale-105'
-                                  : 'bg-dark-card border border-dark-border text-zinc-600 hover:text-zinc-400'
-                              }`}
-                              title={`Set to ${num} shields`}
-                            >
-                              <Snowflake className="w-4 h-4" />
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Stepper & Slider */}
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setNewFreezeBalance(Math.max(0, newFreezeBalance - 1))}
-                            className="w-10 h-10 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold flex items-center justify-center"
-                          >
-                            -
-                          </button>
-                          <input
-                            type="range"
-                            min="0"
-                            max="7"
-                            value={newFreezeBalance}
-                            onChange={(e) => setNewFreezeBalance(parseInt(e.target.value, 10))}
-                            className="flex-1 accent-sky-400 cursor-pointer"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setNewFreezeBalance(Math.min(7, newFreezeBalance + 1))}
-                            className="w-10 h-10 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold flex items-center justify-center"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* 2. Freeze Any Day */}
-                      <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-sky-400" />
-                          <span>Freeze Any Day</span>
-                        </h3>
-                        <p className="text-xs text-zinc-400">
-                          Pick any calendar day to protect the user's streak against gaps.
-                        </p>
-
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                              Select Date to Freeze
-                            </label>
-                            <input
-                              type="date"
-                              value={historicalFreezeDate}
-                              onChange={(e) => setHistoricalFreezeDate(e.target.value)}
-                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
-                            />
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setHistoricalFreezeDate(new Date().toISOString().slice(0, 10))}
-                              className="px-3 py-1 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-lg text-[11px] text-zinc-300"
-                            >
-                              Today
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const y = new Date();
-                                y.setDate(y.getDate() - 1);
-                                setHistoricalFreezeDate(y.toISOString().slice(0, 10));
-                              }}
-                              className="px-3 py-1 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-lg text-[11px] text-zinc-300"
-                            >
-                              Yesterday
-                            </button>
-                            {historicalFreezeDate && (
-                              <button
-                                type="button"
-                                onClick={() => setHistoricalFreezeDate('')}
-                                className="px-3 py-1 text-[11px] text-zinc-500 hover:text-zinc-300"
-                              >
-                                Clear Date
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Common Reason, Notifications, and Save */}
-                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                          Mandatory Administrative Reason
-                        </label>
-                        <input
-                          type="text"
-                          value={freezeReason}
-                          onChange={(e) => setFreezeReason(e.target.value)}
-                          placeholder="e.g. Set freeze shields to 7/7 and protected 2026-10-15"
-                          className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
-                          required
-                        />
-                      </div>
-
-                      {renderNotificationOptions()}
-
-                      <button
-                        type="button"
-                        onClick={handleFreezeAdjustment}
-                        disabled={isSubmittingFreeze}
-                        className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
-                      >
-                        {isSubmittingFreeze ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="w-4 h-4" />
-                        )}
-                        <span>Save Freeze Settings ({newFreezeBalance}/7 Shields{historicalFreezeDate ? ` + Date ${historicalFreezeDate}` : ''})</span>
-                      </button>
-                    </div>
-
-                    {/* Authoritative FreezeLog Table */}
-                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
-                      <h4 className="text-xs font-bold text-zinc-200">Active Protected Dates ({selectedUserDetails?.freezeLogs?.length || 0})</h4>
-                      {selectedUserDetails?.freezeLogs?.length === 0 ? (
-                        <p className="text-xs text-zinc-500">No freeze log records found for this user.</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-dark-border text-zinc-400">
-                                <th className="py-2 px-3">Protected Date</th>
-                                <th className="py-2 px-3">Scope Key</th>
-                                <th className="py-2 px-3">Scope</th>
-                                <th className="py-2 px-3">Logged At</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-dark-border">
-                              {selectedUserDetails?.freezeLogs?.map((f: any) => (
-                                <tr key={f.id} className="text-zinc-300">
-                                  <td className="py-2 px-3 font-mono text-sky-400 font-bold">{f.protectedDate}</td>
-                                  <td className="py-2 px-3 font-mono">{f.scopeKey}</td>
-                                  <td className="py-2 px-3">{f.scope}</td>
-                                  <td className="py-2 px-3 text-zinc-500">
-                                    {new Date(f.usedAt).toLocaleString()}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {/* SUB-TAB E: POINTS & LEDGER */}
                 {userTab === 'points' && (
                   <div className="space-y-6">
@@ -2334,6 +2456,37 @@ export const AdminControlPage: React.FC = () => {
                         Points adjustments insert a permanent row into <code className="text-amber-400">PointLedger</code>,
                         guaranteeing that transaction sums always equal the user's displayed balance.
                       </p>
+
+                      {/* Prominent Current Points Balance Card */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-dark-surface border border-dark-border rounded-xl gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                            <Coins className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                              Current Balance
+                            </span>
+                            <p className="text-2xl font-black text-amber-400 font-mono">
+                              {selectedUserDetails?.points?.toLocaleString() || 0}{' '}
+                              <span className="text-xs font-bold text-zinc-400">pts</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-left sm:text-right border-t sm:border-t-0 sm:border-l border-dark-border/80 pt-2 sm:pt-0 sm:pl-4">
+                          <span className="text-[11px] text-zinc-400 block">Projected Balance After Delta</span>
+                          <span
+                            className={`font-mono text-base font-bold ${
+                              (selectedUserDetails?.points || 0) + pointsDelta >= 0
+                                ? 'text-zinc-100'
+                                : 'text-rose-400'
+                            }`}
+                          >
+                            {Math.max(0, (selectedUserDetails?.points || 0) + pointsDelta).toLocaleString()} pts
+                          </span>
+                        </div>
+                      </div>
 
                       <form onSubmit={handlePointsAdjustment} className="space-y-4">
                         <div>
@@ -2521,35 +2674,246 @@ export const AdminControlPage: React.FC = () => {
                       </form>
                     </div>
 
-                    {/* Active Limits Matrix Reference */}
-                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
-                      <h4 className="text-xs font-bold text-zinc-200">StreakUp Verified Quotas & Cooldowns</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
-                          <span className="text-zinc-400 block text-[10px]">15-Day Notification Purge</span>
-                          <span className="font-semibold text-zinc-200">
-                            Read notifications older than 15 days purged automatically unless starred.
-                          </span>
-                        </div>
-                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
-                          <span className="text-zinc-400 block text-[10px]">Daily Reminders Quota</span>
-                          <span className="font-semibold text-zinc-200">
-                            Maximum 3 scheduled reminder times per habit scope.
-                          </span>
-                        </div>
-                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
-                          <span className="text-zinc-400 block text-[10px]">12-Hour Friend Nudge Lockout</span>
-                          <span className="font-semibold text-zinc-200">
-                            12 hours between nudges per friend pair.
-                          </span>
-                        </div>
-                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
-                          <span className="text-zinc-400 block text-[10px]">Top 5 Discover Ranking</span>
-                          <span className="font-semibold text-zinc-200">
-                            Default Discover Communities slices to Top 5 most active groups.
-                          </span>
-                        </div>
+                    {/* CARD 2: SCHEDULED REMINDERS QUOTA (3 REMINDERS) */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-flame-400" />
+                          <span>Scheduled Reminders Quota (Max 3 Schedules)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          {selectedUserDetails?.reminderSchedules?.length || 0} / 3 SCHEDULES
+                        </span>
                       </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        StreakUp caps habit reminders to a maximum of 3 scheduled alert times per habit scope.
+                        Admin can view active reminders and delete any schedule to instantly free up quota.
+                      </p>
+
+                      {(!selectedUserDetails?.reminderSchedules || selectedUserDetails.reminderSchedules.length === 0) ? (
+                        <p className="text-xs text-zinc-500 py-3">No active reminder schedules found for this user.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-dark-border text-zinc-400">
+                                <th className="py-2 px-3">Alert Time</th>
+                                <th className="py-2 px-3">Scope</th>
+                                <th className="py-2 px-3">Target Habit</th>
+                                <th className="py-2 px-3">Status</th>
+                                <th className="py-2 px-3 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-dark-border">
+                              {selectedUserDetails.reminderSchedules.map((r: any) => (
+                                <tr key={r.id} className="text-zinc-300 hover:bg-dark-surface/40">
+                                  <td className="py-2 px-3 font-mono text-flame-400 font-bold">{r.time}</td>
+                                  <td className="py-2 px-3 font-mono">{r.scope}</td>
+                                  <td className="py-2 px-3">{r.task?.title || 'Overall Daily Reminder'}</td>
+                                  <td className="py-2 px-3">
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                        r.isEnabled !== false
+                                          ? 'bg-emerald-500/10 text-emerald-400'
+                                          : 'bg-zinc-500/10 text-zinc-400'
+                                      }`}
+                                    >
+                                      {r.isEnabled !== false ? 'Active' : 'Disabled'}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReminder(r.id)}
+                                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-[11px] font-bold transition-colors inline-flex items-center gap-1"
+                                      title="Delete reminder schedule to free up quota"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* CARD 3: 12-HOUR FRIEND NUDGE LOCKOUT */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Bell className="w-4 h-4 text-flame-400" />
+                          <span>12-Hour Friendly Nudge Cooldown Lockout</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          12-HR LOCKOUT
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        To prevent spam notifications, friends cannot nudge this user if they were nudged within the last 12 hours.
+                        Admin can immediately clear the cooldown lockout so friends can nudge this user again without waiting.
+                      </p>
+
+                      <div className="flex items-center justify-between p-3.5 bg-dark-surface rounded-xl border border-dark-border">
+                        <div>
+                          <span className="text-xs font-bold text-zinc-200 block">Nudge Cooldown Status</span>
+                          <span className="text-[11px] text-zinc-400">
+                            Enforced per friend-pair with 12-hour automated debounce
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleResetNudgeCooldown}
+                          className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Clear Nudge Lockout Now</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* CARD 4: GLOBAL LEADERBOARD VISIBLE COHORT */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-flame-400" />
+                          <span>Global Leaderboard Visible Cohort (Default: Top 10)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          PER-PERSON QUOTA
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        By default, the global leaderboard displays only the Top 10 members worldwide. You can increase this visible cohort specifically for <strong className="text-zinc-200">@{selectedUserDetails?.username}</strong> (e.g. to Top 20, 50, or 100 members) so they can view more competitors on their leaderboard page.
+                      </p>
+
+                      <form onSubmit={handleOverrideLeaderboard} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              Current Visible Cohort
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Top ${selectedUserDetails?.leaderboardLimit || 10} members displayed`}
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              New Cohort Limit (Max 100)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={newLeaderboardLimit}
+                                onChange={(e) => setNewLeaderboardLimit(parseInt(e.target.value, 10) || 10)}
+                                className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              {/* Quick Presets */}
+                              <div className="flex gap-1">
+                                {[10, 20, 50, 100].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewLeaderboardLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newLeaderboardLimit === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-surface text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={leaderboardReason}
+                            onChange={(e) => setLeaderboardReason(e.target.value)}
+                            placeholder="e.g. Increased visible leaderboard cohort to Top 50 upon user request"
+                            className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingLeaderboardLimit}
+                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingLeaderboardLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Leaderboard Cohort Quota (Top {newLeaderboardLimit})</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* CARD 5: TOP 5 DISCOVER RANKING GROUPS */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-flame-400" />
+                          <span>Top 5 Discover Ranking Groups</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          TOP 5 FEATURED
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        Public communities in StreakUp are automatically ranked for the global Discover page. The Top 5 groups with highest member counts and daily streak activity are featured globally.
+                      </p>
+
+                      {(!selectedUserDetails?.ownedGroups || selectedUserDetails.ownedGroups.length === 0) ? (
+                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border text-xs text-zinc-400">
+                          @{selectedUserDetails?.username} does not currently own any groups. They are participating in {selectedUserDetails?.groupMemberships?.length || 0} community groups.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-zinc-300 block">Groups Owned by @{selectedUserDetails?.username}:</span>
+                          {selectedUserDetails.ownedGroups.map((g: any) => (
+                            <div key={g.id} className="p-3 bg-dark-surface rounded-xl border border-dark-border flex items-center justify-between text-xs">
+                              <div>
+                                <span className="font-bold text-zinc-200">{g.name}</span>
+                                <div className="text-[11px] text-zinc-400 flex items-center gap-2 mt-0.5">
+                                  <span>Code: <code className="text-flame-400">{g.joinCode}</code></span>
+                                  <span>•</span>
+                                  <span>Members: {g._count?.members || 1}</span>
+                                  <span>•</span>
+                                  <span>Habit Tasks: {g._count?.tasks || 0}</span>
+                                </div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 text-[10px] font-bold">
+                                Discovery Active
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2559,197 +2923,221 @@ export const AdminControlPage: React.FC = () => {
                   <div className="space-y-6">
                     {/* Personal Habits */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-flame-400" />
-                        <span>Personal Habits ({selectedUserDetails?.tasks?.filter((t: any) => !t.isGroupTask).length || 0})</span>
-                      </h3>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-flame-400" />
+                          <span>Personal Habits ({selectedUserDetails?.tasks?.filter((t: any) => !t.isGroupTask).length || 0})</span>
+                        </h3>
+                        <span className="text-[10px] text-zinc-500 font-mono">Full Settings & Substring Privacy Controls</span>
+                      </div>
 
                       <div className="space-y-3">
-                        {selectedUserDetails?.tasks
-                          ?.filter((t: any) => !t.isGroupTask)
-                          .map((t: any) => (
+                        {(!selectedUserDetails?.tasks || selectedUserDetails.tasks.filter((t: any) => !t.isGroupTask).length === 0) ? (
+                          <p className="text-xs text-zinc-500 italic py-3 text-center">No personal habits found for this user.</p>
+                        ) : (
+                          selectedUserDetails?.tasks
+                            ?.filter((t: any) => !t.isGroupTask)
+                            .map((t: any) => (
+                              <div
+                                key={t.id}
+                                className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-flame-500/30 transition-all"
+                              >
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-zinc-200 text-sm">{t.title}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-dark-border text-zinc-400 font-mono">
+                                      {t.category || 'General'}
+                                    </span>
+                                    <span
+                                      className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                        t.status === 'ACTIVE'
+                                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                          : 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20'
+                                      }`}
+                                    >
+                                      {t.status}
+                                    </span>
+                                    {t.priority && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-dark-card border border-dark-border text-zinc-400 font-mono">
+                                        {t.priority}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-3 text-[11px] text-zinc-400 mt-1 flex-wrap">
+                                    <span>Streak: <strong className="text-flame-400">{t.currentStreak}d</strong> (Best: {t.longestStreak}d)</span>
+                                    <span>•</span>
+                                    <span>Completions: {t._count?.completions || 0}</span>
+                                    {t.hiddenFrom && t.hiddenFrom.length > 0 && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="text-rose-400 font-mono text-[10px]">Hidden: {t.hiddenFrom.join(', ')}</span>
+                                      </>
+                                    )}
+                                    {t.visibleOnlyTo && t.visibleOnlyTo.length > 0 && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="text-emerald-400 font-mono text-[10px]">Restricted: {t.visibleOnlyTo.join(', ')}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenTaskEditor(t)}
+                                    className="px-3 py-1.5 bg-flame-500/10 hover:bg-flame-500/20 text-flame-400 border border-flame-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+                                  >
+                                    <Sliders className="w-3.5 h-3.5" />
+                                    <span>⚙️ Full Settings & Privacy</span>
+                                  </button>
+                                  {t.status === 'ARCHIVED' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecoverGroupTask(t.id, t.title)}
+                                      className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition-all"
+                                    >
+                                      Reactivate
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Group Habits & Memberships */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-flame-400" />
+                          <span>Group Habits & Memberships ({selectedUserDetails?.groupMemberships?.length || 0})</span>
+                        </h3>
+                        <span className="text-[10px] text-zinc-500 font-mono">Full Group & Member Administration</span>
+                      </div>
+
+                      <div className="space-y-3">
+                        {(!selectedUserDetails?.groupMemberships || selectedUserDetails.groupMemberships.length === 0) ? (
+                          <p className="text-xs text-zinc-500 italic py-3 text-center">No group memberships found for this user.</p>
+                        ) : (
+                          selectedUserDetails?.groupMemberships?.map((m: any) => (
                             <div
-                              key={t.id}
-                              className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                              key={m.id}
+                              className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-flame-500/30 transition-all"
+                            >
+                              <div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-zinc-200 text-sm">{m.group?.name}</span>
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30 font-bold">
+                                    {m.role}
+                                  </span>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-dark-border text-zinc-400">
+                                    Code: {m.group?.joinCode}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-zinc-400 mt-1">
+                                  Group Members: {m.group?._count?.members || m.group?.members?.length || 1} • Joined:{' '}
+                                  {new Date(m.joinedAt).toLocaleDateString()}
+                                  {m.group?.description ? ` • "${m.group.description}"` : ''}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenGroupEditor(m.group || m)}
+                                  className="px-3 py-1.5 bg-flame-500/10 hover:bg-flame-500/20 text-flame-400 border border-flame-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+                                >
+                                  <Sliders className="w-3.5 h-3.5" />
+                                  <span>⚙️ Full Group Settings & Members</span>
+                                </button>
+                                {m.role !== 'OWNER' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleManageGroupMember(m.groupId, 'OWNER', m.group?.name)
+                                    }
+                                    className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold"
+                                  >
+                                    Make Owner
+                                  </button>
+                                )}
+                                {m.role === 'MEMBER' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleManageGroupMember(m.groupId, 'ADMIN', m.group?.name)
+                                    }
+                                    className="px-2.5 py-1 bg-dark-border hover:bg-dark-border/80 text-zinc-300 rounded-lg text-xs font-semibold"
+                                  >
+                                    Promote to Admin
+                                  </button>
+                                )}
+                                {m.role === 'ADMIN' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleManageGroupMember(m.groupId, 'MEMBER', m.group?.name)
+                                    }
+                                    className="px-2.5 py-1 bg-dark-border hover:bg-dark-border/80 text-zinc-300 rounded-lg text-xs font-semibold"
+                                  >
+                                    Demote to Member
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Owned Groups if any not listed above */}
+                    {selectedUserDetails?.ownedGroups && selectedUserDetails.ownedGroups.length > 0 && (
+                      <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                            <Award className="w-4 h-4 text-amber-400" />
+                            <span>Created & Owned Groups ({selectedUserDetails.ownedGroups.length})</span>
+                          </h3>
+                        </div>
+
+                        <div className="space-y-3">
+                          {selectedUserDetails.ownedGroups.map((g: any) => (
+                            <div
+                              key={g.id}
+                              className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-amber-500/30 transition-all"
                             >
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-bold text-zinc-200">{t.title}</span>
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-dark-border text-zinc-400 font-mono">
-                                    {t.category}
+                                  <span className="font-bold text-zinc-200 text-sm">{g.name}</span>
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold">
+                                    OWNER
                                   </span>
-                                  <span
-                                    className={`text-[10px] px-1.5 py-0.5 rounded ${
-                                      t.status === 'ACTIVE'
-                                        ? 'bg-emerald-500/10 text-emerald-400'
-                                        : 'bg-zinc-500/10 text-zinc-400'
-                                    }`}
-                                  >
-                                    {t.status}
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-dark-border text-zinc-400">
+                                    Code: {g.joinCode}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-3 text-[11px] text-zinc-400 mt-1">
-                                  <span>Streak: {t.currentStreak}d (Best: {t.longestStreak}d)</span>
-                                  <span>•</span>
-                                  <span>Completions: {t._count?.completions || 0}</span>
-                                </div>
+                                <p className="text-[11px] text-zinc-400 mt-1">
+                                  {g.description || 'No description provided'} • Members: {g._count?.members || g.members?.length || 1}
+                                </p>
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0">
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setVisibilityTaskId(t.id);
-                                    setVisibilityHiddenFrom(t.hiddenFrom?.join(', ') || '');
-                                    setVisibilityVisibleOnlyTo(t.visibleOnlyTo?.join(', ') || '');
-                                  }}
-                                  className="px-2.5 py-1 bg-dark-card hover:bg-dark-border border border-dark-border text-zinc-300 rounded-lg text-xs font-semibold"
+                                  onClick={() => handleOpenGroupEditor(g)}
+                                  className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
                                 >
-                                  Privacy Rules
+                                  <Sliders className="w-3.5 h-3.5" />
+                                  <span>⚙️ Full Group Settings & Members</span>
                                 </button>
-                                {t.status === 'ARCHIVED' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRecoverGroupTask(t.id, t.title)}
-                                    className="px-2.5 py-1 bg-flame-500/10 hover:bg-flame-500/20 text-flame-400 border border-flame-500/30 rounded-lg text-xs font-semibold"
-                                  >
-                                    Reactivate
-                                  </button>
-                                )}
                               </div>
                             </div>
                           ))}
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Task Visibility Editor Modal */}
-                    {visibilityTaskId && (
-                      <form onSubmit={handleUpdateTaskVisibility} className="p-4 bg-dark-card rounded-2xl border border-dark-border space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-xs font-bold text-zinc-200">Edit Task Privacy & Visibility</h4>
-                          <button
-                            type="button"
-                            onClick={() => setVisibilityTaskId(null)}
-                            className="text-xs text-zinc-400 hover:text-zinc-200"
-                          >
-                            Close
-                          </button>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                            Hidden From (comma-separated usernames or "all")
-                          </label>
-                          <input
-                            type="text"
-                            value={visibilityHiddenFrom}
-                            onChange={(e) => setVisibilityHiddenFrom(e.target.value)}
-                            placeholder="e.g. user1, user2 or all"
-                            className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                            Visible Only To (comma-separated usernames, if restricted)
-                          </label>
-                          <input
-                            type="text"
-                            value={visibilityVisibleOnlyTo}
-                            onChange={(e) => setVisibilityVisibleOnlyTo(e.target.value)}
-                            placeholder="e.g. user1, user3"
-                            className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                            Mandatory Administrative Reason
-                          </label>
-                          <input
-                            type="text"
-                            value={visibilityReason}
-                            onChange={(e) => setVisibilityReason(e.target.value)}
-                            placeholder="e.g. Cleared accidental friend blacklist"
-                            className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                            required
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          disabled={isSubmittingVisibility}
-                          className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl"
-                        >
-                          Save Privacy Rules
-                        </button>
-                      </form>
                     )}
-
-                    {/* Group Habits & Memberships */}
-                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                        <Users className="w-4 h-4 text-flame-400" />
-                        <span>Group Habits & Memberships ({selectedUserDetails?.groupMemberships?.length || 0})</span>
-                      </h3>
-
-                      <div className="space-y-3">
-                        {selectedUserDetails?.groupMemberships?.map((m: any) => (
-                          <div
-                            key={m.id}
-                            className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
-                          >
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-zinc-200">{m.group?.name}</span>
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30 font-bold">
-                                  {m.role}
-                                </span>
-                                <span className="text-[10px] font-mono text-zinc-500">
-                                  Code: {m.group?.joinCode}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-zinc-400 mt-1">
-                                Group Members: {m.group?._count?.members || 1} • Joined:{' '}
-                                {new Date(m.joinedAt).toLocaleDateString()}
-                              </p>
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0">
-                              {m.role !== 'OWNER' && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleManageGroupMember(m.groupId, 'OWNER', m.group?.name)
-                                  }
-                                  className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold"
-                                >
-                                  Make Owner
-                                </button>
-                              )}
-                              {m.role === 'MEMBER' && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleManageGroupMember(m.groupId, 'ADMIN', m.group?.name)
-                                  }
-                                  className="px-2.5 py-1 bg-dark-border hover:bg-dark-border/80 text-zinc-300 rounded-lg text-xs font-semibold"
-                                >
-                                  Promote to Admin
-                                </button>
-                              )}
-                              {m.role === 'ADMIN' && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleManageGroupMember(m.groupId, 'MEMBER', m.group?.name)
-                                  }
-                                  className="px-2.5 py-1 bg-dark-border hover:bg-dark-border/80 text-zinc-300 rounded-lg text-xs font-semibold"
-                                >
-                                  Demote to Member
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
 
                     {/* Study Note Moderation */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
@@ -3105,7 +3493,7 @@ export const AdminControlPage: React.FC = () => {
                 <span>Super Admin Credentials & Sensitive Password</span>
               </h2>
               <p className="text-xs text-zinc-400 mt-1">
-                Update the primary Super Admin login password (default: <code className="text-flame-400">Admin@123</code>) or the secondary Sensitive Action Password (default: <code className="text-flame-400">Nirmal@31/08/2006</code>) required for sensitive overrides.
+                Update the primary Super Admin login password or the secondary Sensitive Action Password required for sensitive overrides.
               </p>
             </div>
 
@@ -3118,7 +3506,7 @@ export const AdminControlPage: React.FC = () => {
                   type="password"
                   value={currentAdminPassword}
                   onChange={(e) => setCurrentAdminPassword(e.target.value)}
-                  placeholder="Enter current password (Admin@123)"
+                  placeholder="Enter current password"
                   className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   required
                 />
@@ -3146,7 +3534,7 @@ export const AdminControlPage: React.FC = () => {
                     type="password"
                     value={newAdminSensitivePin}
                     onChange={(e) => setNewAdminSensitivePin(e.target.value)}
-                    placeholder="e.g. Nirmal@31/08/2006"
+                    placeholder="Enter new sensitive action password"
                     className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   />
                   <p className="text-[11px] text-zinc-500 mt-1">
@@ -3168,7 +3556,921 @@ export const AdminControlPage: React.FC = () => {
       </main>
 
       {/* ======================================================== */}
-      {/* HEATMAP DAY ACTIVITY & STREAK CONTROL MODAL             */}
+      {/* FULL TASK SETTINGS & SUBSTRING PRIVACY MODAL             */}
+      {/* ======================================================== */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 my-8 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-zinc-100 flex items-center gap-2">
+                    <span>Full Task Settings & Privacy Controls</span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Target: @{selectedUserDetails?.username} • Task: "{editingTask.title}"
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingTask(null);
+                  setUserSearchQuery('');
+                  setUserSearchMatches([]);
+                  setActiveSearchTarget(null);
+                }}
+                className="w-8 h-8 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-400 hover:text-zinc-200 flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTaskFull} className="space-y-4 text-xs">
+              {/* Basic Habit Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Task Title / Name <span className="text-flame-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={taskEditTitle}
+                    onChange={(e) => setTaskEditTitle(e.target.value)}
+                    placeholder="Habit title..."
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Task Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={taskEditDescription}
+                    onChange={(e) => setTaskEditDescription(e.target.value)}
+                    placeholder="Habit description, notes, or expectations..."
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Category
+                  </label>
+                  <input
+                    type="text"
+                    value={taskEditCategory}
+                    onChange={(e) => setTaskEditCategory(e.target.value)}
+                    placeholder="e.g. Coding, Fitness, Study"
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Priority Level
+                  </label>
+                  <select
+                    value={taskEditPriority}
+                    onChange={(e: any) => setTaskEditPriority(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  >
+                    <option value="LOW">Low Priority</option>
+                    <option value="MEDIUM">Medium Priority</option>
+                    <option value="HIGH">High Priority</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Cadence / Recurrence
+                  </label>
+                  <select
+                    value={taskEditRecurrence}
+                    onChange={(e: any) => setTaskEditRecurrence(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  >
+                    <option value="DAILY">Daily Habit (Recurring)</option>
+                    <option value="ONE_TIME">One-Time Goal / Task</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Task Status
+                  </label>
+                  <select
+                    value={taskEditStatus}
+                    onChange={(e: any) => setTaskEditStatus(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  >
+                    <option value="ACTIVE">Active</option>
+                    <option value="ARCHIVED">Archived</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Privacy Controls Section */}
+              <div className="p-4 bg-dark-surface/90 rounded-2xl border border-dark-border space-y-4">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-flame-400" />
+                  <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">
+                    Privacy Controls & Substring Search
+                  </h4>
+                </div>
+
+                {/* Hidden From */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-300">
+                      Hidden From (Blocked users who cannot see this habit)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!taskEditHiddenFrom.includes('all')) {
+                          setTaskEditHiddenFrom([...taskEditHiddenFrom, 'all']);
+                        }
+                      }}
+                      className="text-[11px] font-bold text-flame-400 hover:text-flame-300 flex items-center gap-1"
+                    >
+                      + Hide from All ("all")
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-dark-card border border-dark-border rounded-xl">
+                    {taskEditHiddenFrom.length === 0 ? (
+                      <span className="text-[11px] text-zinc-500 italic py-0.5">Not hidden from anyone (Public to friends/group)</span>
+                    ) : (
+                      taskEditHiddenFrom.map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-[11px]"
+                        >
+                          {item === 'all' ? '🔒 ALL USERS' : `@${item}`}
+                          <button
+                            type="button"
+                            onClick={() => setTaskEditHiddenFrom(taskEditHiddenFrom.filter((x) => x !== item))}
+                            className="hover:text-rose-100 ml-0.5 font-bold"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={activeSearchTarget === 'TASK_HIDDEN' ? userSearchQuery : ''}
+                      onFocus={() => setActiveSearchTarget('TASK_HIDDEN')}
+                      onChange={(e) => {
+                        setActiveSearchTarget('TASK_HIDDEN');
+                        searchUsersForPrivacy(e.target.value);
+                      }}
+                      placeholder="Type letters to search by name, @username, or email..."
+                      className="w-full pl-9 pr-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
+                    />
+
+                    {activeSearchTarget === 'TASK_HIDDEN' && userSearchQuery.trim() && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-dark-card border border-dark-border rounded-2xl shadow-2xl max-h-48 overflow-y-auto p-1 space-y-1">
+                        {isSearchingUsers ? (
+                          <div className="p-3 text-center text-zinc-400 text-xs">Searching directory...</div>
+                        ) : userSearchMatches.length === 0 ? (
+                          <div className="p-3 text-center text-zinc-500 text-xs">
+                            No users containing "{userSearchQuery}".
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = userSearchQuery.trim().replace(/^@/, '');
+                                if (val && !taskEditHiddenFrom.includes(val)) {
+                                  setTaskEditHiddenFrom([...taskEditHiddenFrom, val]);
+                                }
+                                setUserSearchQuery('');
+                                setActiveSearchTarget(null);
+                              }}
+                              className="block mx-auto mt-1 text-flame-400 hover:underline font-semibold"
+                            >
+                              + Add "{userSearchQuery.trim()}" as custom entry
+                            </button>
+                          </div>
+                        ) : (
+                          userSearchMatches.map((u) => {
+                            const alreadyIn = taskEditHiddenFrom.includes(u.username);
+                            return (
+                              <div
+                                key={u.id}
+                                className="p-2 hover:bg-dark-surface rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 h-6 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center text-[10px] text-zinc-300 font-bold shrink-0">
+                                    {u.username[0].toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-zinc-200 truncate">@{u.username} <span className="text-zinc-400 font-normal">({u.name || 'No name'})</span></p>
+                                    <p className="text-[10px] text-zinc-500 truncate">{u.email}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={alreadyIn}
+                                  onClick={() => {
+                                    if (!alreadyIn) {
+                                      setTaskEditHiddenFrom([...taskEditHiddenFrom, u.username]);
+                                    }
+                                    setUserSearchQuery('');
+                                    setActiveSearchTarget(null);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                                    alreadyIn
+                                      ? 'bg-dark-surface text-zinc-500 cursor-not-allowed'
+                                      : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  }`}
+                                >
+                                  {alreadyIn ? 'Added' : '+ Hide'}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Visible Only To */}
+                <div className="space-y-2 pt-2 border-t border-dark-border/60">
+                  <label className="text-xs font-semibold text-zinc-300">
+                    Visible Only To (Restricted visibility whitelist — only these users can see)
+                  </label>
+
+                  <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-dark-card border border-dark-border rounded-xl">
+                    {taskEditVisibleOnlyTo.length === 0 ? (
+                      <span className="text-[11px] text-zinc-500 italic py-0.5">Visible to everyone eligible (No specific restriction)</span>
+                    ) : (
+                      taskEditVisibleOnlyTo.map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px]"
+                        >
+                          @{item}
+                          <button
+                            type="button"
+                            onClick={() => setTaskEditVisibleOnlyTo(taskEditVisibleOnlyTo.filter((x) => x !== item))}
+                            className="hover:text-emerald-100 ml-0.5 font-bold"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={activeSearchTarget === 'TASK_VISIBLE' ? userSearchQuery : ''}
+                      onFocus={() => setActiveSearchTarget('TASK_VISIBLE')}
+                      onChange={(e) => {
+                        setActiveSearchTarget('TASK_VISIBLE');
+                        searchUsersForPrivacy(e.target.value);
+                      }}
+                      placeholder="Type letters to search by name, @username, or email..."
+                      className="w-full pl-9 pr-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
+                    />
+
+                    {activeSearchTarget === 'TASK_VISIBLE' && userSearchQuery.trim() && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-dark-card border border-dark-border rounded-2xl shadow-2xl max-h-48 overflow-y-auto p-1 space-y-1">
+                        {isSearchingUsers ? (
+                          <div className="p-3 text-center text-zinc-400 text-xs">Searching directory...</div>
+                        ) : userSearchMatches.length === 0 ? (
+                          <div className="p-3 text-center text-zinc-500 text-xs">
+                            No users containing "{userSearchQuery}".
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = userSearchQuery.trim().replace(/^@/, '');
+                                if (val && !taskEditVisibleOnlyTo.includes(val)) {
+                                  setTaskEditVisibleOnlyTo([...taskEditVisibleOnlyTo, val]);
+                                }
+                                setUserSearchQuery('');
+                                setActiveSearchTarget(null);
+                              }}
+                              className="block mx-auto mt-1 text-flame-400 hover:underline font-semibold"
+                            >
+                              + Add "{userSearchQuery.trim()}" as custom entry
+                            </button>
+                          </div>
+                        ) : (
+                          userSearchMatches.map((u) => {
+                            const alreadyIn = taskEditVisibleOnlyTo.includes(u.username);
+                            return (
+                              <div
+                                key={u.id}
+                                className="p-2 hover:bg-dark-surface rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 h-6 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center text-[10px] text-zinc-300 font-bold shrink-0">
+                                    {u.username[0].toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-zinc-200 truncate">@{u.username} <span className="text-zinc-400 font-normal">({u.name || 'No name'})</span></p>
+                                    <p className="text-[10px] text-zinc-500 truncate">{u.email}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={alreadyIn}
+                                  onClick={() => {
+                                    if (!alreadyIn) {
+                                      setTaskEditVisibleOnlyTo([...taskEditVisibleOnlyTo, u.username]);
+                                    }
+                                    setUserSearchQuery('');
+                                    setActiveSearchTarget(null);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                                    alreadyIn
+                                      ? 'bg-dark-surface text-zinc-500 cursor-not-allowed'
+                                      : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  }`}
+                                >
+                                  {alreadyIn ? 'Added' : '+ Allow'}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Mandatory Administrative Reason <span className="text-flame-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={taskEditReason}
+                  onChange={(e) => setTaskEditReason(e.target.value)}
+                  placeholder="e.g. Administrative habit correction & privacy adjustment"
+                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  required
+                />
+              </div>
+
+              {renderNotificationOptions()}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="flex-1 py-2.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingTaskEdit}
+                  className="flex-1 py-2.5 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  {isSubmittingTaskEdit ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Save Full Task Settings</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* FULL GROUP SETTINGS & ROSTER CONTROL MODAL               */}
+      {/* ======================================================== */}
+      {editingGroup && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-3xl bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 my-8 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-zinc-100 flex items-center gap-2">
+                    <span>Full Group Settings & Member Management</span>
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Group: "{editingGroup.name}" • Join Code: {editingGroup.joinCode}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingGroup(null);
+                  setUserSearchQuery('');
+                  setUserSearchMatches([]);
+                  setActiveSearchTarget(null);
+                }}
+                className="w-8 h-8 rounded-xl bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-400 hover:text-zinc-200 flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGroupFull} className="space-y-4 text-xs">
+              {/* Basic Group Info */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Group Name <span className="text-flame-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={groupEditName}
+                    onChange={(e) => setGroupEditName(e.target.value)}
+                    placeholder="Group name..."
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Join Code <span className="text-flame-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={groupEditJoinCode}
+                    onChange={(e) => setGroupEditJoinCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. ABC123"
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs font-mono font-bold text-zinc-100 focus:outline-none focus:border-flame-500"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Group Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={groupEditDescription}
+                    onChange={(e) => setGroupEditDescription(e.target.value)}
+                    placeholder="Describe group goals, guidelines, or topics..."
+                    className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  />
+                </div>
+
+                {/* Owner Transfer with Substring Search */}
+                <div className="sm:col-span-2 p-3.5 bg-dark-surface rounded-xl border border-dark-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Transfer Ownership (Current Owner ID: <code className="text-amber-400 font-mono">{groupEditOwnerId ? `${groupEditOwnerId.slice(0, 10)}...` : 'None'}</code>)</span>
+                    </label>
+                    <span className="text-[10px] text-zinc-500">Search by username, email, or name</span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={activeSearchTarget === 'GROUP_OWNER' ? userSearchQuery : ''}
+                      onFocus={() => setActiveSearchTarget('GROUP_OWNER')}
+                      onChange={(e) => {
+                        setActiveSearchTarget('GROUP_OWNER');
+                        searchUsersForPrivacy(e.target.value);
+                      }}
+                      placeholder="Type letters to search user to transfer group ownership to..."
+                      className="w-full pl-9 pr-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
+                    />
+
+                    {activeSearchTarget === 'GROUP_OWNER' && userSearchQuery.trim() && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-dark-card border border-dark-border rounded-2xl shadow-2xl max-h-48 overflow-y-auto p-1 space-y-1">
+                        {isSearchingUsers ? (
+                          <div className="p-3 text-center text-zinc-400 text-xs">Searching directory...</div>
+                        ) : userSearchMatches.length === 0 ? (
+                          <div className="p-3 text-center text-zinc-500 text-xs">No users found containing "{userSearchQuery}".</div>
+                        ) : (
+                          userSearchMatches.map((u) => (
+                            <div
+                              key={u.id}
+                              className="p-2 hover:bg-dark-surface rounded-xl flex items-center justify-between gap-2"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-6 h-6 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center text-[10px] text-zinc-300 font-bold shrink-0">
+                                  {u.username[0].toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-zinc-200 truncate">@{u.username} <span className="text-zinc-400 font-normal">({u.name || 'No name'})</span></p>
+                                  <p className="text-[10px] text-zinc-500 truncate">{u.email}</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGroupEditOwnerId(u.id);
+                                  setUserSearchQuery('');
+                                  setActiveSearchTarget(null);
+                                  toast.info(`Designated @${u.username} as new group owner. Save below to finalize.`);
+                                }}
+                                className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-[11px] font-bold"
+                              >
+                                Select
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Group Privacy Rules */}
+              <div className="p-4 bg-dark-surface/90 rounded-2xl border border-dark-border space-y-3">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-flame-400" />
+                  <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">
+                    Group Privacy Rules & Substring Search
+                  </h4>
+                </div>
+
+                {/* Group Hidden From */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-zinc-300">
+                      Hidden From (Users blocked from discovering this group)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!groupEditHiddenFrom.includes('all')) {
+                          setGroupEditHiddenFrom([...groupEditHiddenFrom, 'all']);
+                        }
+                      }}
+                      className="text-[11px] font-bold text-flame-400 hover:text-flame-300"
+                    >
+                      + Hide from All ("all")
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 min-h-[30px] p-2 bg-dark-card border border-dark-border rounded-xl">
+                    {groupEditHiddenFrom.length === 0 ? (
+                      <span className="text-[11px] text-zinc-500 italic py-0.5">Not hidden from anyone</span>
+                    ) : (
+                      groupEditHiddenFrom.map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 font-mono text-[11px]"
+                        >
+                          {item === 'all' ? '🔒 ALL USERS' : `@${item}`}
+                          <button
+                            type="button"
+                            onClick={() => setGroupEditHiddenFrom(groupEditHiddenFrom.filter((x) => x !== item))}
+                            className="hover:text-rose-100 ml-0.5 font-bold"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={activeSearchTarget === 'GROUP_HIDDEN' ? userSearchQuery : ''}
+                      onFocus={() => setActiveSearchTarget('GROUP_HIDDEN')}
+                      onChange={(e) => {
+                        setActiveSearchTarget('GROUP_HIDDEN');
+                        searchUsersForPrivacy(e.target.value);
+                      }}
+                      placeholder="Type letters to search by name, @username, or email..."
+                      className="w-full pl-9 pr-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
+                    />
+
+                    {activeSearchTarget === 'GROUP_HIDDEN' && userSearchQuery.trim() && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-dark-card border border-dark-border rounded-2xl shadow-2xl max-h-48 overflow-y-auto p-1 space-y-1">
+                        {isSearchingUsers ? (
+                          <div className="p-3 text-center text-zinc-400 text-xs">Searching directory...</div>
+                        ) : userSearchMatches.length === 0 ? (
+                          <div className="p-3 text-center text-zinc-500 text-xs">
+                            No users containing "{userSearchQuery}".
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = userSearchQuery.trim().replace(/^@/, '');
+                                if (val && !groupEditHiddenFrom.includes(val)) {
+                                  setGroupEditHiddenFrom([...groupEditHiddenFrom, val]);
+                                }
+                                setUserSearchQuery('');
+                                setActiveSearchTarget(null);
+                              }}
+                              className="block mx-auto mt-1 text-flame-400 hover:underline font-semibold"
+                            >
+                              + Add "{userSearchQuery.trim()}" as custom entry
+                            </button>
+                          </div>
+                        ) : (
+                          userSearchMatches.map((u) => {
+                            const alreadyIn = groupEditHiddenFrom.includes(u.username);
+                            return (
+                              <div
+                                key={u.id}
+                                className="p-2 hover:bg-dark-surface rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 h-6 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center text-[10px] text-zinc-300 font-bold shrink-0">
+                                    {u.username[0].toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-zinc-200 truncate">@{u.username} <span className="text-zinc-400 font-normal">({u.name || 'No name'})</span></p>
+                                    <p className="text-[10px] text-zinc-500 truncate">{u.email}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={alreadyIn}
+                                  onClick={() => {
+                                    if (!alreadyIn) {
+                                      setGroupEditHiddenFrom([...groupEditHiddenFrom, u.username]);
+                                    }
+                                    setUserSearchQuery('');
+                                    setActiveSearchTarget(null);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                                    alreadyIn
+                                      ? 'bg-dark-surface text-zinc-500 cursor-not-allowed'
+                                      : 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  }`}
+                                >
+                                  {alreadyIn ? 'Added' : '+ Hide'}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Group Visible Only To */}
+                <div className="space-y-1.5 pt-2 border-t border-dark-border/60">
+                  <label className="text-xs font-semibold text-zinc-300">
+                    Visible Only To (Restricted visibility whitelist)
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 min-h-[30px] p-2 bg-dark-card border border-dark-border rounded-xl">
+                    {groupEditVisibleOnlyTo.length === 0 ? (
+                      <span className="text-[11px] text-zinc-500 italic py-0.5">Visible to all eligible members</span>
+                    ) : (
+                      groupEditVisibleOnlyTo.map((item) => (
+                        <span
+                          key={item}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-mono text-[11px]"
+                        >
+                          @{item}
+                          <button
+                            type="button"
+                            onClick={() => setGroupEditVisibleOnlyTo(groupEditVisibleOnlyTo.filter((x) => x !== item))}
+                            className="hover:text-emerald-100 ml-0.5 font-bold"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={activeSearchTarget === 'GROUP_VISIBLE' ? userSearchQuery : ''}
+                      onFocus={() => setActiveSearchTarget('GROUP_VISIBLE')}
+                      onChange={(e) => {
+                        setActiveSearchTarget('GROUP_VISIBLE');
+                        searchUsersForPrivacy(e.target.value);
+                      }}
+                      placeholder="Type letters to search by name, @username, or email..."
+                      className="w-full pl-9 pr-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
+                    />
+
+                    {activeSearchTarget === 'GROUP_VISIBLE' && userSearchQuery.trim() && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-dark-card border border-dark-border rounded-2xl shadow-2xl max-h-48 overflow-y-auto p-1 space-y-1">
+                        {isSearchingUsers ? (
+                          <div className="p-3 text-center text-zinc-400 text-xs">Searching directory...</div>
+                        ) : userSearchMatches.length === 0 ? (
+                          <div className="p-3 text-center text-zinc-500 text-xs">
+                            No users containing "{userSearchQuery}".
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = userSearchQuery.trim().replace(/^@/, '');
+                                if (val && !groupEditVisibleOnlyTo.includes(val)) {
+                                  setGroupEditVisibleOnlyTo([...groupEditVisibleOnlyTo, val]);
+                                }
+                                setUserSearchQuery('');
+                                setActiveSearchTarget(null);
+                              }}
+                              className="block mx-auto mt-1 text-flame-400 hover:underline font-semibold"
+                            >
+                              + Add "{userSearchQuery.trim()}" as custom entry
+                            </button>
+                          </div>
+                        ) : (
+                          userSearchMatches.map((u) => {
+                            const alreadyIn = groupEditVisibleOnlyTo.includes(u.username);
+                            return (
+                              <div
+                                key={u.id}
+                                className="p-2 hover:bg-dark-surface rounded-xl flex items-center justify-between gap-2"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="w-6 h-6 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center text-[10px] text-zinc-300 font-bold shrink-0">
+                                    {u.username[0].toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-zinc-200 truncate">@{u.username} <span className="text-zinc-400 font-normal">({u.name || 'No name'})</span></p>
+                                    <p className="text-[10px] text-zinc-500 truncate">{u.email}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={alreadyIn}
+                                  onClick={() => {
+                                    if (!alreadyIn) {
+                                      setGroupEditVisibleOnlyTo([...groupEditVisibleOnlyTo, u.username]);
+                                    }
+                                    setUserSearchQuery('');
+                                    setActiveSearchTarget(null);
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                                    alreadyIn
+                                      ? 'bg-dark-surface text-zinc-500 cursor-not-allowed'
+                                      : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  }`}
+                                >
+                                  {alreadyIn ? 'Added' : '+ Allow'}
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Group Member Management Roster */}
+              <div className="p-4 bg-dark-surface rounded-2xl border border-dark-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Users className="w-4 h-4 text-flame-400" />
+                    <span>Group Member Roster ({editingGroup.members?.length || 0})</span>
+                  </h4>
+                  <span className="text-[10px] text-zinc-500">Live role management & removal</span>
+                </div>
+
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {(!editingGroup.members || editingGroup.members.length === 0) ? (
+                    <p className="text-xs text-zinc-500 italic py-2 text-center">No member records loaded for this group.</p>
+                  ) : (
+                    editingGroup.members.map((m: any) => {
+                      const memberUser = m.user || {};
+                      const isOwner = m.role === 'OWNER';
+                      return (
+                        <div
+                          key={m.userId}
+                          className="p-2.5 bg-dark-card rounded-xl border border-dark-border flex items-center justify-between gap-3 text-xs"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-7 h-7 rounded-full bg-dark-surface border border-dark-border flex items-center justify-center font-bold text-zinc-200 shrink-0 text-xs">
+                              {(memberUser.username || m.userId || '?')[0].toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-zinc-200 truncate">@{memberUser.username || m.userId}</span>
+                                <span
+                                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                                    isOwner
+                                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                                      : m.role === 'ADMIN'
+                                      ? 'bg-flame-500/10 text-flame-400 border border-flame-500/30'
+                                      : 'bg-dark-border text-zinc-400'
+                                  }`}
+                                >
+                                  {m.role}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-zinc-500 truncate">
+                                {memberUser.name ? `${memberUser.name} • ` : ''}{memberUser.email || 'No email'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {!isOwner && (
+                              <>
+                                <select
+                                  value={m.role}
+                                  onChange={(e) =>
+                                    handleManageGroupMember(
+                                      editingGroup.id,
+                                      e.target.value as 'ADMIN' | 'MEMBER',
+                                      editingGroup.name,
+                                      m.userId
+                                    )
+                                  }
+                                  className="px-2 py-1 bg-dark-surface border border-dark-border rounded-lg text-[11px] text-zinc-300 focus:outline-none focus:border-flame-500"
+                                >
+                                  <option value="MEMBER">Member</option>
+                                  <option value="ADMIN">Admin</option>
+                                </select>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemoveGroupMember(
+                                      editingGroup.id,
+                                      m.userId,
+                                      memberUser.username || m.userId
+                                    )
+                                  }
+                                  className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-bold"
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Mandatory Administrative Reason <span className="text-flame-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={groupEditReason}
+                  onChange={(e) => setGroupEditReason(e.target.value)}
+                  placeholder="e.g. Administrative group settings & membership update"
+                  className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  required
+                />
+              </div>
+
+              {renderNotificationOptions()}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingGroup(null)}
+                  className="flex-1 py-2.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingGroupEdit}
+                  className="flex-1 py-2.5 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  {isSubmittingGroupEdit ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Save Full Group Settings</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* HEATMAP DAY ACTIVITY & STREAK / FREEZE CONTROL MODAL     */}
       {/* ======================================================== */}
       {dayModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3179,11 +4481,15 @@ export const AdminControlPage: React.FC = () => {
                   className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
                     dayModalMode === 'STREAK'
                       ? 'bg-flame-500/10 border border-flame-500/30 text-flame-400'
+                      : dayModalMode === 'UNFREEZE'
+                      ? 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
                       : 'bg-sky-500/10 border border-sky-500/30 text-sky-400'
                   }`}
                 >
                   {dayModalMode === 'STREAK' ? (
                     <Flame className="w-5 h-5" />
+                  ) : dayModalMode === 'UNFREEZE' ? (
+                    <X className="w-5 h-5" />
                   ) : (
                     <Snowflake className="w-5 h-5" />
                   )}
@@ -3207,21 +4513,21 @@ export const AdminControlPage: React.FC = () => {
             </div>
 
             {/* Mode Switcher Tabs */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-dark-surface rounded-2xl border border-dark-border">
+            <div className="grid grid-cols-3 gap-2 p-1 bg-dark-surface rounded-2xl border border-dark-border">
               <button
                 type="button"
                 onClick={() => {
                   setDayModalMode('STREAK');
                   setDayModalReason(`Administrative streak completion granted for ${dayModalDate}`);
                 }}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                   dayModalMode === 'STREAK'
                     ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Flame className="w-4 h-4" />
-                <span>Grant Streak Completion</span>
+                <Flame className="w-3.5 h-3.5" />
+                <span>Grant Streak</span>
               </button>
 
               <button
@@ -3230,14 +4536,30 @@ export const AdminControlPage: React.FC = () => {
                   setDayModalMode('FREEZE');
                   setDayModalReason(`Historical freeze applied for ${dayModalDate}`);
                 }}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                   dayModalMode === 'FREEZE'
                     ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/20'
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Snowflake className="w-4 h-4" />
-                <span>Freeze This Day</span>
+                <Snowflake className="w-3.5 h-3.5" />
+                <span>Freeze Day</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDayModalMode('UNFREEZE');
+                  setDayModalReason(`Administrative freeze removed for ${dayModalDate}`);
+                }}
+                className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  dayModalMode === 'UNFREEZE'
+                    ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Unfreeze</span>
               </button>
             </div>
 
@@ -3246,12 +4568,18 @@ export const AdminControlPage: React.FC = () => {
               className={`p-3 rounded-xl border text-xs leading-relaxed ${
                 dayModalMode === 'STREAK'
                   ? 'bg-flame-500/10 border-flame-500/30 text-amber-200'
+                  : dayModalMode === 'UNFREEZE'
+                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-200'
                   : 'bg-sky-500/10 border-sky-500/30 text-sky-200'
               }`}
             >
               {dayModalMode === 'STREAK' ? (
                 <span>
                   🔥 <strong>Grant Streak:</strong> Records habit completion on <strong>{dayModalDate}</strong>. Automatically awards 10 points to PointLedger, recalculates personal & group streaks, and updates heatmaps everywhere in the app.
+                </span>
+              ) : dayModalMode === 'UNFREEZE' ? (
+                <span>
+                  🔓 <strong>Remove Freeze:</strong> Revokes streak freeze protection on <strong>{dayModalDate}</strong>. Streaks and freeze usage will be recalculated automatically.
                 </span>
               ) : (
                 <span>
@@ -3327,6 +4655,8 @@ export const AdminControlPage: React.FC = () => {
                   className={`flex-1 py-2.5 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-1.5 ${
                     dayModalMode === 'STREAK'
                       ? 'bg-flame-500 hover:bg-flame-400 text-zinc-950'
+                      : dayModalMode === 'UNFREEZE'
+                      ? 'bg-rose-500 hover:bg-rose-400 text-zinc-100'
                       : 'bg-sky-500 hover:bg-sky-400 text-zinc-950'
                   }`}
                 >
@@ -3334,11 +4664,13 @@ export const AdminControlPage: React.FC = () => {
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   ) : dayModalMode === 'STREAK' ? (
                     <Flame className="w-3.5 h-3.5" />
+                  ) : dayModalMode === 'UNFREEZE' ? (
+                    <X className="w-3.5 h-3.5" />
                   ) : (
                     <Snowflake className="w-3.5 h-3.5" />
                   )}
                   <span>
-                    Authorize & Apply {dayModalMode === 'STREAK' ? 'Streak' : 'Freeze'}
+                    Authorize & {dayModalMode === 'STREAK' ? 'Apply Streak' : dayModalMode === 'UNFREEZE' ? 'Remove Freeze' : 'Apply Freeze'}
                   </span>
                 </button>
               </div>
@@ -3367,20 +4699,15 @@ export const AdminControlPage: React.FC = () => {
 
             <form onSubmit={executePinAction} className="space-y-4">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-zinc-300">
-                    Super Admin Sensitive Password
-                  </label>
-                  <span className="text-[10px] text-zinc-500 font-mono">
-                    Nirmal@31/08/2006
-                  </span>
-                </div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Super Admin Sensitive Password
+                </label>
                 <div className="relative">
                   <input
                     type={showPinPassword ? 'text' : 'password'}
                     value={pinInput}
                     onChange={(e) => setPinInput(e.target.value)}
-                    placeholder="Enter sensitive password (e.g. Nirmal@31/08/2006)"
+                    placeholder="Enter sensitive action password"
                     className="w-full px-4 py-2.5 pr-10 bg-dark-surface border border-rose-500/30 rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-rose-400"
                     autoFocus
                     required

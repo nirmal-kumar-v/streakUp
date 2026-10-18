@@ -8,6 +8,7 @@ import { getTodayInTimezone } from '../services/timezoneService';
 import { NotificationCategory } from '@prisma/client';
 import { sendEmail } from '../services/emailService';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
+import { getUserLeaderboardLimit, setUserLeaderboardLimit } from '../services/adminConfigService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 
@@ -485,13 +486,29 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
               select: {
                 id: true,
                 name: true,
+                description: true,
                 joinCode: true,
                 ownerId: true,
                 hiddenFrom: true,
                 visibleOnlyTo: true,
+                members: {
+                  include: { user: { select: { id: true, name: true, username: true, email: true } } },
+                },
                 _count: { select: { members: true } },
               },
             },
+          },
+        },
+        reminderSchedules: {
+          orderBy: { time: 'asc' },
+          include: { task: { select: { id: true, title: true } } },
+        },
+        ownedGroups: {
+          include: {
+            members: {
+              include: { user: { select: { id: true, name: true, username: true, email: true } } },
+            },
+            _count: { select: { members: true, tasks: true } },
           },
         },
         pointLedgers: {
@@ -535,6 +552,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
 
     // Strip passwordHash before returning
     const { passwordHash, ...safeUser } = user;
+    (safeUser as any).leaderboardLimit = getUserLeaderboardLimit(userId);
 
     return res.json({
       success: true,
@@ -1567,8 +1585,8 @@ export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
     }
 
-    if (!['OWNER', 'ADMIN', 'MEMBER'].includes(role)) {
-      return res.status(400).json({ success: false, error: 'Invalid group role. Must be OWNER, ADMIN, or MEMBER.' });
+    if (!['OWNER', 'ADMIN', 'MEMBER', 'REMOVE'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Invalid group role. Must be OWNER, ADMIN, MEMBER, or REMOVE.' });
     }
 
     const group = await prisma.group.findUnique({
@@ -1582,6 +1600,27 @@ export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res
     const member = group.members.find((m) => m.userId === targetUserId);
     if (!member) {
       return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
+    }
+
+    if (role === 'REMOVE') {
+      if (member.role === 'OWNER') {
+        return res.status(400).json({ success: false, error: 'Cannot remove group owner. Transfer ownership to another member first.' });
+      }
+      await prisma.groupMember.delete({
+        where: { groupId_userId: { groupId, userId: targetUserId } },
+      });
+      await recordAuditLog({
+        adminUsername: req.admin!.username,
+        action: 'REMOVE_GROUP_MEMBER',
+        targetUserId,
+        reason,
+        beforeState: { groupId, groupName: group.name, role: member.role },
+        afterState: { removed: true },
+      });
+      return res.json({
+        success: true,
+        message: `Member removed from group "${group.name}".`,
+      });
     }
 
     await prisma.$transaction(async (tx) => {
@@ -1741,4 +1780,359 @@ export async function adminModerateStudyNote(req: AdminAuthenticatedRequest, res
     return res.status(500).json({ success: false, error: 'Failed to moderate study note.' });
   }
 }
+
+/**
+ * Full task settings and privacy update
+ */
+export async function adminUpdateTaskFull(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { taskId } = req.params;
+    const {
+      title,
+      description,
+      category,
+      priority,
+      recurrence,
+      status,
+      hiddenFrom,
+      visibleOnlyTo,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { user: { select: { id: true, username: true, email: true } } },
+    });
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+
+    const beforeState = {
+      title: task.title,
+      description: task.description,
+      category: task.category,
+      priority: task.priority,
+      recurrence: task.recurrence,
+      status: task.status,
+      hiddenFrom: task.hiddenFrom,
+      visibleOnlyTo: task.visibleOnlyTo,
+    };
+
+    const updatedTask = await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        title: title ? String(title).trim() : task.title,
+        description: description !== undefined ? description : task.description,
+        category: category ? String(category).trim() : task.category,
+        priority: priority || task.priority,
+        recurrence: recurrence || task.recurrence,
+        status: status || task.status,
+        hiddenFrom: Array.isArray(hiddenFrom) ? hiddenFrom : task.hiddenFrom,
+        visibleOnlyTo: Array.isArray(visibleOnlyTo) ? visibleOnlyTo : task.visibleOnlyTo,
+      },
+    });
+
+    const changesSummary = `Task "${beforeState.title}" updated: title="${updatedTask.title}", category="${updatedTask.category}", status="${updatedTask.status}".`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_TASK_FULL',
+      targetUserId: task.userId,
+      targetUser: `@${task.user.username}`,
+      reason,
+      beforeState,
+      afterState: updatedTask,
+    });
+
+    await dispatchAdminNotification({
+      userId: task.userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Task "${updatedTask.title}" Updated by Admin`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Task "${updatedTask.title}" settings successfully updated.`,
+      task: updatedTask,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateTaskFull error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update task settings.' });
+  }
+}
+
+/**
+ * Full group settings, privacy, and ownership update
+ */
+export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { groupId } = req.params;
+    const {
+      name,
+      description,
+      joinCode,
+      ownerId,
+      hiddenFrom,
+      visibleOnlyTo,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: {
+        owner: { select: { id: true, username: true, email: true } },
+        members: { include: { user: { select: { id: true, username: true } } } },
+      },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    const beforeState = {
+      name: group.name,
+      description: group.description,
+      joinCode: group.joinCode,
+      ownerId: group.ownerId,
+      hiddenFrom: group.hiddenFrom,
+      visibleOnlyTo: group.visibleOnlyTo,
+    };
+
+    const updateData: any = {};
+    if (name) updateData.name = String(name).trim();
+    if (description !== undefined) updateData.description = description;
+    if (joinCode) updateData.joinCode = String(joinCode).trim().toUpperCase();
+    if (Array.isArray(hiddenFrom)) updateData.hiddenFrom = hiddenFrom;
+    if (Array.isArray(visibleOnlyTo)) updateData.visibleOnlyTo = visibleOnlyTo;
+
+    // If transferring ownership
+    if (ownerId && ownerId !== group.ownerId) {
+      updateData.ownerId = ownerId;
+      await prisma.groupMember.upsert({
+        where: { groupId_userId: { groupId, userId: ownerId } },
+        create: { groupId, userId: ownerId, role: 'OWNER' },
+        update: { role: 'OWNER' },
+      });
+      await prisma.groupMember.updateMany({
+        where: { groupId, userId: group.ownerId },
+        data: { role: 'ADMIN' },
+      });
+    }
+
+    const updatedGroup = await prisma.group.update({
+      where: { id: groupId },
+      data: updateData,
+    });
+
+    const changesSummary = `Group "${beforeState.name}" updated: name="${updatedGroup.name}".`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_GROUP_FULL',
+      targetUserId: group.ownerId,
+      targetUser: `@${group.owner.username} (Group: ${updatedGroup.name})`,
+      reason,
+      beforeState,
+      afterState: updatedGroup,
+    });
+
+    await dispatchAdminNotification({
+      userId: group.ownerId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Group "${updatedGroup.name}" Updated by Admin`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Group "${updatedGroup.name}" settings successfully updated.`,
+      group: updatedGroup,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateGroupFull error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update group settings.' });
+  }
+}
+
+/**
+ * Remove streak freeze from a specific date and recalculate streaks
+ */
+export async function unfreezeUserDate(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, date } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const deleted = await prisma.freezeLog.deleteMany({
+      where: {
+        userId,
+        protectedDate: date,
+      },
+    });
+
+    // Recalculate streaks after removing freeze
+    const updatedStreaks = await recalculateUserStreaks(prisma, userId, user.timezone);
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'REMOVE_DAY_FREEZE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { protectedDate: date, deletedCount: deleted.count },
+      afterState: { currentStreak: updatedStreaks.currentStreak, longestStreak: updatedStreaks.longestStreak },
+    });
+
+    return res.json({
+      success: true,
+      message: `Freeze protection for ${date} removed. Streaks recalculated.`,
+      streaks: updatedStreaks,
+    });
+  } catch (err: any) {
+    console.error('unfreezeUserDate error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to remove freeze on selected date.' });
+  }
+}
+
+/**
+ * Delete a reminder schedule by admin
+ */
+export async function adminDeleteReminderSchedule(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { reminderId } = req.params;
+    const { reason } = req.body;
+
+    const reminder = await prisma.reminderSchedule.findUnique({
+      where: { id: reminderId },
+      include: { user: { select: { id: true, username: true } } },
+    });
+    if (!reminder) {
+      return res.status(404).json({ success: false, error: 'Reminder schedule not found.' });
+    }
+
+    await prisma.reminderSchedule.delete({ where: { id: reminderId } });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'DELETE_REMINDER_SCHEDULE',
+      targetUserId: reminder.userId,
+      targetUser: `@${reminder.user.username}`,
+      reason: reason || 'Admin removed reminder schedule',
+      beforeState: reminder,
+      afterState: { deleted: true },
+    });
+
+    return res.json({
+      success: true,
+      message: `Reminder schedule for ${reminder.time} deleted.`,
+    });
+  } catch (err: any) {
+    console.error('adminDeleteReminderSchedule error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete reminder schedule.' });
+  }
+}
+
+/**
+ * Override the visible leaderboard cohort limit for a specific user
+ */
+export async function overrideLeaderboardLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      leaderboardLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof leaderboardLimit !== 'number' || leaderboardLimit < 1 || leaderboardLimit > 100) {
+      return res.status(400).json({ success: false, error: 'Leaderboard limit must be an integer between 1 and 100.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserLeaderboardLimit(userId);
+    setUserLeaderboardLimit(userId, leaderboardLimit);
+
+    const changesSummary = `Global leaderboard visible cohort changed from Top ${beforeLimit} to Top ${leaderboardLimit}.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_LEADERBOARD_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { leaderboardLimit: beforeLimit },
+      afterState: { leaderboardLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Leaderboard Cohort Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Global leaderboard display quota for @${user.username} increased to Top ${leaderboardLimit}.`,
+      leaderboardLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideLeaderboardLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update leaderboard limit.' });
+  }
+}
+
 

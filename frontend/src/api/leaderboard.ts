@@ -26,6 +26,7 @@ export interface GlobalLeaderboardResponse {
     totalPages: number;
   };
   currentUserRankInfo: LeaderboardEntry | null;
+  userLeaderboardLimit?: number;
 }
 
 export interface FriendsLeaderboardResponse {
