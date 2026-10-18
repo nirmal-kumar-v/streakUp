@@ -30,6 +30,19 @@ export const FriendsLeaderboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20">
+      {/* Scope Navigation Tabs */}
+      <div className="flex items-center gap-2">
+        <span className="px-3 py-1.5 rounded-xl text-xs font-bold bg-dark-surface text-amber-400 border border-dark-border shadow-sm">
+          Friends Leaderboard
+        </span>
+        <Link
+          to="/leaderboard/global"
+          className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover transition-all"
+        >
+          Global Standings
+        </Link>
+      </div>
+
       <LeaderboardTable
         entries={entries}
         title="Friends Leaderboard"

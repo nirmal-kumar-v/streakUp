@@ -61,6 +61,13 @@ enum GroupRole {
   MEMBER
 }
 
+enum JoinRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
 enum ReminderScope {
   OVERALL
   TASK
@@ -119,6 +126,7 @@ model User {
   pointLedgers            PointLedger[]
   ownedGroups             Group[]          @relation("OwnedGroups")
   groupMemberships        GroupMember[]
+  groupJoinRequests       GroupJoinRequest[]
   noteReactions           StudyNoteReaction[]
 
   @@index([normalizedUsername])
@@ -155,9 +163,14 @@ model Task {
   notifications        Notification[]
   reminderSchedules    ReminderSchedule[]
   pointLedgers         PointLedger[]
+  groupId              String?
+  group                Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  isGroupTask          Boolean          @default(false)
 
   @@index([userId, status])
   @@index([userId, recurrence])
+  @@index([groupId])
+  @@index([groupId, userId])
 }
 
 model TaskCompletion {
@@ -399,15 +412,18 @@ model StudyNoteReaction {
 }
 
 model Group {
-  id          String        @id @default(uuid())
-  name        String
-  description String?
-  joinCode    String        @unique
-  ownerId     String
-  owner       User          @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  members     GroupMember[]
+  id            String             @id @default(uuid())
+  name          String
+  description   String?
+  joinCode      String             @unique
+  scheduledDays Int[]              @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun, 1=Mon, ..., 6=Sat
+  ownerId       String
+  owner         User               @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  members       GroupMember[]
+  joinRequests  GroupJoinRequest[]
+  tasks         Task[]
 
   @@index([joinCode])
   @@index([ownerId])
@@ -425,6 +441,21 @@ model GroupMember {
   @@unique([groupId, userId])
   @@index([userId])
   @@index([groupId])
+}
+
+model GroupJoinRequest {
+  id        String            @id @default(uuid())
+  groupId   String
+  group     Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    JoinRequestStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@unique([groupId, userId])
+  @@index([groupId, status])
+  @@index([userId, status])
 }
 
 

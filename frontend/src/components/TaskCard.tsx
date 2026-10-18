@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Task } from '../api/tasks';
+import { Link } from 'react-router-dom';
 import {
   Check,
   Clock,
@@ -13,6 +14,7 @@ import {
   Shield,
   Zap,
   Info,
+  Users,
 } from 'lucide-react';
 
 interface TaskCardProps {
@@ -86,6 +88,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.title}
             </h3>
 
+            {/* Group Task Badge */}
+            {(task.isGroupTask || task.groupId) && (
+              <Link
+                to={task.groupId ? `/groups/${task.groupId}` : '/groups'}
+                title="View Group details & leaderboard"
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/25 hover:bg-indigo-500/20 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Users className="w-3 h-3 text-indigo-400" />
+                <span>Group Task</span>
+              </Link>
+            )}
+
             {/* Independent Task Streak Badge */}
             {task.recurrence === 'DAILY' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-flame-400 bg-flame-500/10 px-2 py-0.5 rounded-full border border-flame-500/20">
@@ -110,7 +125,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               >
                 {(task.freezeBalance || 0) > 0 ? (
                   <>
-                    <Shield className="w-3 h-3 text-cyan-400" /> 🧊 1
+                    <Shield className="w-3 h-3 text-cyan-400" /> 1
                   </>
                 ) : (
                   <>

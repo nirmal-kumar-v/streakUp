@@ -22,6 +22,8 @@ export interface Task {
   longestStreak?: number;
   freezeBalance?: number;
   freezeRechargeDays?: number;
+  groupId?: string | null;
+  isGroupTask?: boolean;
   isCompleted?: boolean;
   createdAt: string;
   updatedAt: string;

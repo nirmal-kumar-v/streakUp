@@ -24,6 +24,22 @@ export async function awardCompletionPoints(
   scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
   timezone: string = DEFAULT_TIMEZONE
 ): Promise<{ pointsAwarded: number; newTotalPoints: number }> {
+  // Group tasks do not award or deduct points (purely streak/completion-based)
+  const task = prisma?.task?.findUnique
+    ? await prisma.task.findUnique({
+        where: { id: taskId },
+        select: { groupId: true, isGroupTask: true }
+      })
+    : null;
+
+  if (task?.groupId || task?.isGroupTask) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { points: true }
+    });
+    return { pointsAwarded: 0, newTotalPoints: user?.points || 0 };
+  }
+
   const dayOfWeek = getDayOfWeekFromDateString(completionDateStr, timezone);
   const isScheduled = scheduledDays.includes(dayOfWeek);
 
@@ -130,12 +146,14 @@ export async function reconcileMissedPointsForUser(
   const todayStr = getLocalDateString(zone);
   const yesterdayStr = getYesterdayDateString(zone);
 
-  // Fetch all active daily tasks of the user
+  // Fetch all active daily personal tasks of the user (group tasks do not incur points penalties)
   const tasks = await prisma.task.findMany({
     where: {
       userId,
       recurrence: 'DAILY',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      groupId: null,
+      isGroupTask: false
     },
     select: {
       id: true,
@@ -203,7 +221,7 @@ export async function reconcileMissedPointsForUser(
               userId,
               taskId: task.id,
               date: curDateStr,
-              points: -5,
+              points: -2,
               reason: 'MISSED_SCHEDULED'
             });
             ledgerMap.add(missedKey);
@@ -279,6 +297,6 @@ export async function getUserPointsStats(prisma: any, userId: string) {
     completedCount,
     missedCount,
     netCompletedPoints: completedCount * 5,
-    netMissedPoints: missedCount * -5
+    netMissedPoints: missedCount * -2
   };
 }

@@ -348,7 +348,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     // Award +5 points for scheduled habit completion (Requirement 9)
     let pointsAwarded = 0;
     let newTotalPoints = 0;
-    if (task.recurrence === 'DAILY') {
+    if (task.recurrence === 'DAILY' && !task.groupId && !task.isGroupTask) {
       const pointsRes = await awardCompletionPoints(
         prisma,
         userId,
@@ -740,7 +740,9 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         freezeBalance: task.freezeBalance,
         freezeRechargeDays: task.freezeRechargeDays,
         completedToday,
-        todayStudyNote
+        todayStudyNote,
+        groupId: task.groupId,
+        isGroupTask: task.isGroupTask || !!task.groupId
       };
     });
 

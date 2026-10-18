@@ -143,7 +143,9 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
             ) : (
               <CheckCircle2 className="w-3.5 h-3.5" />
             )}
-            <span>Save Note & Complete (+5 pts)</span>
+            <span>
+              Save Note & Complete {task?.groupId || task?.isGroupTask ? '' : '(+5 pts)'}
+            </span>
           </button>
         </div>
       </div>

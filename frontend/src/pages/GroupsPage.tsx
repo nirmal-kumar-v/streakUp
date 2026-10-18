@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 import {
   fetchUserGroups,
   createGroup,
-  joinGroup,
-  Group,
+  searchGroups,
+  requestToJoinGroup,
+  cancelJoinRequest,
+  GroupItem,
+  GroupSearchResult,
 } from '../api/groups';
 import {
   Users,
@@ -18,66 +21,117 @@ import {
   AlertCircle,
   CheckCircle2,
   Sparkles,
+  Search,
+  Calendar,
+  Flame,
+  Send,
+  XCircle,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 export const GroupsPage: React.FC = () => {
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'my' | 'discover'>('my');
+
+  // My Groups State
+  const [groups, setGroups] = useState<GroupItem[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+
+  // Discover & Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<GroupSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
   // Modal States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
+  const [createScheduledDays, setCreateScheduledDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [isCreating, setIsCreating] = useState(false);
 
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [isJoining, setIsJoining] = useState(false);
 
+  // General feedback
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ text, type });
-    setTimeout(() => setFeedback(null), 4000);
+    setTimeout(() => setFeedback(null), 5000);
   };
 
-  const loadGroups = async () => {
-    setIsLoading(true);
-    setError(null);
+  const loadMyGroups = async () => {
+    setIsLoadingGroups(true);
     try {
       const res = await fetchUserGroups();
       if (res.success) {
         setGroups(res.groups || []);
       }
     } catch (err: any) {
-      setError(extractErrorMessage(err, 'Failed to load your groups.'));
+      showFeedback(extractErrorMessage(err, 'Failed to load your groups.'), 'error');
     } finally {
-      setIsLoading(false);
+      setIsLoadingGroups(false);
+    }
+  };
+
+  const handleSearch = async (queryToSearch?: string) => {
+    const q = queryToSearch !== undefined ? queryToSearch : searchQuery;
+    setIsSearching(true);
+    try {
+      const res = await searchGroups(q.trim());
+      if (res.success) {
+        setSearchResults(res.groups || []);
+        setHasSearched(true);
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to search groups.'), 'error');
+    } finally {
+      setIsSearching(false);
     }
   };
 
   useEffect(() => {
-    loadGroups();
+    loadMyGroups();
   }, []);
+
+  // When switching to Discover tab, auto-load popular/recent groups
+  useEffect(() => {
+    if (activeTab === 'discover' && !hasSearched) {
+      handleSearch('');
+    }
+  }, [activeTab]);
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createName.trim()) return;
+    if (createScheduledDays.length === 0) {
+      showFeedback('Please select at least one active day for the shared habit.', 'error');
+      return;
+    }
+
     setIsCreating(true);
     try {
       const res = await createGroup({
         name: createName.trim(),
         description: createDescription.trim() || undefined,
+        scheduledDays: createScheduledDays,
       });
+
       if (res.success) {
         setIsCreateOpen(false);
         setCreateName('');
         setCreateDescription('');
-        showFeedback(res.message || 'Group created successfully! Invite others with your join code.');
-        loadGroups();
+        setCreateScheduledDays([0, 1, 2, 3, 4, 5, 6]);
+        showFeedback(res.message || 'Group created! The shared group task has been added to your checklist.');
+        loadMyGroups();
+        if (activeTab === 'discover') {
+          handleSearch(searchQuery);
+        }
       }
     } catch (err: any) {
       showFeedback(extractErrorMessage(err, 'Failed to create group.'), 'error');
@@ -86,22 +140,60 @@ export const GroupsPage: React.FC = () => {
     }
   };
 
-  const handleJoinGroup = async (e: React.FormEvent) => {
+  const handleQuickJoinByCode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!joinCodeInput.trim()) return;
     setIsJoining(true);
     try {
-      const res = await joinGroup(joinCodeInput.trim());
+      const res = await requestToJoinGroup(joinCodeInput.trim().toUpperCase());
       if (res.success) {
         setIsJoinOpen(false);
         setJoinCodeInput('');
-        showFeedback(res.message || 'Joined group successfully!');
-        loadGroups();
+        showFeedback(res.message || 'Join request submitted for Owner/Admin approval.');
+        loadMyGroups();
+        if (activeTab === 'discover') {
+          handleSearch(searchQuery);
+        }
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to join group. Check the join code and try again.'), 'error');
+      showFeedback(extractErrorMessage(err, 'Failed to submit join request. Verify code and try again.'), 'error');
     } finally {
       setIsJoining(false);
+    }
+  };
+
+  const handleRequestToJoin = async (group: GroupSearchResult) => {
+    setActionLoadingId(group.id);
+    try {
+      const res = await requestToJoinGroup(group.id);
+      if (res.success) {
+        showFeedback(res.message || 'Join request submitted! Waiting for Owner or Admin approval.');
+        // Update local search results
+        setSearchResults((prev) =>
+          prev.map((g) => (g.id === group.id ? { ...g, myRequestStatus: 'PENDING' } : g))
+        );
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to submit join request.'), 'error');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleCancelRequest = async (groupId: string) => {
+    setActionLoadingId(groupId);
+    try {
+      const res = await cancelJoinRequest(groupId);
+      if (res.success) {
+        showFeedback('Join request cancelled.');
+        setSearchResults((prev) =>
+          prev.map((g) => (g.id === groupId ? { ...g, myRequestStatus: null } : g))
+        );
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to cancel join request.'), 'error');
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -111,14 +203,28 @@ export const GroupsPage: React.FC = () => {
     setTimeout(() => setCopiedCode(null), 2500);
   };
 
+  const formatSchedule = (days?: number[]) => {
+    const d = days || [0, 1, 2, 3, 4, 5, 6];
+    if (d.length === 7) return 'Every day';
+    if (d.length === 5 && [1, 2, 3, 4, 5].every((x) => d.includes(x))) return 'Weekdays';
+    if (d.length === 2 && [0, 6].every((x) => d.includes(x))) return 'Weekends';
+    return d.map((x) => DAY_LABELS[x]).join(', ');
+  };
+
+  const toggleDay = (day: number) => {
+    setCreateScheduledDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort((a, b) => a - b)
+    );
+  };
+
   return (
     <div className="space-y-6 pb-20">
-      {/* Header */}
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono uppercase tracking-wider text-flame-400 font-bold px-2 py-0.5 rounded-md bg-flame-500/10 border border-flame-500/20">
-              Communities & Circles
+              Shared Habits & Communities
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5">
@@ -126,7 +232,7 @@ export const GroupsPage: React.FC = () => {
             <span>Groups</span>
           </h1>
           <p className="text-xs sm:text-sm text-dark-muted mt-1">
-            Form study groups, join communities, and compete on dedicated streak and points leaderboards.
+            Join or create a shared group task with friends. Share the habit schedule while maintaining independent streaks.
           </p>
         </div>
 
@@ -149,6 +255,38 @@ export const GroupsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-dark-border pb-3">
+        <button
+          onClick={() => setActiveTab('my')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'my'
+              ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>My Groups</span>
+          {groups.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-flame-500/10 text-flame-400 text-[10px] font-mono">
+              {groups.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('discover')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeTab === 'discover'
+              ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+          }`}
+        >
+          <Search className="w-3.5 h-3.5" />
+          <span>Discover & Search</span>
+        </button>
+      </div>
+
       {/* Feedback Alert */}
       {feedback && (
         <div
@@ -167,148 +305,310 @@ export const GroupsPage: React.FC = () => {
         </div>
       )}
 
-      {error && (
-        <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-          <span>{error}</span>
-        </div>
+      {/* TAB 1: MY GROUPS */}
+      {activeTab === 'my' && (
+        <>
+          {isLoadingGroups ? (
+            <div className="py-24 text-center text-xs text-dark-muted">
+              <div className="inline-flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
+                Loading your groups...
+              </div>
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="bg-dark-card border border-dashed border-dark-border rounded-3xl p-12 text-center max-w-lg mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-flame-500/10 border border-flame-500/20 flex items-center justify-center text-flame-400 mx-auto mb-4">
+                <Users className="w-8 h-8" />
+              </div>
+              <h3 className="text-base font-bold text-zinc-100">You haven't joined any groups yet</h3>
+              <p className="text-xs text-dark-muted mt-1.5 max-w-sm mx-auto leading-relaxed">
+                Create a shared group habit or search through open groups using a unique code or group name.
+              </p>
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <button
+                  onClick={() => setActiveTab('discover')}
+                  className="px-4 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-200 text-xs font-semibold rounded-xl"
+                >
+                  Discover Groups
+                </button>
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 text-xs font-extrabold rounded-xl shadow-sm"
+                >
+                  Create a Group
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {groups.map((group) => {
+                const role = group.role || group.userRole || 'MEMBER';
+                const isOwner = role === 'OWNER';
+                const isAdmin = role === 'ADMIN';
+
+                return (
+                  <div
+                    key={group.id}
+                    className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex flex-col justify-between group"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h3 className="text-base font-bold text-zinc-100 group-hover:text-flame-400 transition-colors line-clamp-1">
+                          {group.name}
+                        </h3>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border shrink-0 flex items-center gap-1 ${
+                            isOwner
+                              ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                              : isAdmin
+                              ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
+                              : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                          }`}
+                        >
+                          {isOwner ? <Crown className="w-2.5 h-2.5" /> : isAdmin ? <ShieldCheck className="w-2.5 h-2.5" /> : null}
+                          <span>{role}</span>
+                        </span>
+                      </div>
+
+                      {group.description ? (
+                        <p className="text-xs text-dark-muted line-clamp-2 min-h-[2rem]">
+                          {group.description}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-dark-muted/60 italic min-h-[2rem]">
+                          Shared habit community.
+                        </p>
+                      )}
+
+                      {/* Unique Code & Schedule Info */}
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between p-2 rounded-xl bg-dark-surface/60 border border-dark-border">
+                          <div className="flex items-center gap-1.5 text-xs text-dark-muted">
+                            <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                            <span className="text-[11px] font-medium">Code:</span>
+                            <span className="font-mono font-bold text-zinc-200 tracking-wider">
+                              {group.joinCode}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyJoinCode(group.joinCode)}
+                            title="Copy group code"
+                            className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-dark-hover rounded-lg transition-colors"
+                          >
+                            {copiedCode === group.joinCode ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-dark-muted px-1">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-flame-400" />
+                            <span>{formatSchedule(group.scheduledDays)}</span>
+                          </span>
+                          <span className="flex items-center gap-1 font-mono font-bold text-flame-400">
+                            <Flame className="w-3 h-3 fill-flame-500" />
+                            <span>{group.currentStreak ?? 0}d streak</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-dark-border/60 flex items-center justify-between">
+                      <div className="text-xs text-dark-muted flex items-center gap-2 font-mono">
+                        <span className="flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5" />
+                          <span>{group.memberCount} members</span>
+                        </span>
+                        {isAdmin && (group.pendingRequestsCount ?? 0) > 0 && (
+                          <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            {group.pendingRequestsCount} pending
+                          </span>
+                        )}
+                      </div>
+
+                      <Link
+                        to={`/groups/${group.id}`}
+                        className="inline-flex items-center gap-1 text-xs font-bold text-flame-400 group-hover:text-flame-300 transition-colors font-mono"
+                      >
+                        <span>View Group</span>
+                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
-      {/* Groups List */}
-      {isLoading ? (
-        <div className="py-24 text-center text-xs text-dark-muted">
-          <div className="inline-flex items-center gap-2">
-            <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
-            Loading your groups...
-          </div>
-        </div>
-      ) : groups.length === 0 ? (
-        <div className="bg-dark-card border border-dashed border-dark-border rounded-3xl p-12 text-center max-w-lg mx-auto">
-          <div className="w-16 h-16 rounded-2xl bg-flame-500/10 border border-flame-500/20 flex items-center justify-center text-flame-400 mx-auto mb-4">
-            <Users className="w-8 h-8" />
-          </div>
-          <h3 className="text-base font-bold text-zinc-100">You haven't joined any groups yet</h3>
-          <p className="text-xs text-dark-muted mt-1.5 max-w-sm mx-auto leading-relaxed">
-            Create a custom study group for your classmates or coworkers, or join an existing group using its 6-character invitation code.
-          </p>
-          <div className="flex items-center justify-center gap-3 mt-6">
-            <button
-              onClick={() => setIsJoinOpen(true)}
-              className="px-4 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-200 text-xs font-semibold rounded-xl"
+      {/* TAB 2: DISCOVER & SEARCH GROUPS */}
+      {activeTab === 'discover' && (
+        <div className="space-y-4">
+          {/* Search Bar */}
+          <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSearch();
+              }}
+              className="flex items-center gap-2"
             >
-              Enter Join Code
-            </button>
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 text-xs font-extrabold rounded-xl shadow-sm"
-            >
-              Create a Group
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {groups.map((group) => {
-            const role = group.role || group.userRole || 'MEMBER';
-            const isOwner = role === 'OWNER';
-            const isAdmin = role === 'ADMIN';
-
-            return (
-              <div
-                key={group.id}
-                className="bg-dark-card border border-dark-border hover:border-zinc-700 rounded-2xl p-5 shadow-panel transition-all flex flex-col justify-between group"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <h3 className="text-base font-bold text-zinc-100 group-hover:text-flame-400 transition-colors line-clamp-1">
-                      {group.name}
-                    </h3>
-                    <span
-                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border shrink-0 flex items-center gap-1 ${
-                        isOwner
-                          ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                          : isAdmin
-                          ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
-                          : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                      }`}
-                    >
-                      {isOwner ? <Crown className="w-2.5 h-2.5" /> : isAdmin ? <ShieldCheck className="w-2.5 h-2.5" /> : null}
-                      <span>{role}</span>
-                    </span>
-                  </div>
-
-                  {group.description ? (
-                    <p className="text-xs text-dark-muted line-clamp-2 min-h-[2rem]">
-                      {group.description}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-dark-muted/60 italic min-h-[2rem]">
-                      No description provided.
-                    </p>
-                  )}
-
-                  {/* Join Code Badge with Copy */}
-                  <div className="mt-4 flex items-center justify-between p-2.5 rounded-xl bg-dark-surface/60 border border-dark-border">
-                    <div className="flex items-center gap-1.5 text-xs text-dark-muted">
-                      <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-[11px] font-medium">Join Code:</span>
-                      <span className="font-mono font-bold text-zinc-200 tracking-wider">
-                        {group.joinCode}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyJoinCode(group.joinCode)}
-                      title="Copy join code"
-                      className="p-1 text-zinc-400 hover:text-zinc-100 hover:bg-dark-hover rounded-lg transition-colors"
-                    >
-                      {copiedCode === group.joinCode ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-4 mt-4 border-t border-dark-border/60 flex items-center justify-between">
-                  <div className="text-xs text-dark-muted flex items-center gap-1.5 font-mono">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>{group.memberCount} members</span>
-                  </div>
-
-                  <Link
-                    to={`/groups/${group.id}`}
-                    className="inline-flex items-center gap-1 text-xs font-bold text-flame-400 group-hover:text-flame-300 transition-colors font-mono"
-                  >
-                    <span>View Group</span>
-                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                  </Link>
-                </div>
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by group name (e.g. GATE Preparation) or exact code (e.g. GATE-X7K2)..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80"
+                />
               </div>
-            );
-          })}
+              <button
+                type="submit"
+                disabled={isSearching}
+                className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all shrink-0"
+              >
+                {isSearching ? 'Searching...' : 'Search'}
+              </button>
+            </form>
+            <p className="text-[11px] text-zinc-500 mt-2 px-1">
+              Search by group name to explore circles with identical or similar topics, or type the exact unique code to find a private community.
+            </p>
+          </div>
+
+          {/* Search Results */}
+          {isSearching ? (
+            <div className="py-20 text-center text-xs text-dark-muted">
+              <div className="inline-flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
+                Searching groups...
+              </div>
+            </div>
+          ) : searchResults.length === 0 ? (
+            <div className="bg-dark-card border border-dark-border rounded-2xl p-10 text-center max-w-md mx-auto">
+              <Search className="w-10 h-10 text-zinc-600 mx-auto mb-3" />
+              <h3 className="text-sm font-bold text-zinc-200">No matching groups found</h3>
+              <p className="text-xs text-dark-muted mt-1">
+                Check the group name or code, or create a brand new group for your study habit.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {searchResults.map((group) => {
+                const isLoading = actionLoadingId === group.id;
+
+                return (
+                  <div
+                    key={group.id}
+                    className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <h3 className="text-base font-bold text-zinc-100 line-clamp-1">
+                          {group.name}
+                        </h3>
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
+                          {group.joinCode}
+                        </span>
+                      </div>
+
+                      {group.description ? (
+                        <p className="text-xs text-dark-muted line-clamp-2 min-h-[2rem]">
+                          {group.description}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-dark-muted/60 italic min-h-[2rem]">
+                          Shared habit group.
+                        </p>
+                      )}
+
+                      <div className="mt-3 p-2.5 rounded-xl bg-dark-surface/60 border border-dark-border space-y-1.5 text-xs text-dark-muted">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-flame-400" />
+                            <span>Schedule:</span>
+                          </span>
+                          <span className="text-zinc-200 font-medium">
+                            {formatSchedule(group.scheduledDays)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>Members:</span>
+                          </span>
+                          <span className="font-mono text-zinc-200">{group.memberCount}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="pt-4 mt-4 border-t border-dark-border/60 flex items-center justify-between">
+                      {group.isMember ? (
+                        <Link
+                          to={`/groups/${group.id}`}
+                          className="w-full text-center px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-xs rounded-xl transition-all"
+                        >
+                          Already Member · Open
+                        </Link>
+                      ) : group.myRequestStatus === 'PENDING' ? (
+                        <div className="w-full flex items-center gap-2">
+                          <span className="flex-1 text-center py-2 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold rounded-xl">
+                            Request Pending
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelRequest(group.id)}
+                            disabled={isLoading}
+                            title="Cancel join request"
+                            className="p-2 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl border border-dark-border transition-colors"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleRequestToJoin(group)}
+                          disabled={isLoading}
+                          className="w-full flex items-center justify-center gap-1.5 px-4 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-sm transition-all"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>{isLoading ? 'Sending...' : 'Request to Join'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* CREATE GROUP MODAL */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative my-8">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400">
+              <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-zinc-100">Create New Group</h3>
-                <p className="text-xs text-dark-muted">Start an accountability circle for habits & streaks</p>
+                <h3 className="text-lg font-bold text-zinc-100">Create Shared Group Task</h3>
+                <p className="text-xs text-dark-muted">Everyone who joins shares this task definition & schedule</p>
               </div>
             </div>
 
             <form onSubmit={handleCreateGroup} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Group Name <span className="text-flame-400">*</span>
+                  Group Task Name <span className="text-flame-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -317,7 +617,7 @@ export const GroupsPage: React.FC = () => {
                   maxLength={50}
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="e.g. Daily LeetCode Grind"
+                  placeholder="e.g. GATE Preparation, Daily DSA Practice"
                   className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80"
                 />
               </div>
@@ -327,13 +627,59 @@ export const GroupsPage: React.FC = () => {
                   Description <span className="text-zinc-500 text-[10px] lowercase font-normal">(optional)</span>
                 </label>
                 <textarea
-                  rows={3}
-                  maxLength={200}
+                  rows={2}
+                  maxLength={250}
                   value={createDescription}
                   onChange={(e) => setCreateDescription(e.target.value)}
-                  placeholder="What is this group about? What habits are encouraged?"
+                  placeholder="Briefly describe the shared habit goals or rules..."
                   className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80 resize-none"
                 />
+              </div>
+
+              {/* Scheduled Days Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
+                    Task Schedule Days <span className="text-flame-400">*</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCreateScheduledDays([0, 1, 2, 3, 4, 5, 6])}
+                      className="text-[10px] font-semibold text-zinc-400 hover:text-flame-400 transition-colors"
+                    >
+                      Every day
+                    </button>
+                    <span className="text-zinc-600">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setCreateScheduledDays([1, 2, 3, 4, 5])}
+                      className="text-[10px] font-semibold text-zinc-400 hover:text-flame-400 transition-colors"
+                    >
+                      Weekdays
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1.5">
+                  {DAY_LABELS.map((dayLabel, idx) => {
+                    const isSelected = createScheduledDays.includes(idx);
+                    return (
+                      <button
+                        key={dayLabel}
+                        type="button"
+                        onClick={() => toggleDay(idx)}
+                        className={`py-2 text-xs font-bold rounded-xl border transition-all ${
+                          isSelected
+                            ? 'bg-flame-500 text-zinc-950 border-flame-500 shadow-sm shadow-flame-500/20'
+                            : 'bg-dark-surface text-zinc-400 border-dark-border hover:border-zinc-700'
+                        }`}
+                      >
+                        {dayLabel}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="pt-3 border-t border-dark-border flex items-center justify-end gap-3">
@@ -346,7 +692,7 @@ export const GroupsPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={!createName.trim() || isCreating}
+                  disabled={!createName.trim() || isCreating || createScheduledDays.length === 0}
                   className="px-5 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
                 >
                   {isCreating ? 'Creating...' : 'Create Group'}
@@ -357,32 +703,32 @@ export const GroupsPage: React.FC = () => {
         </div>
       )}
 
-      {/* JOIN GROUP MODAL */}
+      {/* JOIN GROUP WITH CODE MODAL */}
       {isJoinOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl relative">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
                 <KeyRound className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-zinc-100">Join a Group</h3>
-                <p className="text-xs text-dark-muted">Enter the 6-character group invite code</p>
+                <h3 className="text-lg font-bold text-zinc-100">Join with Code</h3>
+                <p className="text-xs text-dark-muted">Enter group code (e.g. GATE-X7K2)</p>
               </div>
             </div>
 
-            <form onSubmit={handleJoinGroup} className="space-y-4">
+            <form onSubmit={handleQuickJoinByCode} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Invite / Join Code
+                  Unique Group Code
                 </label>
                 <input
                   type="text"
                   required
-                  maxLength={10}
+                  maxLength={15}
                   value={joinCodeInput}
                   onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                  placeholder="e.g. 7X9K2P"
+                  placeholder="e.g. GATE-X7K2"
                   className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-base text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-mono tracking-widest text-center uppercase"
                 />
               </div>
@@ -400,7 +746,7 @@ export const GroupsPage: React.FC = () => {
                   disabled={!joinCodeInput.trim() || isJoining}
                   className="px-5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
                 >
-                  {isJoining ? 'Joining...' : 'Join Group'}
+                  {isJoining ? 'Submitting...' : 'Request to Join'}
                 </button>
               </div>
             </form>

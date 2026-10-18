@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { fetchGlobalLeaderboard, LeaderboardEntry } from '../api/leaderboard';
 import { LeaderboardTable } from '../components/LeaderboardTable';
 
@@ -27,7 +28,20 @@ export const GlobalLeaderboardPage: React.FC = () => {
   }, [activeType]);
 
   return (
-    <div className="pb-20">
+    <div className="space-y-6 pb-20">
+      {/* Scope Navigation Tabs */}
+      <div className="flex items-center gap-2">
+        <Link
+          to="/leaderboard/friends"
+          className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover transition-all"
+        >
+          Friends Leaderboard
+        </Link>
+        <span className="px-3 py-1.5 rounded-xl text-xs font-bold bg-dark-surface text-flame-400 border border-dark-border shadow-sm">
+          Global Standings
+        </span>
+      </div>
+
       <LeaderboardTable
         entries={entries}
         title="Global Leaderboard"
