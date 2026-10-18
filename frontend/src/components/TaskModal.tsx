@@ -102,8 +102,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     setError('');
   }, [editingTask, isOpen]);
 
-  if (!isOpen) return null;
-
   const toggleDay = (day: number) => {
     if (scheduledDays.includes(day)) {
       if (scheduledDays.length <= 1) {
@@ -217,6 +215,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 overflow-y-auto overscroll-contain">

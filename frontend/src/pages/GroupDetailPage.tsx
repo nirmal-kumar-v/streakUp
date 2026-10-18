@@ -43,7 +43,6 @@ import {
   Calendar,
   Sparkles,
   Shield,
-  Zap,
   UserPlus,
   UserCheck,
   Clock,
@@ -143,7 +142,16 @@ export const GroupDetailPage: React.FC = () => {
     setEditName(group.name);
     setEditDescription(group.description || '');
     setEditScheduledDays(group.scheduledDays || [0, 1, 2, 3, 4, 5, 6]);
+    setOwnerGroupHiddenFrom(group.groupHiddenFrom || []);
+    setOwnerGroupHideInput('');
     setIsEditGroupOpen(true);
+    fetchFriendsList()
+      .then((res) => {
+        if (res.success && res.friends) {
+          setFriendsList(res.friends);
+        }
+      })
+      .catch(() => {});
   };
 
   const toggleEditDay = (day: number) => {
@@ -171,6 +179,7 @@ export const GroupDetailPage: React.FC = () => {
         name: editName.trim(),
         description: editDescription.trim() || null,
         scheduledDays: editScheduledDays,
+        hiddenFrom: ownerGroupHiddenFrom,
       });
       if (res.success) {
         setIsEditGroupOpen(false);
@@ -754,7 +763,7 @@ export const GroupDetailPage: React.FC = () => {
               <span>Invite</span>
             </button>
 
-            {isOwner && (
+            {isOwner ? (
               <button
                 type="button"
                 onClick={openEditGroup}
@@ -762,6 +771,16 @@ export const GroupDetailPage: React.FC = () => {
               >
                 <Edit3 className="w-3.5 h-3.5 text-flame-400" />
                 <span>Edit Group</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={openPrivacyModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                title="Privacy & Member Visibility"
+              >
+                <Shield className="w-3.5 h-3.5 text-amber-400" />
+                <span>Privacy</span>
               </button>
             )}
 
@@ -882,18 +901,7 @@ export const GroupDetailPage: React.FC = () => {
           <div className="lg:col-span-2 space-y-4">
             <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-dark-border/60">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/25">
-                      <Users className="w-3 h-3 text-indigo-400" />
-                      <span>Group Task</span>
-                    </span>
-                    <span className="text-[11px] font-mono text-zinc-500">
-                      (0 pts · Streak & completion only)
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-bold text-zinc-100">{group.name}</h2>
-                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-zinc-100 tracking-tight">{group.name}</h2>
 
                 <div className="flex items-center gap-2 flex-wrap">
                   {/* Dashboard Task Link Status / Toggle */}
@@ -923,42 +931,22 @@ export const GroupDetailPage: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Task & Group Privacy Config */}
-                  <button
-                    type="button"
-                    onClick={openPrivacyModal}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-zinc-700/80 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
-                    title="Privacy & Visibility Settings"
-                  >
-                    <Shield className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Privacy</span>
-                  </button>
-
                   {/* Freeze Status Badge */}
                   {userTask && (
                     <div
                       title={
                         userTask.freezeBalance > 0
                           ? '1 Freeze available for this group task'
-                          : `Recharge: ${userTask.freezeRechargeDays}/7 qualifying days`
+                          : `Streak freeze recharge progress: ${userTask.freezeRechargeDays}/7 qualifying days`
                       }
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono font-bold border ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold border shadow-sm transition-colors ${
                         userTask.freezeBalance > 0
                           ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
-                          : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                          : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/80'
                       }`}
                     >
-                      {userTask.freezeBalance > 0 ? (
-                        <>
-                          <Shield className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>1 Freeze Ready</span>
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-3.5 h-3.5 text-zinc-500" />
-                          <span>Recharge: {userTask.freezeRechargeDays}/7d</span>
-                        </>
-                      )}
+                      <Shield className={`w-3.5 h-3.5 ${userTask.freezeBalance > 0 ? 'text-cyan-400' : 'text-zinc-400'}`} />
+                      <span>{userTask.freezeBalance > 0 ? '1/1' : `${userTask.freezeRechargeDays}/7`}</span>
                     </div>
                   )}
                 </div>
@@ -1676,6 +1664,112 @@ export const GroupDetailPage: React.FC = () => {
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* Group Privacy (Owner Level) */}
+              <div className="pt-3 border-t border-dark-border/70 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-amber-400" />
+                    <span>Group Privacy: Hide Group & Tasks From</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-dark-muted">Optional</span>
+                </div>
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  Users added here cannot find or join this group, and cannot see ANY study tasks created from it. Type username or <strong className="text-amber-400">"all"</strong>.
+                </p>
+
+                <div className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type username or 'all'..."
+                      value={ownerGroupHideInput}
+                      onChange={(e) => {
+                        setOwnerGroupHideInput(e.target.value);
+                        setOwnerGroupSuggestionsOpen(true);
+                      }}
+                      onFocus={() => setOwnerGroupSuggestionsOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addOwnerGroupHide(ownerGroupHideInput);
+                          setOwnerGroupSuggestionsOpen(false);
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        addOwnerGroupHide(ownerGroupHideInput);
+                        setOwnerGroupSuggestionsOpen(false);
+                      }}
+                      className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-bold rounded-xl transition-all cursor-pointer shadow-sm"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {ownerGroupSuggestionsOpen && filteredOwnerGroupSuggestions.length > 0 && (
+                    <div className="absolute z-20 top-full mt-1.5 left-0 right-0 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1 divide-y divide-zinc-800/60">
+                      {filteredOwnerGroupSuggestions.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            addOwnerGroupHide(s.label);
+                            setOwnerGroupSuggestionsOpen(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-zinc-800/80 rounded-lg flex items-center justify-between text-xs transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            {s.isAll ? (
+                              <div className="w-6 h-6 rounded-full bg-rose-500/20 text-rose-300 flex items-center justify-center font-bold text-[10px]">
+                                ALL
+                              </div>
+                            ) : (
+                              <InitialsAvatar name={s.sublabel || s.label} image={s.image} size="sm" />
+                            )}
+                            <div className="truncate">
+                              <span className="font-semibold text-zinc-200 block truncate">
+                                {s.isAll ? '"all" (Hide from everyone)' : `@${s.label}`}
+                              </span>
+                              {s.sublabel && !s.isAll && (
+                                <span className="text-[10px] text-zinc-400 block truncate">{s.sublabel}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono">Select</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {ownerGroupHiddenFrom.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {ownerGroupHiddenFrom.map((name) => (
+                      <span
+                        key={name}
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-medium border ${
+                          name === 'all'
+                            ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 font-bold'
+                            : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                        }`}
+                      >
+                        <span>{name === 'all' ? '🛡️ Everyone ("all")' : `@${name}`}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeOwnerGroupHide(name)}
+                          className="hover:text-white p-0.5 text-zinc-400 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-dark-border">
