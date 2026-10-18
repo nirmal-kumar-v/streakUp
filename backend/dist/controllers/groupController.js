@@ -180,7 +180,10 @@ async function createGroup(req, res) {
  */
 async function searchGroups(req, res) {
     try {
-        const currentUserId = req.user.userId;
+        const currentUserId = req.user?.userId;
+        if (!currentUserId) {
+            return res.status(401).json({ success: false, error: 'Unauthorized.' });
+        }
         const rawQuery = (req.query.q || '').trim();
         let whereClause = {};
         if (rawQuery) {

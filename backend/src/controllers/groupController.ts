@@ -171,7 +171,10 @@ export async function createGroup(req: AuthenticatedRequest, res: Response) {
  */
 export async function searchGroups(req: AuthenticatedRequest, res: Response) {
   try {
-    const currentUserId = req.user!.userId;
+    const currentUserId = req.user?.userId;
+    if (!currentUserId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized.' });
+    }
     const rawQuery = (req.query.q as string || '').trim();
 
     let whereClause: any = {};
