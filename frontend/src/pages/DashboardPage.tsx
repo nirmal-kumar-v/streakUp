@@ -168,6 +168,7 @@ export const DashboardPage: React.FC = () => {
     category?: string;
     priority: Priority;
     recurrence: Recurrence;
+    scheduledDays?: number[];
     dueTime?: string;
   }) => {
     try {
@@ -505,7 +506,9 @@ export const DashboardPage: React.FC = () => {
             <ListTodo className="w-10 h-10 text-dark-muted mx-auto mb-3 opacity-60" />
             <h3 className="text-sm font-semibold text-zinc-200">No active tasks for today</h3>
             <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
-              All caught up for today! Create a new habit or check habits scheduled for other days below.
+              {otherScheduledTasks.length > 0
+                ? 'All caught up for today! Habits scheduled for other days can be viewed below.'
+                : 'All caught up for today! Create a new habit to keep your streak blazing.'}
             </p>
             <button
               onClick={() => {
