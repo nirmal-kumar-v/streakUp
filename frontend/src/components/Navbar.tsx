@@ -68,13 +68,62 @@ export const Navbar: React.FC = () => {
     navigate('/login');
   };
 
+  /**
+   * Route-aware active matching.
+   * Ensures sibling routes like '/friends' and '/friends/tasks' do not cross-highlight.
+   */
   const isActive = (path: string) => {
-    if (path === '/' && location.pathname === '/') return true;
-    if (path !== '/' && location.pathname.startsWith(path)) return true;
+    const current = location.pathname;
+
+    // Home / Landing
+    if (path === '/') return current === '/';
+
+    // Exact match or exact match with trailing slash
+    if (current === path || current === `${path}/`) return true;
+
+    // '/friends' must NEVER match '/friends/tasks' or '/friends-tasks'
+    if (path === '/friends') {
+      return current === '/friends' || current === '/friends/';
+    }
+
+    // '/friends/tasks' matches '/friends/tasks' or alternate route '/friends-tasks'
+    if (path === '/friends/tasks') {
+      return (
+        current === '/friends/tasks' ||
+        current.startsWith('/friends/tasks/') ||
+        current === '/friends-tasks'
+      );
+    }
+
+    // '/groups' matches '/groups' and sub-routes like '/groups/:id'
+    if (path === '/groups') {
+      return current === '/groups' || current.startsWith('/groups/');
+    }
+
+    // '/dashboard' matches '/dashboard' and sub-routes if any
+    if (path === '/dashboard') {
+      return current === '/dashboard' || current.startsWith('/dashboard/');
+    }
+
+    // Trophy icon for Friends Leaderboard
+    if (path === '/leaderboard/friends') {
+      return (
+        current === '/leaderboard/friends' ||
+        current.startsWith('/leaderboard/friends') ||
+        current === '/leaderboard'
+      );
+    }
+
+    // Notifications
+    if (path === '/notifications') {
+      return current === '/notifications' || current.startsWith('/notifications/');
+    }
+
     return false;
   };
 
-  // Focused primary navigation links
+  // Primary navigation links: Dashboard, Groups, Friends' Tasks, Friends
+  // Leaderboard is accessed via the dedicated Trophy icon (no duplicate leaderboard links)
   const navLinks = isAuthenticated
     ? [
         { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -138,7 +187,7 @@ export const Navbar: React.FC = () => {
           <div className="hidden md:flex items-center gap-2">
             {isAuthenticated && user ? (
               <>
-                {/* Friends Leaderboard Trophy - Icon-Only */}
+                {/* Friends Leaderboard Trophy - Default Leaderboard View */}
                 <Link
                   to="/leaderboard/friends"
                   aria-label="Friends Leaderboard"
@@ -233,7 +282,11 @@ export const Navbar: React.FC = () => {
                   to="/leaderboard/friends"
                   aria-label="Friends Leaderboard"
                   title="Friends Leaderboard"
-                  className="p-2 text-zinc-400 hover:text-amber-400 rounded-lg flex items-center justify-center"
+                  className={`p-2 rounded-lg flex items-center justify-center transition-colors ${
+                    isActive('/leaderboard/friends')
+                      ? 'bg-dark-surface text-amber-400 border border-dark-border shadow-sm'
+                      : 'text-zinc-400 hover:text-amber-400 hover:bg-dark-hover'
+                  }`}
                 >
                   <Trophy className="w-4 h-4" />
                 </Link>
@@ -243,7 +296,11 @@ export const Navbar: React.FC = () => {
                   to="/notifications"
                   aria-label="Notifications"
                   title="Notifications"
-                  className="p-2 text-zinc-400 hover:text-zinc-200 rounded-lg relative flex items-center justify-center"
+                  className={`p-2 rounded-lg relative flex items-center justify-center transition-colors ${
+                    isActive('/notifications')
+                      ? 'bg-dark-surface text-flame-400 border border-dark-border shadow-sm'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+                  }`}
                 >
                   <Bell className="w-4 h-4" />
                   {unreadNotificationsCount > 0 && (
@@ -307,40 +364,9 @@ export const Navbar: React.FC = () => {
           {isAuthenticated ? (
             <div className="pt-2 border-t border-dark-border space-y-1">
               <Link
-                to="/leaderboard/friends"
-                onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  isActive('/leaderboard/friends')
-                    ? 'bg-dark-surface text-amber-400 border border-dark-border'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-dark-hover'
-                }`}
-              >
-                <Trophy className="w-4 h-4 text-amber-400" />
-                <span>Friends Leaderboard</span>
-              </Link>
-              <Link
-                to="/notifications"
-                onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  isActive('/notifications')
-                    ? 'bg-dark-surface text-flame-400 border border-dark-border'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-dark-hover'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Bell className="w-4 h-4 text-flame-400" />
-                  <span>Notifications</span>
-                </div>
-                {unreadNotificationsCount > 0 && (
-                  <span className="bg-flame-500 text-zinc-950 text-xs font-black px-2 py-0.5 rounded-full">
-                    {unreadNotificationsCount}
-                  </span>
-                )}
-              </Link>
-              <Link
                 to={`/profile/${user?.username}`}
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold text-zinc-300 hover:text-flame-400"
+                className="flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold text-zinc-300 hover:text-flame-400 rounded-xl"
               >
                 <InitialsAvatar name={user?.name || ''} image={user?.profileImage} size="xs" />
                 <span>Profile & Settings</span>

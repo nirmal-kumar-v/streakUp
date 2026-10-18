@@ -92,7 +92,7 @@ export const PublicProfilePage: React.FC = () => {
           <h2 className="text-lg font-bold text-zinc-100">User Not Found</h2>
           <p className="text-xs text-dark-muted mt-1">{error || 'This user does not exist.'}</p>
           <Link
-            to="/leaderboard/global"
+            to="/leaderboard/friends"
             className="mt-5 inline-flex items-center gap-2 text-xs font-bold text-flame-400 hover:text-flame-300"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Leaderboard
@@ -111,7 +111,7 @@ export const PublicProfilePage: React.FC = () => {
     <div className="max-w-2xl mx-auto space-y-6 pb-20">
       {/* Back Link */}
       <Link
-        to="/leaderboard/global"
+        to="/leaderboard/friends"
         className="inline-flex items-center gap-1.5 text-xs text-dark-muted hover:text-zinc-200 font-mono transition-colors"
       >
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Leaderboard

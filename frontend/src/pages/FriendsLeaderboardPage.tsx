@@ -3,14 +3,18 @@ import { fetchFriendsLeaderboard, LeaderboardEntry } from '../api/leaderboard';
 import { LeaderboardTable } from '../components/LeaderboardTable';
 import { Link } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export const FriendsLeaderboardPage: React.FC = () => {
+  const { isAuthenticated } = useAuth();
   const [activeType, setActiveType] = useState<'streak' | 'points'>('streak');
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
+
     const loadFriendsLeaderboard = async () => {
       setIsLoading(true);
       try {
@@ -26,23 +30,15 @@ export const FriendsLeaderboardPage: React.FC = () => {
       }
     };
     loadFriendsLeaderboard();
-  }, [activeType]);
+  }, [activeType, isAuthenticated]);
+
+  // If a person doesn't have an account / unauthenticated, do not render this section
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="space-y-6 pb-20">
-      {/* Scope Navigation Tabs */}
-      <div className="flex items-center gap-2">
-        <span className="px-3 py-1.5 rounded-xl text-xs font-bold bg-dark-surface text-amber-400 border border-dark-border shadow-sm">
-          Friends Leaderboard
-        </span>
-        <Link
-          to="/leaderboard/global"
-          className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover transition-all"
-        >
-          Global Standings
-        </Link>
-      </div>
-
       <LeaderboardTable
         entries={entries}
         title="Friends Leaderboard"

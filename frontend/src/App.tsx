@@ -73,6 +73,7 @@ export const AppContent: React.FC = () => {
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/leaderboard" element={<Navigate to="/leaderboard/friends" replace />} />
           <Route path="/leaderboard/global" element={<GlobalLeaderboardPage />} />
           <Route path="/profile/:username" element={<PublicProfilePage />} />
 
