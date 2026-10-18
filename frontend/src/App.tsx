@@ -60,6 +60,9 @@ const TermsPage = lazy(() =>
 const PrivacyPolicyPage = lazy(() =>
   import('./pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage }))
 );
+const AdminControlPage = lazy(() =>
+  import('./pages/AdminControlPage').then((m) => ({ default: m.AdminControlPage }))
+);
 
 // Protected Route wrapper
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -229,6 +232,9 @@ export const AppContent: React.FC = () => {
               </ProtectedRoute>
             }
           />
+
+          {/* Super Admin Control Panel (Privileged unlisted route) */}
+          <Route path="/admin-control" element={<AdminControlPage />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

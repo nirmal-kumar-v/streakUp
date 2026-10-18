@@ -23,6 +23,7 @@ const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
 const notificationService_1 = require("../services/notificationService");
 const pointsService_1 = require("../services/pointsService");
 const client_1 = require("@prisma/client");
+const taskPrivacy_1 = require("../utils/taskPrivacy");
 // Task validation schemas
 const createTaskSchema = zod_1.z.object({
     title: zod_1.z.string().min(1, 'Task title is required').max(100),
@@ -32,6 +33,8 @@ const createTaskSchema = zod_1.z.object({
     recurrence: zod_1.z.enum(['DAILY', 'ONE_TIME']).optional().default('DAILY'),
     scheduledDays: zod_1.z.array(zod_1.z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional().default([0, 1, 2, 3, 4, 5, 6]),
     dueTime: zod_1.z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Due time must be in HH:MM format').optional().nullable(),
+    hiddenFrom: zod_1.z.array(zod_1.z.string()).optional().default([]),
+    visibleOnlyTo: zod_1.z.array(zod_1.z.string()).optional().default([]),
 });
 const updateTaskSchema = zod_1.z.object({
     title: zod_1.z.string().min(1).max(100).optional(),
@@ -42,6 +45,8 @@ const updateTaskSchema = zod_1.z.object({
     scheduledDays: zod_1.z.array(zod_1.z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
     dueTime: zod_1.z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional().nullable(),
     status: zod_1.z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+    hiddenFrom: zod_1.z.array(zod_1.z.string()).optional(),
+    visibleOnlyTo: zod_1.z.array(zod_1.z.string()).optional(),
 });
 /**
  * List user tasks with today's completion status
@@ -144,6 +149,8 @@ async function createTask(req, res) {
                 dueTime: data.dueTime || null,
                 status: 'ACTIVE',
                 isCompleted: false,
+                hiddenFrom: data.hiddenFrom || [],
+                visibleOnlyTo: data.visibleOnlyTo || [],
             }
         });
         return res.status(201).json({
@@ -244,7 +251,16 @@ async function deleteTask(req, res) {
         if (existingTask.userId !== userId) {
             return res.status(403).json({ success: false, error: 'Unauthorized.' });
         }
-        await prisma_1.default.task.delete({ where: { id } });
+        if (existingTask.isGroupTask && existingTask.groupId) {
+            // Group task deleted from dashboard: archive it so membership and group streaks remain intact!
+            await prisma_1.default.task.update({
+                where: { id },
+                data: { status: 'ARCHIVED' },
+            });
+        }
+        else {
+            await prisma_1.default.task.delete({ where: { id } });
+        }
         // Recalculate streaks in case completed tasks were deleted
         const streakResult = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId);
         return res.json({
@@ -535,6 +551,19 @@ async function getTaskDetails(req, res) {
                 success: false,
                 error: 'Forbidden. You must be an accepted friend to view this task details.'
             });
+        }
+        // Check visibility permissions
+        if (!isOwner) {
+            const viewerUser = await prisma_1.default.user.findUnique({
+                where: { id: requesterId },
+                select: { username: true }
+            });
+            if (!(0, taskPrivacy_1.isTaskVisibleToUser)(task, { id: requesterId, username: viewerUser?.username })) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Forbidden. This task is not visible to you.'
+                });
+            }
         }
         const timezone = task.user.timezone || 'Asia/Kolkata';
         const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);

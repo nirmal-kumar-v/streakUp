@@ -191,10 +191,13 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
     const cUsername = (currentUser?.username || '').toLowerCase().replace(/^@/, '');
     const cId = currentUserId.toLowerCase();
 
+    // If no search query, order by member count descending to show top 5 featured groups
     const groups = await prisma.group.findMany({
       where: whereClause,
-      take: 50,
-      orderBy: { createdAt: 'desc' },
+      take: rawQuery ? 50 : 25,
+      orderBy: rawQuery
+        ? { createdAt: 'desc' }
+        : [{ members: { _count: 'desc' } }, { createdAt: 'desc' }],
       select: {
         id: true,
         name: true,
@@ -226,9 +229,12 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
       return true;
     });
 
+    // In Discover mode without search query: show ONLY top 5 groups. Others must be searched.
+    const finalGroups = rawQuery ? visibleGroups : visibleGroups.slice(0, 5);
+
     // Check membership and join request status for current user for each visible group
     const groupsWithStatus = await Promise.all(
-      visibleGroups.map(async (g) => {
+      finalGroups.map(async (g) => {
         const membership = await prisma.groupMember.findUnique({
           where: { groupId_userId: { groupId: g.id, userId: currentUserId } },
           select: { role: true },
@@ -259,6 +265,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
 
     return res.json({
       success: true,
+      isTopFive: !rawQuery,
       groups: groupsWithStatus,
     });
   } catch (err: any) {

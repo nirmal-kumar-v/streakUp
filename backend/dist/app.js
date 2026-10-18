@@ -14,6 +14,7 @@ const userRoutes_1 = __importDefault(require("./routes/userRoutes"));
 const notificationRoutes_1 = __importDefault(require("./routes/notificationRoutes"));
 const groupRoutes_1 = __importDefault(require("./routes/groupRoutes"));
 const reactionRoutes_1 = __importDefault(require("./routes/reactionRoutes"));
+const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
 const timezoneService_1 = require("./services/timezoneService");
 const dbError_1 = require("./utils/dbError");
 dotenv_1.default.config();
@@ -72,6 +73,7 @@ app.use('/api/users', userRoutes_1.default);
 app.use('/api/notifications', notificationRoutes_1.default);
 app.use('/api/groups', groupRoutes_1.default);
 app.use('/api/reactions', reactionRoutes_1.default);
+app.use('/api/admin', adminRoutes_1.default);
 // Also mount routes without /api prefix (fallback for serverless rewrites)
 app.use('/auth', authRoutes_1.default);
 app.use('/tasks', taskRoutes_1.default);
@@ -81,6 +83,7 @@ app.use('/users', userRoutes_1.default);
 app.use('/notifications', notificationRoutes_1.default);
 app.use('/groups', groupRoutes_1.default);
 app.use('/reactions', reactionRoutes_1.default);
+app.use('/admin', adminRoutes_1.default);
 // 404 Handler
 app.use((req, res) => {
     res.status(404).json({

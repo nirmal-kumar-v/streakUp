@@ -104,6 +104,7 @@ model User {
   overallFreezeBalance    Int              @default(0)
   overallFreezeRechargeDays Int            @default(0)
   lastOverallFreezeUsedAt DateTime?
+  maxStarredNotifications Int?             @default(15) // Overridable limit for starred notifications (default 15)
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -486,5 +487,29 @@ model GroupInvitation {
   @@index([groupId, status])
 }
 
+model AdminAccount {
+  id               String    @id @default(uuid())
+  username         String    @unique
+  passwordHash     String
+  sensitivePinHash String?
+  role             String    @default("SUPER_ADMIN")
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
 
+model AdminAuditLog {
+  id            String   @id @default(uuid())
+  adminUsername String
+  action        String   // 'STREAK_CORRECTION', 'FREEZE_OVERRIDE', 'POINTS_ADJUSTMENT', 'USERNAME_COOLDOWN_RESET', 'LIMIT_15_OVERRIDE', 'DELETE_ACCOUNT', 'CHANGE_ADMIN_PASSWORD'
+  targetUserId  String?
+  targetUser    String?  // username or email
+  reason        String
+  beforeState   Json?
+  afterState    Json?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
 
+  @@index([targetUserId])
+  @@index([createdAt])
+}

@@ -137,13 +137,18 @@ export async function toggleStarNotification(req: AuthenticatedRequest, res: Res
     }
 
     if (!notif.isStarred) {
+      const userRecord = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { maxStarredNotifications: true },
+      });
+      const maxAllowed = userRecord?.maxStarredNotifications || 15;
       const currentStarred = await prisma.notification.count({
         where: { userId, isDismissed: false, isStarred: true },
       });
-      if (currentStarred >= 15) {
+      if (currentStarred >= maxAllowed) {
         return res.status(400).json({
           success: false,
-          error: 'Maximum 15 starred notifications allowed. Please unstar an older notification first.',
+          error: `Maximum ${maxAllowed} starred notifications allowed. Please unstar an older notification first.`,
         });
       }
     }

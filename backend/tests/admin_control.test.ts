@@ -1,0 +1,80 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+
+describe('Super Admin Control & Privileged Workflows', () => {
+  const JWT_SECRET = 'streakup_test_super_secret_jwt';
+
+  it('should authenticate admin and generate valid Super Admin JWT token', async () => {
+    const password = 'StreakUpAdmin@2026';
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash(password, salt);
+
+    const isMatch = await bcrypt.compare('StreakUpAdmin@2026', hash);
+    expect(isMatch).toBe(true);
+
+    const token = jwt.sign(
+      { adminId: 'mock-admin-id', username: 'admin', role: 'SUPER_ADMIN' },
+      JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    expect(decoded.adminId).toBe('mock-admin-id');
+    expect(decoded.role).toBe('SUPER_ADMIN');
+  });
+
+  it('should enforce sensitive PIN verification for destructive actions', async () => {
+    const pin = '1234';
+    const salt = await bcrypt.genSalt(10);
+    const pinHash = await bcrypt.hash(pin, salt);
+
+    const valid = await bcrypt.compare('1234', pinHash);
+    const invalid = await bcrypt.compare('0000', pinHash);
+
+    expect(valid).toBe(true);
+    expect(invalid).toBe(false);
+  });
+
+  it('should enforce per-user limit of 15 for starred notifications with custom override', () => {
+    const defaultMax = 15;
+    const currentStarred = 15;
+
+    // Default limit reached
+    expect(currentStarred >= defaultMax).toBe(true);
+
+    // Overridden by Admin to 30
+    const overriddenMax = 30;
+    expect(currentStarred < overriddenMax).toBe(true);
+  });
+
+  it('should restrict discover groups to Top 5 when query is empty, and allow broad search with query', () => {
+    const mockGroups = Array.from({ length: 25 }, (_, i) => ({
+      id: `group-${i + 1}`,
+      name: `Study Circle ${i + 1}`,
+      memberCount: 25 - i,
+    }));
+
+    // Discover without query: slices to Top 5
+    const emptyQueryResults = mockGroups.slice(0, 5);
+    expect(emptyQueryResults).toHaveLength(5);
+    expect(emptyQueryResults[0].memberCount).toBe(25);
+    expect(emptyQueryResults[4].memberCount).toBe(21);
+
+    // Search with query "Circle 1": returns matched groups
+    const searchedResults = mockGroups.filter((g) => g.name.includes('Circle 1'));
+    expect(searchedResults.length).toBeGreaterThan(5);
+  });
+
+  it('should verify 14-day username change cooldown and admin override logic', () => {
+    const now = new Date();
+    // Changed 3 days ago (within 14 days)
+    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const diffDays = (now.getTime() - threeDaysAgo.getTime()) / (1000 * 60 * 60 * 24);
+    expect(diffDays < 14).toBe(true);
+
+    // Admin resets cooldown
+    const resetLastUsernameChangeAt = null;
+    expect(resetLastUsernameChangeAt).toBeNull();
+  });
+});

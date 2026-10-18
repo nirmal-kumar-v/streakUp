@@ -60,6 +60,7 @@ export const GroupsPage: React.FC = () => {
   // Discover & Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<GroupSearchResult[]>([]);
+  const [isTopFive, setIsTopFive] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -113,6 +114,7 @@ export const GroupsPage: React.FC = () => {
       const res = await searchGroups(q.trim());
       if (res.success) {
         setSearchResults(res.groups || []);
+        setIsTopFive(res.isTopFive ?? !q.trim());
         setHasSearched(true);
       }
     } catch (err: any) {
@@ -580,6 +582,41 @@ export const GroupsPage: React.FC = () => {
               Search by group name to explore circles with identical or similar topics, or type the exact unique code to find a private community.
             </p>
           </div>
+
+          {/* Top 5 or Search Results Header */}
+          {!isSearching && searchResults.length > 0 && (
+            <div className="flex items-center justify-between text-xs px-1 text-zinc-400">
+              <div className="flex items-center gap-1.5 font-semibold text-zinc-200">
+                {isTopFive ? (
+                  <>
+                    <Flame className="w-3.5 h-3.5 text-flame-400" />
+                    <span>Top 5 Active Groups</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-3.5 h-3.5 text-flame-400" />
+                    <span>Search Results ({searchResults.length})</span>
+                  </>
+                )}
+              </div>
+              {isTopFive ? (
+                <span className="text-[11px] text-zinc-500 font-normal">
+                  Others can be searched using name or code
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    handleSearch('');
+                  }}
+                  className="text-[11px] text-flame-400 hover:text-flame-300 transition-colors font-medium"
+                >
+                  Clear search · Show Top 5
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Search Results */}
           {isSearching ? (

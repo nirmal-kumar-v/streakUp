@@ -8,11 +8,21 @@ router.use(authMiddleware_1.requireAuth);
 router.post('/', groupController_1.createGroup);
 router.get('/', groupController_1.getUserGroups);
 router.get('/search', groupController_1.searchGroups);
+// Global group requests and invitations across user's groups
+router.get('/all-requests', groupController_1.getAllOwnerJoinRequests);
+router.get('/invitations', groupController_1.getUserGroupInvitations);
+router.post('/invitations/:invitationId/respond', groupController_1.respondToGroupInvitation);
+// Group-specific actions
+router.get('/:id', groupController_1.getGroupDetails);
+router.put('/:id', groupController_1.updateGroup);
+router.put('/:id/member-privacy', groupController_1.updateMemberGroupPrivacy);
 router.post('/:id/join-request', groupController_1.requestToJoinGroup);
 router.delete('/:id/join-request', groupController_1.cancelJoinRequest);
 router.get('/:id/requests', groupController_1.getGroupJoinRequests);
 router.post('/:id/requests/:requestId/respond', groupController_1.respondToJoinRequest);
-router.get('/:id', groupController_1.getGroupDetails);
+router.post('/:id/invite', groupController_1.inviteToGroup);
+router.post('/:id/make-task', groupController_1.makeGroupTask);
+router.delete('/:id/task', groupController_1.removeGroupTask);
 router.get('/:id/leaderboard', groupController_1.getGroupLeaderboards);
 router.get('/:id/notes', groupController_1.getGroupNotes);
 router.post('/:id/members/:targetUserId/promote', groupController_1.promoteMemberToAdmin);

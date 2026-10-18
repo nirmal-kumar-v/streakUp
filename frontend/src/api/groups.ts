@@ -191,7 +191,7 @@ export async function createGroup(data: { name: string; description?: string; sc
 }
 
 export async function searchGroups(q: string = '') {
-  const res = await apiClient.get<{ success: boolean; groups: GroupSearchResult[] }>('/groups/search', {
+  const res = await apiClient.get<{ success: boolean; isTopFive?: boolean; groups: GroupSearchResult[] }>('/groups/search', {
     params: { q },
   });
   return res.data;

@@ -9,6 +9,7 @@ router.use(authMiddleware_1.requireAuth);
 // Notification Center Endpoints
 router.get('/', notificationController_1.getNotifications);
 router.patch('/:id/read', notificationController_1.markNotificationAsRead);
+router.patch('/:id/star', notificationController_1.toggleStarNotification);
 router.post('/mark-all-read', notificationController_1.markAllNotificationsAsRead);
 router.delete('/:id', notificationController_1.dismissNotification);
 // Notification Preferences

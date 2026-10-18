@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getNotifications = getNotifications;
+exports.toggleStarNotification = toggleStarNotification;
 exports.markNotificationAsRead = markNotificationAsRead;
 exports.markAllNotificationsAsRead = markAllNotificationsAsRead;
 exports.dismissNotification = dismissNotification;
@@ -32,6 +33,16 @@ async function getNotifications(req, res) {
     try {
         const userId = req.user.userId;
         const { category, status = 'all', page = '1', limit = '20' } = req.query;
+        // Auto-clean read, non-starred notifications older than 15 days
+        const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+        await prisma_1.default.notification.deleteMany({
+            where: {
+                userId,
+                isRead: true,
+                isStarred: false,
+                createdAt: { lt: fifteenDaysAgo },
+            },
+        });
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
         const skip = (pageNum - 1) * limitNum;
@@ -48,7 +59,10 @@ async function getNotifications(req, res) {
         else if (status === 'read') {
             where.isRead = true;
         }
-        const [notifications, totalCount, unreadCount] = await Promise.all([
+        else if (status === 'starred') {
+            where.isStarred = true;
+        }
+        const [notifications, totalCount, unreadCount, allCount, starredCount] = await Promise.all([
             prisma_1.default.notification.findMany({
                 where,
                 orderBy: { createdAt: 'desc' },
@@ -79,12 +93,27 @@ async function getNotifications(req, res) {
                     isRead: false,
                 },
             }),
+            prisma_1.default.notification.count({
+                where: {
+                    userId,
+                    isDismissed: false,
+                },
+            }),
+            prisma_1.default.notification.count({
+                where: {
+                    userId,
+                    isDismissed: false,
+                    isStarred: true,
+                },
+            }),
         ]);
         return res.json({
             success: true,
             notifications,
             unreadCount,
             totalCount,
+            allCount,
+            starredCount,
             page: pageNum,
             totalPages: Math.ceil(totalCount / limitNum) || 1,
         });
@@ -92,6 +121,51 @@ async function getNotifications(req, res) {
     catch (err) {
         console.error('getNotifications error:', err);
         return res.status(500).json({ success: false, error: 'Failed to retrieve notifications.' });
+    }
+}
+/**
+ * PATCH /api/notifications/:id/star
+ * Toggle starred status for a notification (Max 15 starred notifications allowed)
+ */
+async function toggleStarNotification(req, res) {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        const notif = await prisma_1.default.notification.findUnique({ where: { id } });
+        if (!notif) {
+            return res.status(404).json({ success: false, error: 'Notification not found.' });
+        }
+        if (notif.userId !== userId) {
+            return res.status(403).json({ success: false, error: 'Unauthorized.' });
+        }
+        if (!notif.isStarred) {
+            const userRecord = await prisma_1.default.user.findUnique({
+                where: { id: userId },
+                select: { maxStarredNotifications: true },
+            });
+            const maxAllowed = userRecord?.maxStarredNotifications || 15;
+            const currentStarred = await prisma_1.default.notification.count({
+                where: { userId, isDismissed: false, isStarred: true },
+            });
+            if (currentStarred >= maxAllowed) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Maximum ${maxAllowed} starred notifications allowed. Please unstar an older notification first.`,
+                });
+            }
+        }
+        const updated = await prisma_1.default.notification.update({
+            where: { id },
+            data: {
+                isStarred: !notif.isStarred,
+                starredAt: !notif.isStarred ? new Date() : null,
+            },
+        });
+        return res.json({ success: true, notification: updated });
+    }
+    catch (err) {
+        console.error('toggleStarNotification error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update star status.' });
     }
 }
 /**
@@ -423,6 +497,8 @@ async function deleteReminderSchedule(req, res) {
         return res.status(500).json({ success: false, error: 'Failed to delete reminder schedule.' });
     }
 }
+const TEST_NOTIFICATION_COOLDOWN_MS = 5 * 60 * 1000;
+const lastTestNotificationMap = new Map();
 /**
  * POST /api/notifications/test-email
  * Sends a real test email to the user's notification email address
@@ -430,6 +506,16 @@ async function deleteReminderSchedule(req, res) {
 async function sendTestEmail(req, res) {
     try {
         const userId = req.user.userId;
+        const lastSent = lastTestNotificationMap.get(userId);
+        if (lastSent && Date.now() - lastSent < TEST_NOTIFICATION_COOLDOWN_MS) {
+            const remainingSec = Math.ceil((TEST_NOTIFICATION_COOLDOWN_MS - (Date.now() - lastSent)) / 1000);
+            const m = Math.floor(remainingSec / 60);
+            const s = remainingSec % 60;
+            return res.status(429).json({
+                success: false,
+                error: `Next test notification available after 5 minutes (${m}m ${s}s remaining).`,
+            });
+        }
         const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
         if (!user) {
             return res.status(404).json({ success: false, error: 'User not found.' });
@@ -469,6 +555,7 @@ async function sendTestEmail(req, res) {
                 error: `Failed to deliver test email: ${result.error}`,
             });
         }
+        lastTestNotificationMap.set(userId, Date.now());
         return res.json({
             success: true,
             message: `Test email successfully sent to ${destinationEmail}!`,

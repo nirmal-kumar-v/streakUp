@@ -27,16 +27,18 @@ async function searchUsers(req, res) {
     try {
         const currentUserId = req.user.userId;
         const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
-        if (!query || query.length < 2) {
+        if (!query || query.length < 1) {
             return res.json({ success: true, users: [] });
         }
         const normalizedQuery = query.toLowerCase();
-        // Find users whose username or normalizedUsername contains query
+        // Find users whose username or name starts with query (strict prefix search)
         const matchingUsers = await prisma_1.default.user.findMany({
             where: {
-                normalizedUsername: {
-                    contains: normalizedQuery
-                }
+                OR: [
+                    { normalizedUsername: { startsWith: normalizedQuery } },
+                    { username: { startsWith: normalizedQuery, mode: 'insensitive' } },
+                    { name: { startsWith: normalizedQuery, mode: 'insensitive' } },
+                ],
             },
             select: {
                 id: true,

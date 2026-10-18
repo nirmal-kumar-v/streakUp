@@ -8,7 +8,7 @@ exports.toggleReaction = toggleReaction;
 exports.getReactions = getReactions;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const friendTaskController_1 = require("./friendTaskController");
-const ALLOWED_EMOJIS = ['FIRE', 'STRONG', 'CLAP', 'CELEBRATE'];
+const ALLOWED_EMOJIS = ['FIRE', 'STRONG', 'CLAP', 'CELEBRATE', 'LIKE'];
 /**
  * Format reaction list into aggregate counts and user's active reactions
  */
@@ -17,7 +17,8 @@ function formatReactions(reactions, currentUserId) {
         FIRE: 0,
         STRONG: 0,
         CLAP: 0,
-        CELEBRATE: 0
+        CELEBRATE: 0,
+        LIKE: 0,
     };
     const userReactions = [];
     for (const r of reactions) {
@@ -39,7 +40,7 @@ function formatReactions(reactions, currentUserId) {
 }
 /**
  * Toggle an emoji reaction on a study note (Requirement 6)
- * Supported: FIRE (🔥), STRONG (💪), CLAP (👏), CELEBRATE (🎉)
+ * Supported: FIRE (🔥), STRONG (💪), CLAP (👏), CELEBRATE (🎉), LIKE (👍)
  */
 async function toggleReaction(req, res) {
     try {
@@ -55,18 +56,37 @@ async function toggleReaction(req, res) {
         // Verify task completion exists and has a study note
         const completion = await prisma_1.default.taskCompletion.findUnique({
             where: { id: completionId },
-            select: { id: true, userId: true, studyNote: true }
+            select: {
+                id: true,
+                userId: true,
+                studyNote: true,
+                task: {
+                    select: { groupId: true }
+                }
+            }
         });
         if (!completion) {
             return res.status(404).json({ success: false, error: 'Study note not found or was deleted.' });
         }
-        // Verify requester is note owner OR accepted friend
+        // Verify requester is note owner OR accepted friend OR member of the group where the task belongs
         const isOwner = completion.userId === userId;
         const isFriend = await (0, friendTaskController_1.areFriends)(userId, completion.userId);
-        if (!isOwner && !isFriend) {
+        let isGroupMember = false;
+        if (completion.task?.groupId) {
+            const membership = await prisma_1.default.groupMember.findUnique({
+                where: {
+                    groupId_userId: {
+                        groupId: completion.task.groupId,
+                        userId
+                    }
+                }
+            });
+            isGroupMember = Boolean(membership);
+        }
+        if (!isOwner && !isFriend && !isGroupMember) {
             return res.status(403).json({
                 success: false,
-                error: 'Forbidden. You can only react to notes from accepted friends.'
+                error: 'Forbidden. You can only react to notes from accepted friends or group members.'
             });
         }
         // Check if reaction of this type already exists for this user on this completion
@@ -122,14 +142,32 @@ async function getReactions(req, res) {
         const { completionId } = req.params;
         const completion = await prisma_1.default.taskCompletion.findUnique({
             where: { id: completionId },
-            select: { id: true, userId: true }
+            select: {
+                id: true,
+                userId: true,
+                task: {
+                    select: { groupId: true }
+                }
+            }
         });
         if (!completion) {
             return res.status(404).json({ success: false, error: 'Study note not found.' });
         }
         const isOwner = completion.userId === userId;
         const isFriend = await (0, friendTaskController_1.areFriends)(userId, completion.userId);
-        if (!isOwner && !isFriend) {
+        let isGroupMember = false;
+        if (completion.task?.groupId) {
+            const membership = await prisma_1.default.groupMember.findUnique({
+                where: {
+                    groupId_userId: {
+                        groupId: completion.task.groupId,
+                        userId
+                    }
+                }
+            });
+            isGroupMember = Boolean(membership);
+        }
+        if (!isOwner && !isFriend && !isGroupMember) {
             return res.status(403).json({ success: false, error: 'Forbidden.' });
         }
         const allReactions = await prisma_1.default.studyNoteReaction.findMany({
