@@ -50,6 +50,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const lockoutStorageKey = `streakup_applock_lockout_${userId}`;
   const attemptsStorageKey = `streakup_applock_attempts_${userId}`;
   const bgStorageKey = `streakup_applock_bg_${userId}`;
+  const lastActiveStorageKey = `streakup_applock_active_${userId}`;
   const sessionUnlockedKey = `streakup_applock_unlocked_${userId}`;
 
   const [isAppLockEnabled, setIsAppLockEnabled] = useState(false);
@@ -95,10 +96,12 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const lastBackgroundedRef = useRef<number | null>(null);
+  const lastActiveRef = useRef<number>(Date.now());
+  const lastStorageWriteRef = useRef<number>(Date.now());
 
   // Load stored App Lock configuration for the current authenticated user
   const loadStoredConfig = useCallback(() => {
-    if (!isAuthenticated || !user) {
+    if (!isAuthenticated || !userId || userId === 'guest') {
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
@@ -120,24 +123,33 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const parsedLockout = storedLockout ? parseInt(storedLockout, 10) : null;
           const isCurrentlyLockedOut = parsedLockout ? parsedLockout > Date.now() : false;
 
-          // Check background duration and session unlock state
-          const isSessionUnlocked = sessionStorage.getItem(sessionUnlockedKey) === 'true';
-          const storedBg = localStorage.getItem(bgStorageKey);
-          const lastBgTime = storedBg ? parseInt(storedBg, 10) : 0;
-          const elapsedSinceBg = lastBgTime > 0 ? Date.now() - lastBgTime : 0;
-
           if (isCurrentlyLockedOut) {
-            // Must stay locked if lockout penalty is active
             setIsLocked(true);
             setLockoutUntil(parsedLockout);
             setFailedAttempts(5);
             setLockoutRemainingSeconds(Math.max(0, Math.ceil(((parsedLockout || 0) - Date.now()) / 1000)));
-          } else if (!isSessionUnlocked || elapsedSinceBg >= BACKGROUND_LOCK_THRESHOLD_MS) {
+            return;
+          }
+
+          // Check background duration and persistent unlock state
+          const isUnlocked = localStorage.getItem(sessionUnlockedKey) === 'true';
+          const storedActive = localStorage.getItem(lastActiveStorageKey);
+          const storedBg = localStorage.getItem(bgStorageKey);
+          const lastActiveTime = storedActive ? parseInt(storedActive, 10) : 0;
+          const lastBgTime = storedBg ? parseInt(storedBg, 10) : 0;
+          const mostRecentActivity = Math.max(lastActiveTime, lastBgTime);
+
+          const elapsedSinceActivity = mostRecentActivity > 0 ? Date.now() - mostRecentActivity : Infinity;
+
+          if (isUnlocked && elapsedSinceActivity < BACKGROUND_LOCK_THRESHOLD_MS) {
+            // Already unlocked and active within the 10-second threshold (or in-app navigation)
+            setIsLocked(false);
+            localStorage.setItem(lastActiveStorageKey, String(Date.now()));
+            localStorage.removeItem(bgStorageKey);
+          } else {
             // Cold start or away for >= 10 seconds
             setIsLocked(true);
-            sessionStorage.removeItem(sessionUnlockedKey);
-          } else {
-            setIsLocked(false);
+            localStorage.removeItem(sessionUnlockedKey);
           }
         } else {
           setIsAppLockEnabled(false);
@@ -157,7 +169,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsLocked(false);
       setSecurityQuestion(undefined);
     }
-  }, [isAuthenticated, user, configStorageKey, lockoutStorageKey, bgStorageKey, sessionUnlockedKey]);
+  }, [isAuthenticated, userId, configStorageKey, lockoutStorageKey, bgStorageKey, lastActiveStorageKey, sessionUnlockedKey]);
 
   useEffect(() => {
     loadStoredConfig();
@@ -191,39 +203,50 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Handle background / foreground transitions:
   // App locks ONLY after 10 seconds of coming out of the app
   useEffect(() => {
-    if (!isAppLockEnabled || !isAuthenticated) return;
+    if (!isAppLockEnabled || !isAuthenticated || userId === 'guest') return;
 
     const handleExitApp = () => {
       const now = Date.now();
       lastBackgroundedRef.current = now;
       try {
         localStorage.setItem(bgStorageKey, String(now));
+        localStorage.setItem(lastActiveStorageKey, String(now));
       } catch {}
     };
 
     const handleReturnToApp = () => {
       const now = Date.now();
-      let bgTime = lastBackgroundedRef.current;
-      if (!bgTime) {
+      let exitTime = lastBackgroundedRef.current;
+      if (!exitTime) {
         try {
           const stored = localStorage.getItem(bgStorageKey);
-          if (stored) bgTime = parseInt(stored, 10);
+          if (stored) exitTime = parseInt(stored, 10);
         } catch {}
       }
 
-      if (bgTime) {
-        const elapsed = now - bgTime;
+      if (!exitTime) {
+        try {
+          const storedActive = localStorage.getItem(lastActiveStorageKey);
+          if (storedActive) exitTime = parseInt(storedActive, 10);
+        } catch {}
+      }
+
+      if (exitTime && exitTime > 0) {
+        const elapsed = now - exitTime;
+        // Lock ONLY if away for >= 10 seconds
         if (elapsed >= BACKGROUND_LOCK_THRESHOLD_MS) {
           setIsLocked(true);
           try {
-            sessionStorage.removeItem(sessionUnlockedKey);
+            localStorage.removeItem(sessionUnlockedKey);
           } catch {}
         }
       }
 
       lastBackgroundedRef.current = null;
+      lastActiveRef.current = now;
       try {
         localStorage.removeItem(bgStorageKey);
+        localStorage.setItem(lastActiveStorageKey, String(now));
       } catch {}
     };
 
@@ -243,16 +266,32 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       handleReturnToApp();
     };
 
+    // User interaction heartbeat to ensure in-app usage never triggers a lock
+    const recordUserActivity = () => {
+      const now = Date.now();
+      lastActiveRef.current = now;
+      if (now - lastStorageWriteRef.current > 2000) {
+        lastStorageWriteRef.current = now;
+        try {
+          localStorage.setItem(lastActiveStorageKey, String(now));
+        } catch {}
+      }
+    };
+
+    const activityEvents = ['touchstart', 'touchend', 'mousedown', 'keydown', 'scroll'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, recordUserActivity, { passive: true }));
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
 
     return () => {
+      activityEvents.forEach((ev) => window.removeEventListener(ev, recordUserActivity));
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
     };
-  }, [isAppLockEnabled, isAuthenticated, bgStorageKey, sessionUnlockedKey]);
+  }, [isAppLockEnabled, isAuthenticated, userId, bgStorageKey, lastActiveStorageKey, sessionUnlockedKey]);
 
   // Setup / Enable PIN with optional Security Question & Answer
   const setupPin = async (
@@ -288,7 +327,11 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setLockoutUntil(null);
       localStorage.removeItem(lockoutStorageKey);
       localStorage.removeItem(attemptsStorageKey);
-      sessionStorage.setItem(sessionUnlockedKey, 'true');
+      localStorage.removeItem(bgStorageKey);
+      localStorage.setItem(sessionUnlockedKey, 'true');
+      localStorage.setItem(lastActiveStorageKey, String(Date.now()));
+      lastBackgroundedRef.current = null;
+      lastActiveRef.current = Date.now();
 
       return true;
     } catch (err) {
@@ -372,7 +415,8 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.removeItem(lockoutStorageKey);
       localStorage.removeItem(attemptsStorageKey);
       localStorage.removeItem(bgStorageKey);
-      sessionStorage.removeItem(sessionUnlockedKey);
+      localStorage.removeItem(lastActiveStorageKey);
+      localStorage.removeItem(sessionUnlockedKey);
 
       setIsAppLockEnabled(false);
       setHasPinSet(false);
@@ -380,6 +424,8 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setSecurityQuestion(undefined);
       setFailedAttempts(0);
       setLockoutUntil(null);
+      lastBackgroundedRef.current = null;
+      lastActiveRef.current = Date.now();
 
       return { success: true };
     } catch {
@@ -415,7 +461,11 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setLockoutUntil(null);
         localStorage.removeItem(lockoutStorageKey);
         localStorage.removeItem(attemptsStorageKey);
-        sessionStorage.setItem(sessionUnlockedKey, 'true');
+        localStorage.removeItem(bgStorageKey);
+        localStorage.setItem(sessionUnlockedKey, 'true');
+        localStorage.setItem(lastActiveStorageKey, String(Date.now()));
+        lastBackgroundedRef.current = null;
+        lastActiveRef.current = Date.now();
         return { success: true };
       } else {
         const storedAttempts = parseInt(localStorage.getItem(attemptsStorageKey) || '0', 10);
@@ -483,12 +533,16 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       localStorage.setItem(configStorageKey, JSON.stringify(updated));
       localStorage.removeItem(lockoutStorageKey);
       localStorage.removeItem(attemptsStorageKey);
-      sessionStorage.setItem(sessionUnlockedKey, 'true');
+      localStorage.removeItem(bgStorageKey);
+      localStorage.setItem(sessionUnlockedKey, 'true');
+      localStorage.setItem(lastActiveStorageKey, String(Date.now()));
 
       setFailedAttempts(0);
       setLockoutUntil(null);
       setLockoutRemainingSeconds(0);
       setIsLocked(false);
+      lastBackgroundedRef.current = null;
+      lastActiveRef.current = Date.now();
 
       return { success: true };
     } catch {
@@ -499,13 +553,17 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const lockApp = () => {
     if (isAppLockEnabled) {
       setIsLocked(true);
-      sessionStorage.removeItem(sessionUnlockedKey);
+      localStorage.removeItem(sessionUnlockedKey);
     }
   };
 
   const unlockApp = () => {
     setIsLocked(false);
-    sessionStorage.setItem(sessionUnlockedKey, 'true');
+    localStorage.setItem(sessionUnlockedKey, 'true');
+    localStorage.setItem(lastActiveStorageKey, String(Date.now()));
+    localStorage.removeItem(bgStorageKey);
+    lastBackgroundedRef.current = null;
+    lastActiveRef.current = Date.now();
   };
 
   return (
