@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppLock } from '../context/AppLockContext';
 import { useAuth } from '../context/AuthContext';
 import { Delete, LogOut, HelpCircle, ArrowLeft, KeyRound, AlertCircle } from 'lucide-react';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 export const AppLockScreen: React.FC = () => {
   const {
@@ -13,8 +14,13 @@ export const AppLockScreen: React.FC = () => {
     verifySecurityAnswerAndResetPin,
   } = useAppLock();
 
+  useBodyScrollLock(isLocked);
+
   const { user, logout } = useAuth();
   const [pin, setPin] = useState('');
+  const pinRef = useRef('');
+  pinRef.current = pin;
+
   const [errorMessage, setErrorMessage] = useState('');
   const [isShaking, setIsShaking] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -30,6 +36,7 @@ export const AppLockScreen: React.FC = () => {
   const resetPinWithShake = useCallback((msg: string) => {
     setIsShaking(true);
     setErrorMessage(msg);
+    pinRef.current = '';
     setPin('');
     const timer = setTimeout(() => {
       setIsShaking(false);
@@ -49,6 +56,7 @@ export const AppLockScreen: React.FC = () => {
         if (!res.success) {
           resetPinWithShake(res.error || 'Incorrect PIN');
         } else {
+          pinRef.current = '';
           setPin('');
           setErrorMessage('');
         }
@@ -61,11 +69,12 @@ export const AppLockScreen: React.FC = () => {
     [isVerifying, verifyAndUnlock, resetPinWithShake]
   );
 
-  // Keypad click handlers
+  // Keypad click handlers (Synchronous ref updates prevent lag & dropped digits)
   const handleDigitPress = (digit: string) => {
     if (lockoutRemainingSeconds > 0 || isVerifying) return;
-    if (pin.length < 4) {
-      const nextPin = pin + digit;
+    if (pinRef.current.length < 4) {
+      const nextPin = pinRef.current + digit;
+      pinRef.current = nextPin;
       setPin(nextPin);
       setErrorMessage('');
       if (nextPin.length === 4) {
@@ -76,41 +85,54 @@ export const AppLockScreen: React.FC = () => {
 
   const handleDeletePress = () => {
     if (lockoutRemainingSeconds > 0 || isVerifying) return;
-    setPin((prev) => prev.slice(0, -1));
+    const nextPin = pinRef.current.slice(0, -1);
+    pinRef.current = nextPin;
+    setPin(nextPin);
     setErrorMessage('');
   };
 
-  // Keyboard support for desktop / physical keyboards
+  // Keyboard support for desktop / physical keyboards with stabilized handler
+  const lockoutRef = useRef(lockoutRemainingSeconds);
+  lockoutRef.current = lockoutRemainingSeconds;
+  const isVerifyingRef = useRef(isVerifying);
+  isVerifyingRef.current = isVerifying;
+  const handleSubmitPinRef = useRef(handleSubmitPin);
+  handleSubmitPinRef.current = handleSubmitPin;
+
   useEffect(() => {
     if (!isLocked || isForgotMode) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (lockoutRemainingSeconds > 0 || isVerifying) return;
+      if (lockoutRef.current > 0 || isVerifyingRef.current) return;
 
       if (e.key >= '0' && e.key <= '9') {
         e.preventDefault();
-        if (pin.length < 4) {
-          const nextPin = pin + e.key;
+        if (pinRef.current.length < 4) {
+          const nextPin = pinRef.current + e.key;
+          pinRef.current = nextPin;
           setPin(nextPin);
           setErrorMessage('');
           if (nextPin.length === 4) {
-            handleSubmitPin(nextPin);
+            handleSubmitPinRef.current(nextPin);
           }
         }
       } else if (e.key === 'Backspace') {
         e.preventDefault();
-        setPin((prev) => prev.slice(0, -1));
+        const nextPin = pinRef.current.slice(0, -1);
+        pinRef.current = nextPin;
+        setPin(nextPin);
         setErrorMessage('');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLocked, isForgotMode, pin, lockoutRemainingSeconds, isVerifying, handleSubmitPin]);
+  }, [isLocked, isForgotMode]);
 
   // Clean state when unlocked
   useEffect(() => {
     if (!isLocked) {
+      pinRef.current = '';
       setPin('');
       setErrorMessage('');
       setIsForgotMode(false);
@@ -323,7 +345,7 @@ export const AppLockScreen: React.FC = () => {
                 return (
                   <div
                     key={index}
-                    className={`w-3.5 h-3.5 rounded-full transition-all duration-200 ${
+                    className={`w-3.5 h-3.5 rounded-full transition-all duration-75 ${
                       isFilled
                         ? errorMessage
                           ? 'bg-rose-500 ring-4 ring-rose-500/25 scale-110'
@@ -356,7 +378,7 @@ export const AppLockScreen: React.FC = () => {
                   type="button"
                   onClick={() => handleDigitPress(digit)}
                   disabled={lockoutRemainingSeconds > 0 || isVerifying}
-                  className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-zinc-900/90 border border-zinc-800/80 hover:border-zinc-700 text-xl font-bold text-zinc-100 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 transition-all flex items-center justify-center shadow-sm disabled:opacity-30 disabled:pointer-events-none"
+                  className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-zinc-900/90 border border-zinc-800/80 hover:border-zinc-700 text-xl font-bold text-zinc-100 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 transition-all flex items-center justify-center shadow-sm disabled:opacity-30 disabled:pointer-events-none touch-manipulation select-none"
                 >
                   {digit}
                 </button>
@@ -369,7 +391,7 @@ export const AppLockScreen: React.FC = () => {
                 type="button"
                 onClick={() => handleDigitPress('0')}
                 disabled={lockoutRemainingSeconds > 0 || isVerifying}
-                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-zinc-900/90 border border-zinc-800/80 hover:border-zinc-700 text-xl font-bold text-zinc-100 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 transition-all flex items-center justify-center shadow-sm disabled:opacity-30 disabled:pointer-events-none"
+                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-zinc-900/90 border border-zinc-800/80 hover:border-zinc-700 text-xl font-bold text-zinc-100 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 transition-all flex items-center justify-center shadow-sm disabled:opacity-30 disabled:pointer-events-none touch-manipulation select-none"
               >
                 0
               </button>
@@ -380,7 +402,7 @@ export const AppLockScreen: React.FC = () => {
                 disabled={lockoutRemainingSeconds > 0 || isVerifying || pin.length === 0}
                 title="Delete last digit"
                 aria-label="Delete last digit"
-                className="w-16 h-16 sm:w-18 sm:h-18 flex items-center justify-center text-zinc-400 hover:text-zinc-200 active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none"
+                className="w-16 h-16 sm:w-18 sm:h-18 flex items-center justify-center text-zinc-400 hover:text-zinc-200 active:scale-90 transition-all disabled:opacity-20 disabled:pointer-events-none touch-manipulation select-none"
               >
                 <Delete className="w-6 h-6" />
               </button>

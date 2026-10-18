@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchFriendsLeaderboard, LeaderboardEntry } from '../api/leaderboard';
 import { LeaderboardTable } from '../components/LeaderboardTable';
+import { LeaderboardNav } from '../components/LeaderboardNav';
 import { Link } from 'react-router-dom';
 import { UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -41,6 +42,8 @@ export const FriendsLeaderboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20">
+      <LeaderboardNav />
+
       <LeaderboardTable
         entries={entries}
         title="Friends Leaderboard"

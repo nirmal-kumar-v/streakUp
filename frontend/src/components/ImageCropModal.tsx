@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Move,
 } from 'lucide-react';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface ImageCropModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
   onSkipCrop,
   onClose,
 }) => {
+  useBodyScrollLock(isOpen);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -194,11 +196,11 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto overscroll-contain"
       onClick={onClose}
     >
       <div
-        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden"
+        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative overflow-hidden my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}

@@ -145,3 +145,5 @@ export const DualClock: React.FC<DualClockProps> = ({ timezone = 'Asia/Kolkata',
     </div>
   );
 };
+
+export { ReverseCountdownClock } from './ReverseCountdownClock';

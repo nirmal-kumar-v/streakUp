@@ -12,7 +12,7 @@ import {
   Priority,
   Recurrence,
 } from '../api/tasks';
-import { DualClock } from '../components/DualClock';
+import { ReverseCountdownClock } from '../components/ReverseCountdownClock';
 import { TaskCard } from '../components/TaskCard';
 import { TaskModal } from '../components/TaskModal';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
@@ -268,8 +268,8 @@ export const DashboardPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Dual Clocks Section: Real Time & Midnight Countdown */}
-      <DualClock timezone={user?.timezone || 'Asia/Kolkata'} onDayRollover={loadDashboard} />
+      {/* Reverse Stopwatch Countdown to Midnight */}
+      <ReverseCountdownClock timezone={user?.timezone || 'Asia/Kolkata'} onDayRollover={loadDashboard} />
 
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

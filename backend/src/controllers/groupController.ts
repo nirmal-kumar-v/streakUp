@@ -877,7 +877,7 @@ export async function getGroupNotes(req: AuthenticatedRequest, res: Response) {
 
     const formattedNotes = completions.map((c) => {
       // Aggregate reactions
-      const counts: Record<string, number> = { FIRE: 0, STRONG: 0, CLAP: 0, CELEBRATE: 0 };
+      const counts: Record<string, number> = { FIRE: 0, STRONG: 0, CLAP: 0, CELEBRATE: 0, LIKE: 0 };
       const userReactions: string[] = [];
 
       c.reactions.forEach((r) => {

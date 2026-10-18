@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, FileText, Shield, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface PolicyModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({
   initialTab = 'terms',
   onClose,
 }) => {
+  useBodyScrollLock(isOpen);
   const [activeTab, setActiveTab] = useState<'terms' | 'privacy'>(initialTab);
 
   if (!isOpen) return null;
@@ -21,9 +23,9 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain"
     >
-      <div className="bg-dark-card border border-dark-border rounded-3xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-dark-card border border-dark-border rounded-3xl w-full max-w-2xl max-h-[88vh] flex flex-col shadow-2xl overflow-hidden my-auto">
         {/* Modal Header */}
         <div className="px-5 py-4 border-b border-dark-border flex items-center justify-between shrink-0 bg-dark-card">
           <div className="flex items-center gap-1.5 p-1 bg-dark-surface rounded-xl border border-dark-border">

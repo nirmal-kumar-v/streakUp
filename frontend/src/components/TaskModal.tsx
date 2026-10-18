@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Task, Priority, Recurrence } from '../api/tasks';
 import { X, Clock, Tag, AlertCircle, Sparkles } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   editingTask,
 }) => {
   const [title, setTitle] = useState('');
+  useBodyScrollLock(isOpen);
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('General');
   const [priority, setPriority] = useState<Priority>('MEDIUM');
@@ -129,8 +131,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150 overflow-y-auto overscroll-contain">
+      <div className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden my-auto">
         {/* Header */}
         <div className="px-6 py-4 border-b border-dark-border flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -290,7 +292,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                           key={w.day}
                           type="button"
                           onClick={() => toggleDay(w.day)}
-                          className={`py-2 text-xs font-bold rounded-lg border transition-all ${
+                          className={`py-1.5 sm:py-2 text-[10px] sm:text-xs font-bold rounded-lg border transition-all text-center flex items-center justify-center min-w-0 truncate ${
                             isSelected
                               ? 'bg-flame-500 text-zinc-950 border-flame-400 shadow-sm shadow-flame-500/20'
                               : 'bg-dark-surface text-zinc-400 border-dark-border hover:border-zinc-600 hover:text-zinc-200'

@@ -33,6 +33,7 @@ import {
   RotateCw,
   Check,
 } from 'lucide-react';
+import { CustomSelect } from '../components/CustomSelect';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
@@ -711,17 +712,12 @@ export const NotificationSettingsPage: React.FC = () => {
                 <label className="block text-[11px] font-bold text-zinc-400 mb-1">
                   Select Recurring Habit
                 </label>
-                <select
+                <CustomSelect
                   value={taskSelectedId}
-                  onChange={(e) => setTaskSelectedId(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                >
-                  {tasks.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setTaskSelectedId(val)}
+                  options={tasks.map((t) => ({ value: t.id, label: t.title }))}
+                  size="sm"
+                />
               </div>
 
               <div>

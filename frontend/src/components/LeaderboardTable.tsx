@@ -99,7 +99,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                   }`}
                 >
                   <Award className="w-3.5 h-3.5" />
-                  <span>Points Rank</span>
+                  <span>Points Table</span>
                 </button>
               </div>
             )}
@@ -359,6 +359,71 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
                     </td>
                   </tr>
                 ))
+              )}
+              {currentUserRankInfo && !filteredEntries.some((e) => e.isCurrentUser) && (
+                <tr className="bg-flame-500/10 border-t-2 border-flame-500/30 font-semibold">
+                  <td className="py-3.5 px-4 text-center">
+                    <div className="flex items-center justify-center">{getRankBadge(currentUserRankInfo.rank)}</div>
+                  </td>
+                  <td className="py-3.5 px-4">
+                    <Link
+                      to={`/profile/${currentUserRankInfo.username}`}
+                      className="flex items-center gap-3 group focus:outline-none"
+                    >
+                      <InitialsAvatar
+                        name={currentUserRankInfo.name}
+                        image={currentUserRankInfo.profileImage}
+                        size="md"
+                        className="border-2 border-flame-500"
+                      />
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-zinc-100 group-hover:text-flame-400 transition-colors">
+                            {currentUserRankInfo.name}
+                          </span>
+                          <span className="text-[10px] bg-flame-500/25 text-flame-300 font-bold px-1.5 py-0.2 rounded border border-flame-500/40">
+                            YOU
+                          </span>
+                        </div>
+                        <span className="text-xs text-dark-muted font-mono">@{currentUserRankInfo.username}</span>
+                      </div>
+                    </Link>
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    <div className="inline-flex items-center gap-1.5 font-bold font-mono text-flame-400 bg-flame-500/10 px-2.5 py-1 rounded-full border border-flame-500/20">
+                      <Flame className="w-3.5 h-3.5 fill-flame-500/30" />
+                      <span>{currentUserRankInfo.currentStreak}d</span>
+                    </div>
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    <div className="inline-flex items-center gap-1 text-xs font-mono text-zinc-300">
+                      <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{currentUserRankInfo.longestStreak}d</span>
+                    </div>
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    <span
+                      className={`font-mono font-bold text-xs ${
+                        (currentUserRankInfo.points ?? 0) > 0
+                          ? 'text-emerald-400'
+                          : (currentUserRankInfo.points ?? 0) < 0
+                          ? 'text-rose-400'
+                          : 'text-zinc-400'
+                      }`}
+                    >
+                      {(currentUserRankInfo.points ?? 0) > 0 ? `+${currentUserRankInfo.points}` : (currentUserRankInfo.points ?? 0)} pts
+                    </span>
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    <div className="inline-flex items-center gap-1 text-xs font-mono text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>{currentUserRankInfo.tasksCompletedToday}</span>
+                    </div>
+                  </td>
+                  <td className="py-3.5 px-4 text-center text-xs font-mono text-dark-muted">
+                    {currentUserRankInfo.totalCompletedTasks}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

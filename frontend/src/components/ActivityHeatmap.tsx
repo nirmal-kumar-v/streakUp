@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { ActivityTaskInfo, fetchActivityHistory, ActivityHistoryResponse } from '../api/tasks';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface ActivityHeatmapProps {
   timezone?: string;
@@ -45,6 +46,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     count: number;
     tasks: ActivityTaskInfo[];
   } | null>(null);
+
+  useBodyScrollLock(Boolean(selectedDateDetail));
 
   // Close modal on Escape
   useEffect(() => {
@@ -312,11 +315,11 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="heatmap-date-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain"
           onClick={() => setSelectedDateDetail(null)}
         >
           <div
-            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp"
+            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-dark-border pb-3">

@@ -1,6 +1,6 @@
 import apiClient from './client';
 
-export type EmojiType = 'FIRE' | 'STRONG' | 'CLAP' | 'CELEBRATE';
+export type EmojiType = 'FIRE' | 'STRONG' | 'CLAP' | 'CELEBRATE' | 'LIKE';
 export type ReactionType = EmojiType;
 
 export interface ReactionResponse {

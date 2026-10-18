@@ -44,6 +44,7 @@ import {
   MessageSquare,
   CheckSquare,
   ShieldAlert,
+  ThumbsUp,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
@@ -55,10 +56,8 @@ export const GroupDetailPage: React.FC = () => {
 
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [activeMainTab, setActiveMainTab] = useState<'task' | 'leaderboard' | 'notes' | 'admin'>('task');
-  const [leaderboardType, setLeaderboardType] = useState<'streak' | 'weekly'>('streak');
 
   const [leaderboard, setLeaderboard] = useState<GroupLeaderboardEntry[]>([]);
-  const [weekRange, setWeekRange] = useState<{ startDate: string; endDate: string } | null>(null);
   const [notes, setNotes] = useState<GroupNoteItem[]>([]);
   const [joinRequests, setJoinRequests] = useState<GroupJoinRequestItem[]>([]);
 
@@ -110,17 +109,16 @@ export const GroupDetailPage: React.FC = () => {
     if (!groupId) return;
     setIsLoadingLeaderboard(true);
     try {
-      const res = await fetchGroupLeaderboard(groupId, leaderboardType);
+      const res = await fetchGroupLeaderboard(groupId, 'streak');
       if (res.success) {
         setLeaderboard(res.leaderboard || []);
-        if (res.weekRange) setWeekRange(res.weekRange);
       }
     } catch (err: any) {
       console.error('Failed to load group leaderboard:', err);
     } finally {
       setIsLoadingLeaderboard(false);
     }
-  }, [groupId, leaderboardType]);
+  }, [groupId]);
 
   const loadNotes = useCallback(async () => {
     if (!groupId) return;
@@ -164,7 +162,7 @@ export const GroupDetailPage: React.FC = () => {
     } else if (activeMainTab === 'admin' && group?.isAdmin) {
       loadJoinRequests();
     }
-  }, [activeMainTab, leaderboardType, loadLeaderboard, loadNotes, loadJoinRequests, group?.isAdmin]);
+  }, [activeMainTab, loadLeaderboard, loadNotes, loadJoinRequests, group?.isAdmin]);
 
   const handleCopyCode = () => {
     if (!group?.joinCode) return;
@@ -517,7 +515,7 @@ export const GroupDetailPage: React.FC = () => {
           }`}
         >
           <MessageSquare className="w-3.5 h-3.5" />
-          <span>Task Notes & Reactions</span>
+          <span>Task Notes & Likes</span>
         </button>
 
         {isAdmin && (
@@ -748,36 +746,8 @@ export const GroupDetailPage: React.FC = () => {
                 <span>Group Leaderboard</span>
               </h2>
               <p className="text-xs text-dark-muted mt-0.5">
-                {leaderboardType === 'streak'
-                  ? 'Ranked by active consecutive group task streaks'
-                  : `Ranked by qualifying completions this week (${weekRange?.startDate} to ${weekRange?.endDate})`}
+                Ranked by active consecutive group task streaks
               </p>
-            </div>
-
-            {/* Toggle: Streak vs Weekly */}
-            <div className="flex bg-dark-surface border border-dark-border p-1 rounded-xl self-start sm:self-center">
-              <button
-                onClick={() => setLeaderboardType('streak')}
-                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  leaderboardType === 'streak'
-                    ? 'bg-flame-500 text-zinc-950 shadow-sm shadow-flame-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>Streak Rank</span>
-              </button>
-              <button
-                onClick={() => setLeaderboardType('weekly')}
-                className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
-                  leaderboardType === 'weekly'
-                    ? 'bg-amber-500 text-zinc-950 shadow-sm shadow-amber-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Weekly Rank</span>
-              </button>
             </div>
           </div>
 
@@ -800,9 +770,7 @@ export const GroupDetailPage: React.FC = () => {
                   <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
                     <th className="pb-3 pl-2 w-12">#</th>
                     <th className="pb-3">Member</th>
-                    <th className="pb-3 text-center">
-                      {leaderboardType === 'streak' ? 'Current Streak' : 'This Week Completions'}
-                    </th>
+                    <th className="pb-3 text-center">Current Streak</th>
                     <th className="pb-3 text-center">Best Streak</th>
                     <th className="pb-3 text-right pr-2">Friend Action</th>
                   </tr>
@@ -869,19 +837,12 @@ export const GroupDetailPage: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* Streak or Weekly Count */}
+                        {/* Current Streak */}
                         <td className="py-3.5 text-center">
-                          {leaderboardType === 'streak' ? (
-                            <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
-                              <Flame className="w-3.5 h-3.5 fill-flame-500" />
-                              <span>{entry.currentStreak}d</span>
-                            </span>
-                          ) : (
-                            <span className="font-mono font-bold text-emerald-400 inline-flex items-center gap-1">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>{entry.weeklyCompletions} days</span>
-                            </span>
-                          )}
+                          <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
+                            <Flame className="w-3.5 h-3.5 fill-flame-500" />
+                            <span>{entry.currentStreak}d</span>
+                          </span>
                         </td>
 
                         {/* Best Streak */}
@@ -963,12 +924,12 @@ export const GroupDetailPage: React.FC = () => {
           ) : (
             <div className="space-y-4">
               {notes.map((note) => {
-                const EMOJIS: { key: EmojiType; icon: string }[] = [
-                  { key: 'FIRE', icon: '🔥' },
-                  { key: 'STRONG', icon: '💪' },
-                  { key: 'CLAP', icon: '👏' },
-                  { key: 'CELEBRATE', icon: '🎉' },
-                ];
+                const hasLiked = note.userReactions?.includes('LIKE') || (note.userReactions && note.userReactions.length > 0);
+                const likeCount = (note.reactionCounts?.LIKE || 0) +
+                  (note.reactionCounts?.FIRE || 0) +
+                  (note.reactionCounts?.STRONG || 0) +
+                  (note.reactionCounts?.CLAP || 0) +
+                  (note.reactionCounts?.CELEBRATE || 0);
 
                 return (
                   <div
@@ -1002,28 +963,27 @@ export const GroupDetailPage: React.FC = () => {
                       "{note.studyNote}"
                     </p>
 
-                    {/* Reactions Bar */}
+                    {/* Reactions Bar - Like Only (No Emoji, No Dislike) */}
                     <div className="flex items-center gap-2 mt-3 pt-2 border-t border-dark-border/40">
-                      {EMOJIS.map(({ key, icon }) => {
-                        const count = note.reactionCounts?.[key] || 0;
-                        const hasReacted = note.userReactions?.includes(key);
-
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => handleReaction(note.id, key)}
-                            className={`px-2 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all ${
-                              hasReacted
-                                ? 'bg-flame-500/20 border border-flame-500/40 text-flame-300 scale-105'
-                                : 'bg-dark-surface border border-dark-border text-zinc-400 hover:border-zinc-700'
-                            }`}
-                          >
-                            <span>{icon}</span>
-                            {count > 0 && <span>{count}</span>}
-                          </button>
-                        );
-                      })}
+                      <button
+                        type="button"
+                        onClick={() => handleReaction(note.id, 'LIKE')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 touch-manipulation select-none ${
+                          hasLiked
+                            ? 'bg-flame-500/15 border border-flame-500/40 text-flame-400 shadow-sm shadow-flame-500/10'
+                            : 'bg-dark-surface border border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                        }`}
+                        title={hasLiked ? 'Unlike' : 'Like'}
+                        aria-label={hasLiked ? 'Unlike note' : 'Like note'}
+                      >
+                        <ThumbsUp className={`w-3.5 h-3.5 ${hasLiked ? 'fill-flame-400 text-flame-400' : 'text-zinc-400'}`} />
+                        <span>Like</span>
+                        {likeCount > 0 && (
+                          <span className={`text-[11px] font-mono font-bold ${hasLiked ? 'text-flame-400' : 'text-zinc-400'}`}>
+                            {likeCount}
+                          </span>
+                        )}
+                      </button>
                     </div>
                   </div>
                 );

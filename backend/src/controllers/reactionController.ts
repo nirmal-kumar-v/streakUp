@@ -3,7 +3,7 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { areFriends } from './friendTaskController';
 
-const ALLOWED_EMOJIS = ['FIRE', 'STRONG', 'CLAP', 'CELEBRATE'] as const;
+const ALLOWED_EMOJIS = ['FIRE', 'STRONG', 'CLAP', 'CELEBRATE', 'LIKE'] as const;
 type ReactionEmoji = typeof ALLOWED_EMOJIS[number];
 
 /**
@@ -14,7 +14,8 @@ export function formatReactions(reactions: Array<{ id: string; userId: string; e
     FIRE: 0,
     STRONG: 0,
     CLAP: 0,
-    CELEBRATE: 0
+    CELEBRATE: 0,
+    LIKE: 0,
   };
 
   const userReactions: ReactionEmoji[] = [];
@@ -40,7 +41,7 @@ export function formatReactions(reactions: Array<{ id: string; userId: string; e
 
 /**
  * Toggle an emoji reaction on a study note (Requirement 6)
- * Supported: FIRE (🔥), STRONG (💪), CLAP (👏), CELEBRATE (🎉)
+ * Supported: FIRE (🔥), STRONG (💪), CLAP (👏), CELEBRATE (🎉), LIKE (👍)
  */
 export async function toggleReaction(req: AuthenticatedRequest, res: Response) {
   try {
@@ -58,21 +59,40 @@ export async function toggleReaction(req: AuthenticatedRequest, res: Response) {
     // Verify task completion exists and has a study note
     const completion = await prisma.taskCompletion.findUnique({
       where: { id: completionId },
-      select: { id: true, userId: true, studyNote: true }
+      select: {
+        id: true,
+        userId: true,
+        studyNote: true,
+        task: {
+          select: { groupId: true }
+        }
+      }
     });
 
     if (!completion) {
       return res.status(404).json({ success: false, error: 'Study note not found or was deleted.' });
     }
 
-    // Verify requester is note owner OR accepted friend
+    // Verify requester is note owner OR accepted friend OR member of the group where the task belongs
     const isOwner = completion.userId === userId;
     const isFriend = await areFriends(userId, completion.userId);
+    let isGroupMember = false;
+    if (completion.task?.groupId) {
+      const membership = await prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: completion.task.groupId,
+            userId
+          }
+        }
+      });
+      isGroupMember = Boolean(membership);
+    }
 
-    if (!isOwner && !isFriend) {
+    if (!isOwner && !isFriend && !isGroupMember) {
       return res.status(403).json({
         success: false,
-        error: 'Forbidden. You can only react to notes from accepted friends.'
+        error: 'Forbidden. You can only react to notes from accepted friends or group members.'
       });
     }
 
@@ -133,7 +153,13 @@ export async function getReactions(req: AuthenticatedRequest, res: Response) {
 
     const completion = await prisma.taskCompletion.findUnique({
       where: { id: completionId },
-      select: { id: true, userId: true }
+      select: {
+        id: true,
+        userId: true,
+        task: {
+          select: { groupId: true }
+        }
+      }
     });
 
     if (!completion) {
@@ -142,8 +168,20 @@ export async function getReactions(req: AuthenticatedRequest, res: Response) {
 
     const isOwner = completion.userId === userId;
     const isFriend = await areFriends(userId, completion.userId);
+    let isGroupMember = false;
+    if (completion.task?.groupId) {
+      const membership = await prisma.groupMember.findUnique({
+        where: {
+          groupId_userId: {
+            groupId: completion.task.groupId,
+            userId
+          }
+        }
+      });
+      isGroupMember = Boolean(membership);
+    }
 
-    if (!isOwner && !isFriend) {
+    if (!isOwner && !isFriend && !isGroupMember) {
       return res.status(403).json({ success: false, error: 'Forbidden.' });
     }
 

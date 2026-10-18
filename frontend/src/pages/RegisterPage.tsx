@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlertCircle, ArrowRight, Lock, User as UserIcon, Mail, Globe, CheckCircle2, RotateCw, KeyRound, Edit2 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { PolicyModal } from '../components/PolicyModal';
+import { CustomSelect } from '../components/CustomSelect';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
@@ -268,20 +269,16 @@ export const RegisterPage: React.FC = () => {
               <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
                 Timezone (Streak Calendar)
               </label>
-              <div className="relative">
-                <Globe className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-dark-muted pointer-events-none" />
-                <select
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full pl-10 pr-8 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-flame-500/80 transition-all appearance-none cursor-pointer"
-                >
-                  {timezones.map((tz) => (
-                    <option key={tz.value} value={tz.value} className="bg-dark-card text-zinc-100">
-                      {tz.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <CustomSelect
+                value={timezone}
+                onChange={(val) => setTimezone(val)}
+                options={timezones.map((tz) => ({
+                  value: tz.value,
+                  label: tz.label,
+                  icon: <Globe className="w-4 h-4 text-dark-muted shrink-0" />,
+                }))}
+                searchable={true}
+              />
             </div>
 
             {/* Password */}

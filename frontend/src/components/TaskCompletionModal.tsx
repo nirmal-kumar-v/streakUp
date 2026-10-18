@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Task } from '../api/tasks';
 import { CheckCircle2, Lock, X, Sparkles, Flame } from 'lucide-react';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface TaskCompletionModalProps {
   task: Task;
@@ -15,6 +16,7 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
   onClose,
   onComplete,
 }) => {
+  useBodyScrollLock(isOpen);
   const [studyNote, setStudyNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -49,8 +51,8 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-dark-surface border border-dark-border rounded-2xl p-6 shadow-2xl shadow-zinc-950/50 space-y-5">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
+      <div className="relative w-full max-w-lg bg-dark-surface border border-dark-border rounded-2xl p-5 sm:p-6 shadow-2xl shadow-zinc-950/50 space-y-5 my-auto">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -132,7 +134,7 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
             type="button"
             onClick={handleComplete}
             disabled={isSubmitting || !isValid}
-            className={`w-full sm:w-auto px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 ${
+            className={`w-full sm:w-auto px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 touch-manipulation select-none leading-snug ${
               isValid && !isSubmitting
                 ? 'bg-flame-500 hover:bg-flame-600 text-zinc-950 shadow-flame-500/20 active:scale-95 cursor-pointer'
                 : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'

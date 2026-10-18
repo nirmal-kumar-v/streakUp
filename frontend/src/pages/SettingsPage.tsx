@@ -15,6 +15,7 @@ import {
   TimezoneOption,
 } from '../api/user';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { CustomSelect } from '../components/CustomSelect';
 import { DateTime } from 'luxon';
 import {
   Settings,
@@ -44,6 +45,7 @@ import { extractErrorMessage } from '../utils/error';
 import { useAppLock } from '../context/AppLockContext';
 import { DEFAULT_SECURITY_QUESTIONS } from '../utils/pinSecurity';
 import { ImageCropModal } from '../components/ImageCropModal';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -59,6 +61,7 @@ export const SettingsPage: React.FC = () => {
   } = useAppLock();
 
   const [appLockModal, setAppLockModal] = useState<'none' | 'setup' | 'change' | 'disable'>('none');
+  useBodyScrollLock(appLockModal !== 'none');
   const [appLockPin, setAppLockPin] = useState('');
   const [appLockConfirmPin, setAppLockConfirmPin] = useState('');
   const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
@@ -787,21 +790,16 @@ export const SettingsPage: React.FC = () => {
               </span>
             )}
           </div>
-          <select
+          <CustomSelect
             value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
-          >
-            {timezones.length > 0 ? (
-              timezones.map((tz) => (
-                <option key={tz.value} value={tz.value} className="bg-dark-card text-zinc-200">
-                  {tz.label}
-                </option>
-              ))
-            ) : (
-              <option value="Asia/Kolkata">India Standard Time (IST) - Asia/Kolkata</option>
-            )}
-          </select>
+            onChange={(val) => setTimezone(val)}
+            options={
+              timezones.length > 0
+                ? timezones.map((tz) => ({ value: tz.value, label: tz.label }))
+                : [{ value: 'Asia/Kolkata', label: 'India Standard Time (IST) - Asia/Kolkata' }]
+            }
+            searchable={true}
+          />
           <p className="text-[11px] text-dark-muted mt-1.5 leading-relaxed">
             Changing your timezone immediately updates your local day boundary and reverse midnight countdown timer.
           </p>
@@ -1337,8 +1335,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* Delete Account Confirmation Modal */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative my-8">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative my-auto">
             <div className="flex items-center gap-3 text-rose-400 mb-4">
               <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
                 <AlertCircle className="w-6 h-6" />
@@ -1448,8 +1446,8 @@ export const SettingsPage: React.FC = () => {
       )}
       {/* App Lock: Setup PIN Modal */}
       {appLockModal === 'setup' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-flame-400" />
@@ -1517,17 +1515,12 @@ export const SettingsPage: React.FC = () => {
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
                     Select Question
                   </label>
-                  <select
+                  <CustomSelect
                     value={appLockSecQuestion}
-                    onChange={(e) => setAppLockSecQuestion(e.target.value)}
-                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
-                  >
-                    {DEFAULT_SECURITY_QUESTIONS.map((q) => (
-                      <option key={q} value={q} className="bg-dark-card text-zinc-200">
-                        {q}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setAppLockSecQuestion(val)}
+                    options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
+                    size="sm"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
@@ -1570,8 +1563,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* App Lock: Change PIN Modal */}
       {appLockModal === 'change' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-flame-400" />
@@ -1648,17 +1641,12 @@ export const SettingsPage: React.FC = () => {
                   <HelpCircle className="w-3.5 h-3.5 text-flame-400" />
                   <span>Update Security Question (Optional)</span>
                 </div>
-                <select
+                <CustomSelect
                   value={appLockSecQuestion}
-                  onChange={(e) => setAppLockSecQuestion(e.target.value)}
-                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
-                >
-                  {DEFAULT_SECURITY_QUESTIONS.map((q) => (
-                    <option key={q} value={q} className="bg-dark-card text-zinc-200">
-                      {q}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(val) => setAppLockSecQuestion(val)}
+                  options={DEFAULT_SECURITY_QUESTIONS.map((q) => ({ value: q, label: q }))}
+                  size="sm"
+                />
                 <input
                   type="text"
                   placeholder="New answer (leave blank to keep existing)"
@@ -1691,8 +1679,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* App Lock: Disable Confirmation Modal */}
       {appLockModal === 'disable' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-rose-400" />

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
+import { useBodyScrollLock } from '../utils/scrollLock';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -56,6 +57,8 @@ export const GroupsPage: React.FC = () => {
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [isJoining, setIsJoining] = useState(false);
+
+  useBodyScrollLock(isCreateOpen || isJoinOpen);
 
   // General feedback
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -604,8 +607,8 @@ export const GroupsPage: React.FC = () => {
 
       {/* CREATE GROUP MODAL */}
       {isCreateOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative my-8">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-6 shadow-2xl relative my-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
                 <Sparkles className="w-5 h-5" />
@@ -716,8 +719,8 @@ export const GroupsPage: React.FC = () => {
 
       {/* JOIN GROUP WITH CODE MODAL */}
       {isJoinOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
+          <div className="bg-dark-card border border-dark-border rounded-3xl max-w-sm w-full p-6 shadow-2xl relative my-auto">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
                 <KeyRound className="w-5 h-5" />

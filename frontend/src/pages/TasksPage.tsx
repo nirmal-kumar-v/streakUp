@@ -16,6 +16,7 @@ import { TaskCard } from '../components/TaskCard';
 import { TaskModal } from '../components/TaskModal';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { TaskDetailModal } from '../components/TaskDetailModal';
+import { CustomSelect } from '../components/CustomSelect';
 import { triggerStreakCelebration } from '../components/StreakCelebration';
 import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
@@ -306,36 +307,38 @@ export const TasksPage: React.FC = () => {
           {/* Priority Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-dark-muted flex-shrink-0" />
-            <select
+            <CustomSelect
               value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
-            >
-              <option value="ALL">All Priorities</option>
-              <option value="HIGH">High Priority</option>
-              <option value="MEDIUM">Medium Priority</option>
-              <option value="LOW">Low Priority</option>
-            </select>
+              onChange={(val) => setPriorityFilter(val)}
+              options={[
+                { value: 'ALL', label: 'All Priorities' },
+                { value: 'HIGH', label: 'High Priority' },
+                { value: 'MEDIUM', label: 'Medium Priority' },
+                { value: 'LOW', label: 'Low Priority' },
+              ]}
+              size="sm"
+            />
           </div>
 
           {/* Sorting */}
           <div className="flex items-center gap-2">
             <ArrowUpDown className="w-4 h-4 text-dark-muted flex-shrink-0" />
-            <select
+            <CustomSelect
               value={`${sortBy}_${sortOrder}`}
-              onChange={(e) => {
-                const [sb, so] = e.target.value.split('_');
+              onChange={(val) => {
+                const [sb, so] = val.split('_');
                 setSortBy(sb);
                 setSortOrder(so as 'asc' | 'desc');
               }}
-              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
-            >
-              <option value="createdAt_desc">Newest First</option>
-              <option value="createdAt_asc">Oldest First</option>
-              <option value="priority_desc">Highest Priority</option>
-              <option value="dueTime_asc">Earliest Due Time</option>
-              <option value="title_asc">Title (A - Z)</option>
-            </select>
+              options={[
+                { value: 'createdAt_desc', label: 'Newest First' },
+                { value: 'createdAt_asc', label: 'Oldest First' },
+                { value: 'priority_desc', label: 'Highest Priority' },
+                { value: 'dueTime_asc', label: 'Earliest Due Time' },
+                { value: 'title_asc', label: 'Title (A - Z)' },
+              ]}
+              size="sm"
+            />
           </div>
         </div>
 

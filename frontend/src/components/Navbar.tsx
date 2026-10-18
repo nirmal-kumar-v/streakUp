@@ -108,12 +108,11 @@ export const Navbar: React.FC = () => {
       return current === '/dashboard' || current.startsWith('/dashboard/');
     }
 
-    // Trophy icon for Friends Leaderboard
+    // Trophy icon for Leaderboards (Friends & Global)
     if (path === '/leaderboard/friends') {
       return (
-        current === '/leaderboard/friends' ||
-        current.startsWith('/leaderboard/friends') ||
-        current === '/leaderboard'
+        current === '/leaderboard' ||
+        current.startsWith('/leaderboard/')
       );
     }
 
