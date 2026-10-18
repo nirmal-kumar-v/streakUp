@@ -1,0 +1,9 @@
+{
+  "40216495-029e-471e-93c7-10e28e313a4a": {
+    "leaderboardLimit": 12
+  },
+  "test-quota-user-xyz": {
+    "reminderLimit": 10,
+    "discoverGroupsLimit": 25
+  }
+}

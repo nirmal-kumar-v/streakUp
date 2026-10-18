@@ -7,17 +7,19 @@ import { createNotification } from './notificationService';
 import { buildOverallReminderEmail, buildTaskReminderEmail } from './emailService';
 import { cleanupOldAuditLogs } from '../controllers/adminController';
 
-const MAX_REMINDERS_PER_SCOPE = 3;
+import { getUserReminderLimit } from './adminConfigService';
 
 /**
- * Validates that adding a reminder time does not exceed the maximum of 3 times per scope.
+ * Validates that adding a reminder time does not exceed the allowed quota per scope.
  */
 export async function validateReminderCount(params: {
   userId: string;
   scope: ReminderScope;
   taskId?: string | null;
-}): Promise<{ valid: boolean; currentCount: number }> {
+}): Promise<{ valid: boolean; currentCount: number; maxAllowed: number }> {
   const { userId, scope, taskId } = params;
+
+  const maxAllowed = getUserReminderLimit(userId);
 
   const currentCount = await prisma.reminderSchedule.count({
     where: {
@@ -28,8 +30,9 @@ export async function validateReminderCount(params: {
   });
 
   return {
-    valid: currentCount < MAX_REMINDERS_PER_SCOPE,
+    valid: currentCount < maxAllowed,
     currentCount,
+    maxAllowed,
   };
 }
 

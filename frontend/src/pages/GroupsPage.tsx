@@ -61,6 +61,7 @@ export const GroupsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<GroupSearchResult[]>([]);
   const [isTopFive, setIsTopFive] = useState(true);
+  const [discoverLimit, setDiscoverLimit] = useState(5);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -115,6 +116,9 @@ export const GroupsPage: React.FC = () => {
       if (res.success) {
         setSearchResults(res.groups || []);
         setIsTopFive(res.isTopFive ?? !q.trim());
+        if ((res as any).discoverLimit) {
+          setDiscoverLimit((res as any).discoverLimit);
+        }
         setHasSearched(true);
       }
     } catch (err: any) {
@@ -590,7 +594,7 @@ export const GroupsPage: React.FC = () => {
                 {isTopFive ? (
                   <>
                     <Flame className="w-3.5 h-3.5 text-flame-400" />
-                    <span>Top 5 Active Groups</span>
+                    <span>Top {discoverLimit} Active Groups</span>
                   </>
                 ) : (
                   <>
@@ -612,7 +616,7 @@ export const GroupsPage: React.FC = () => {
                   }}
                   className="text-[11px] text-flame-400 hover:text-flame-300 transition-colors font-medium"
                 >
-                  Clear search · Show Top 5
+                  Clear search · Show Top {discoverLimit}
                 </button>
               )}
             </div>

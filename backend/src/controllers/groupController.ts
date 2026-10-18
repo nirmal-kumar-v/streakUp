@@ -5,6 +5,7 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { DEFAULT_TIMEZONE, isValidTimezone, getLocalDateString } from '../services/timezoneService';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
+import { getUserDiscoverGroupsLimit } from '../services/adminConfigService';
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
@@ -232,8 +233,9 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
       return true;
     });
 
-    // In Discover mode without search query: show ONLY top 5 groups. Others must be searched.
-    const finalGroups = rawQuery ? visibleGroups : visibleGroups.slice(0, 5);
+    // In Discover mode without search query: show ONLY top N groups based on user's discover limit
+    const discoverLimit = getUserDiscoverGroupsLimit(currentUserId);
+    const finalGroups = rawQuery ? visibleGroups : visibleGroups.slice(0, discoverLimit);
 
     // Check membership and join request status for current user for each visible group
     const groupsWithStatus = await Promise.all(
@@ -269,6 +271,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
     return res.json({
       success: true,
       isTopFive: !rawQuery,
+      discoverLimit,
       groups: groupsWithStatus,
     });
   } catch (err: any) {

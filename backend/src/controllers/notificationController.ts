@@ -14,6 +14,7 @@ import {
   buildVerifyNotificationEmailOtpEmail,
 } from '../services/emailService';
 import { validateReminderCount } from '../services/reminderSchedulerService';
+import { getUserReminderLimit } from '../services/adminConfigService';
 import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
 
 /**
@@ -393,9 +394,12 @@ export async function getReminderSchedules(req: AuthenticatedRequest, res: Respo
       orderBy: [{ scope: 'asc' }, { time: 'asc' }],
     });
 
+    const maxAllowed = getUserReminderLimit(userId);
+
     return res.json({
       success: true,
       schedules,
+      maxAllowed,
     });
   } catch (err: any) {
     console.error('getReminderSchedules error:', err);
@@ -449,7 +453,7 @@ export async function createReminderSchedule(req: AuthenticatedRequest, res: Res
     if (!countCheck.valid) {
       return res.status(400).json({
         success: false,
-        error: `Maximum 3 reminder times allowed for ${scope === 'OVERALL' ? 'the overall streak' : 'this specific task'}.`,
+        error: `Maximum ${countCheck.maxAllowed} reminder times allowed for ${scope === 'OVERALL' ? 'the overall streak' : 'this specific task'}.`,
       });
     }
 

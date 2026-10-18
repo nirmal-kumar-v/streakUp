@@ -8,7 +8,14 @@ import { getTodayInTimezone } from '../services/timezoneService';
 import { NotificationCategory } from '@prisma/client';
 import { sendEmail } from '../services/emailService';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
-import { getUserLeaderboardLimit, setUserLeaderboardLimit } from '../services/adminConfigService';
+import {
+  getUserLeaderboardLimit,
+  setUserLeaderboardLimit,
+  getUserReminderLimit,
+  setUserReminderLimit,
+  getUserDiscoverGroupsLimit,
+  setUserDiscoverGroupsLimit,
+} from '../services/adminConfigService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 
@@ -553,6 +560,8 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     // Strip passwordHash before returning
     const { passwordHash, ...safeUser } = user;
     (safeUser as any).leaderboardLimit = getUserLeaderboardLimit(userId);
+    (safeUser as any).reminderLimit = getUserReminderLimit(userId);
+    (safeUser as any).discoverGroupsLimit = getUserDiscoverGroupsLimit(userId);
 
     return res.json({
       success: true,
@@ -813,6 +822,7 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
     const {
       date,
       taskId,
+      taskIds: rawTaskIds,
       studyNote,
       reason,
       sendInApp,
@@ -831,17 +841,21 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { tasks: { where: { status: 'ACTIVE' }, take: 1 } },
+      include: { tasks: { where: { status: 'ACTIVE' } } },
     });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
-    // Determine target task (provided taskId or user's first active task)
-    let targetTaskId = taskId;
-    if (!targetTaskId) {
+    // Determine target tasks (from taskIds array, or single taskId, or fallback)
+    let targetTaskIds: string[] = [];
+    if (Array.isArray(rawTaskIds) && rawTaskIds.length > 0) {
+      targetTaskIds = rawTaskIds;
+    } else if (taskId) {
+      targetTaskIds = [taskId];
+    } else {
       if (user.tasks.length > 0) {
-        targetTaskId = user.tasks[0].id;
+        targetTaskIds = [user.tasks[0].id];
       } else {
         const newTask = await prisma.task.create({
           data: {
@@ -852,7 +866,7 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
             status: 'ACTIVE',
           },
         });
-        targetTaskId = newTask.id;
+        targetTaskIds = [newTask.id];
       }
     }
 
@@ -862,32 +876,40 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
       points: user.points,
     };
 
-    // Create or update TaskCompletion for this date
-    const completion = await prisma.taskCompletion.upsert({
-      where: {
-        taskId_completionDate: {
-          taskId: targetTaskId,
-          completionDate: date,
+    // Create or update TaskCompletion for each selected task on this date
+    const completions = [];
+    for (const tId of targetTaskIds) {
+      const completion = await prisma.taskCompletion.upsert({
+        where: {
+          taskId_completionDate: {
+            taskId: tId,
+            completionDate: date,
+          },
         },
-      },
-      create: {
-        userId,
-        taskId: targetTaskId,
-        completionDate: date,
-        completedAt: new Date(`${date}T12:00:00Z`),
-        studyNote: studyNote || `Retroactively granted by admin on ${date}`,
-      },
-      update: {
-        studyNote: studyNote || undefined,
-      },
-    });
+        create: {
+          userId,
+          taskId: tId,
+          completionDate: date,
+          completedAt: new Date(`${date}T12:00:00Z`),
+          studyNote: studyNote || `Retroactively granted by admin on ${date}`,
+        },
+        update: {
+          studyNote: studyNote || undefined,
+        },
+      });
+      completions.push(completion);
 
-    // Recalculate task and user streaks
-    await recalculateTaskStreaks(prisma, targetTaskId, userId, user.timezone);
+      // Recalculate streak for this task
+      await recalculateTaskStreaks(prisma, tId, userId, user.timezone);
+    }
+
+    // Recalculate overall user streaks
     const updatedStreaks = await recalculateUserStreaks(prisma, userId, user.timezone);
 
-    // Award +10 points for completion
-    const pointsDelta = 10;
+    // Award +5 points per selected task
+    const pointsPerTask = 5;
+    const pointsDelta = targetTaskIds.length * pointsPerTask;
+
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: { points: { increment: pointsDelta } },
@@ -901,7 +923,7 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
       },
     });
 
-    const changesSummary = `Granted streak completion for ${date}. Current streak is now ${updatedUser.currentStreak} days (longest: ${updatedUser.longestStreak} days), points +10.`;
+    const changesSummary = `Granted streak completion for ${targetTaskIds.length} habit(s) on ${date}. Current streak is now ${updatedUser.currentStreak} days (longest: ${updatedUser.longestStreak} days), points +${pointsDelta} (+5 per task).`;
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
@@ -911,9 +933,11 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
       reason,
       beforeState,
       afterState: {
-        completionId: completion.id,
+        completionIds: completions.map((c) => c.id),
         date,
-        taskId: targetTaskId,
+        taskIds: targetTaskIds,
+        tasksCount: targetTaskIds.length,
+        pointsDelta,
         currentStreak: updatedUser.currentStreak,
         longestStreak: updatedUser.longestStreak,
         points: updatedUser.points,
@@ -934,9 +958,10 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
 
     return res.json({
       success: true,
-      message: `Streak completion successfully applied for ${date}. Workflow and streaks updated everywhere.`,
+      message: `Streak completion successfully applied for ${targetTaskIds.length} habit(s) on ${date} (+${pointsDelta} pts). Workflow and streaks updated everywhere.`,
       user: updatedUser,
-      completion,
+      completions,
+      pointsDelta,
     });
   } catch (err: any) {
     console.error('grantDayStreak error:', err);
@@ -2134,5 +2159,248 @@ export async function overrideLeaderboardLimit(req: AdminAuthenticatedRequest, r
     return res.status(500).json({ success: false, error: 'Failed to update leaderboard limit.' });
   }
 }
+
+/**
+ * Override the maximum scheduled reminders quota for a specific user
+ */
+export async function overrideReminderLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      reminderLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof reminderLimit !== 'number' || reminderLimit < 1 || reminderLimit > 50) {
+      return res.status(400).json({ success: false, error: 'Reminder quota limit must be an integer between 1 and 50.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserReminderLimit(userId);
+    setUserReminderLimit(userId, reminderLimit);
+
+    const changesSummary = `Daily scheduled reminders quota changed from ${beforeLimit} to ${reminderLimit} reminders.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_REMINDER_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { reminderLimit: beforeLimit },
+      afterState: { reminderLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Scheduled Reminders Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Daily scheduled reminders limit for @${user.username} updated to ${reminderLimit}.`,
+      reminderLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideReminderLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update reminder limit.' });
+  }
+}
+
+/**
+ * Override the top discover ranking groups limit for a specific user
+ */
+export async function overrideDiscoverGroupsLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      discoverGroupsLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof discoverGroupsLimit !== 'number' || discoverGroupsLimit < 1 || discoverGroupsLimit > 100) {
+      return res.status(400).json({ success: false, error: 'Discover groups limit must be an integer between 1 and 100.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserDiscoverGroupsLimit(userId);
+    setUserDiscoverGroupsLimit(userId, discoverGroupsLimit);
+
+    const changesSummary = `Discover groups ranking visible quota changed from Top ${beforeLimit} to Top ${discoverGroupsLimit} groups.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_DISCOVER_GROUPS_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { discoverGroupsLimit: beforeLimit },
+      afterState: { discoverGroupsLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Discover Groups Display Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Top Discover ranking groups quota for @${user.username} updated to Top ${discoverGroupsLimit}.`,
+      discoverGroupsLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideDiscoverGroupsLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update discover groups limit.' });
+  }
+}
+
+/**
+ * Super Admin updates or removes profile picture for a specific user
+ */
+export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      profileImage,
+      remove = false,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeImage = user.profileImage;
+    let newImage: string | null = null;
+
+    if (!remove && profileImage) {
+      if (typeof profileImage !== 'string') {
+        return res.status(400).json({ success: false, error: 'Invalid profile image format.' });
+      }
+
+      // Check if data URI
+      const dataUriMatch = profileImage.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,(.+)$/i);
+      if (dataUriMatch) {
+        const base64Data = dataUriMatch[2];
+        const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
+        const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+        if (sizeInBytes > MAX_SIZE_BYTES) {
+          return res.status(400).json({
+            success: false,
+            error: `Image size exceeds the 5 MB limit. Provided image is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
+          });
+        }
+        newImage = profileImage;
+      } else if (/^https?:\/\/.+/i.test(profileImage)) {
+        // Direct URL
+        newImage = profileImage.trim();
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Image must be a valid Data URI (JPEG, PNG, WebP) or HTTP(S) URL.'
+        });
+      }
+    } else {
+      newImage = null;
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { profileImage: newImage },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        profileImage: true,
+      },
+    });
+
+    const isRemoved = newImage === null;
+    const changesSummary = isRemoved
+      ? 'Your profile picture was removed by administration.'
+      : 'Your profile picture was updated by administration.';
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: isRemoved ? 'ADMIN_REMOVE_PROFILE_IMAGE' : 'ADMIN_UPDATE_PROFILE_IMAGE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { profileImage: beforeImage ? (beforeImage.length > 100 ? `${beforeImage.slice(0, 100)}...` : beforeImage) : null },
+      afterState: { profileImage: newImage ? (newImage.length > 100 ? `${newImage.slice(0, 100)}...` : newImage) : null },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: isRemoved ? 'Profile Picture Removed' : 'Profile Picture Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: isRemoved
+        ? `Profile image removed for @${user.username}.`
+        : `Profile image updated successfully for @${user.username}.`,
+      user: updatedUser,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateUserProfileImage error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update profile image.' });
+  }
+}
+
 
 

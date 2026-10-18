@@ -28,6 +28,9 @@ import {
   unfreezeUserDate,
   adminDeleteReminderSchedule,
   overrideLeaderboardLimit,
+  overrideReminderLimit,
+  overrideDiscoverGroupsLimit,
+  adminUpdateUserProfileImage,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
@@ -62,6 +65,9 @@ router.post('/users/:userId/adjust-freezes', requireSensitiveAuth, adjustFreezes
 router.post('/users/:userId/adjust-points', requireSensitiveAuth, adjustPoints);
 router.post('/users/:userId/override-starred-limit', requireSensitiveAuth, overrideLimit15);
 router.post('/users/:userId/override-leaderboard-limit', requireSensitiveAuth, overrideLeaderboardLimit);
+router.post('/users/:userId/override-reminder-limit', requireSensitiveAuth, overrideReminderLimit);
+router.post('/users/:userId/override-discover-groups-limit', requireSensitiveAuth, overrideDiscoverGroupsLimit);
+router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);
 router.delete('/reminders/:reminderId', adminDeleteReminderSchedule);

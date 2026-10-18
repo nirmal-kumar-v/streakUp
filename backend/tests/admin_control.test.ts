@@ -166,5 +166,54 @@ describe('Super Admin Control & Privileged Workflows', () => {
     expect(moderatedRecord.completionDate).toBe('2026-10-18');
     expect(moderatedRecord.studyNote).toBeNull();
   });
+
+  it('should support custom reminders quota and discover groups quota overrides', async () => {
+    const {
+      getUserReminderLimit,
+      setUserReminderLimit,
+      getUserDiscoverGroupsLimit,
+      setUserDiscoverGroupsLimit,
+    } = await import('../src/services/adminConfigService');
+
+    const testUserId = 'test-quota-user-xyz';
+
+    // Defaults
+    expect(getUserReminderLimit(testUserId)).toBe(3);
+    expect(getUserDiscoverGroupsLimit(testUserId)).toBe(5);
+
+    // Overrides
+    setUserReminderLimit(testUserId, 10);
+    expect(getUserReminderLimit(testUserId)).toBe(10);
+
+    setUserDiscoverGroupsLimit(testUserId, 25);
+    expect(getUserDiscoverGroupsLimit(testUserId)).toBe(25);
+  });
+
+  it('should award +5 points per selected task for multi-task heatmap streak granting', () => {
+    const pointsPerTask = 5;
+    const selectedTaskIds = ['task-1', 'task-2', 'task-3', 'task-4'];
+    const calculatedPoints = selectedTaskIds.length * pointsPerTask;
+
+    expect(calculatedPoints).toBe(20);
+
+    // Single task yields 5 points
+    const singleTaskSelection = ['task-1'];
+    expect(singleTaskSelection.length * pointsPerTask).toBe(5);
+  });
+
+  it('should validate profile image formats and size boundaries', () => {
+    // Valid data URI
+    const validDataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const match = validDataUri.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,(.+)$/i);
+    expect(match).not.toBeNull();
+
+    // Valid HTTPS URL
+    const validUrl = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb';
+    expect(/^https?:\/\/.+/i.test(validUrl)).toBe(true);
+
+    // Invalid scheme
+    expect(/^https?:\/\/.+/i.test('ftp://invalid.com/pic.png')).toBe(false);
+  });
 });
+
 

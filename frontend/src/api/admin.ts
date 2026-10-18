@@ -219,6 +219,7 @@ export async function grantDayStreak(
   data: {
     date: string;
     taskId?: string;
+    taskIds?: string[];
     studyNote?: string;
     reason: string;
   } & AdminNotificationPayload
@@ -228,7 +229,9 @@ export async function grantDayStreak(
     success: boolean;
     message: string;
     user: any;
-    completion: any;
+    completions?: any[];
+    completion?: any;
+    pointsDelta?: number;
   }>(`/admin/users/${userId}/grant-day-streak`, body, {
     headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
   });
@@ -482,4 +485,54 @@ export async function overrideLeaderboardLimit(
   );
   return res.data;
 }
+
+export async function overrideReminderLimit(
+  userId: string,
+  data: { reminderLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; reminderLimit: number }>(
+    `/admin/users/${userId}/override-reminder-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function overrideDiscoverGroupsLimit(
+  userId: string,
+  data: { discoverGroupsLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; discoverGroupsLimit: number }>(
+    `/admin/users/${userId}/override-discover-groups-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminUpdateUserProfileImage(
+  userId: string,
+  data: {
+    profileImage?: string | null;
+    remove?: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
+    `/admin/users/${userId}/profile-image`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 

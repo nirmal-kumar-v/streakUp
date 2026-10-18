@@ -57,7 +57,47 @@ export function setUserLeaderboardLimit(userId: string, limit: number): void {
   writeAllConfigs(configs);
 }
 
+export function getUserReminderLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.reminderLimit === 'number' && userConf.reminderLimit > 0) {
+    return userConf.reminderLimit;
+  }
+  return 3; // Default 3 scheduled reminders quota
+}
+
+export function setUserReminderLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].reminderLimit = Math.max(1, Math.min(50, limit));
+  writeAllConfigs(configs);
+}
+
+export function getUserDiscoverGroupsLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.discoverGroupsLimit === 'number' && userConf.discoverGroupsLimit > 0) {
+    return userConf.discoverGroupsLimit;
+  }
+  return 5; // Default Top 5 ranking discover groups
+}
+
+export function setUserDiscoverGroupsLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].discoverGroupsLimit = Math.max(1, Math.min(100, limit));
+  writeAllConfigs(configs);
+}
+
 export function getUserAdminConfig(userId: string): UserAdminConfig {
   const configs = readAllConfigs();
-  return configs[userId] || { leaderboardLimit: 10 };
+  return configs[userId] || {
+    leaderboardLimit: 10,
+    reminderLimit: 3,
+    discoverGroupsLimit: 5,
+  };
 }

@@ -31,6 +31,9 @@ import {
   X,
   Sliders,
   Globe,
+  Camera,
+  Upload,
+  ImageIcon,
 } from 'lucide-react';
 import {
   adminLogin,
@@ -60,6 +63,9 @@ import {
   unfreezeUserDate,
   adminDeleteReminderSchedule,
   overrideLeaderboardLimit,
+  overrideReminderLimit,
+  overrideDiscoverGroupsLimit,
+  adminUpdateUserProfileImage,
   AdminUser,
   AdminAuditLogItem,
 } from '../api/admin';
@@ -124,6 +130,7 @@ export const AdminControlPage: React.FC = () => {
   const [dayModalDate, setDayModalDate] = useState('');
   const [dayModalMode, setDayModalMode] = useState<'STREAK' | 'FREEZE' | 'UNFREEZE'>('STREAK');
   const [dayModalTaskId, setDayModalTaskId] = useState('');
+  const [dayModalSelectedTaskIds, setDayModalSelectedTaskIds] = useState<string[]>([]);
   const [dayModalNote, setDayModalNote] = useState('');
   const [dayModalReason, setDayModalReason] = useState('');
   const [isSubmittingDayAction, setIsSubmittingDayAction] = useState(false);
@@ -131,6 +138,14 @@ export const AdminControlPage: React.FC = () => {
   // ------------------------------------------
   // Form States for Controls
   // ------------------------------------------
+  // Profile Picture Control
+  const [profileImageModalOpen, setProfileImageModalOpen] = useState(false);
+  const [profileImageMode, setProfileImageMode] = useState<'UPLOAD' | 'URL' | 'REMOVE'>('UPLOAD');
+  const [profileImageInput, setProfileImageInput] = useState('');
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
+  const [profileImageReason, setProfileImageReason] = useState('');
+  const [isSubmittingProfileImage, setIsSubmittingProfileImage] = useState(false);
+
   // Username & Email
   const [overrideNewUsername, setOverrideNewUsername] = useState('');
   const [usernameReason, setUsernameReason] = useState('');
@@ -159,7 +174,7 @@ export const AdminControlPage: React.FC = () => {
   const [pointsReason, setPointsReason] = useState('');
   const [isSubmittingPoints, setIsSubmittingPoints] = useState(false);
 
-  // Limits
+  // Limits & Quotas
   const [newStarredLimit, setNewStarredLimit] = useState<number>(15);
   const [limitReason, setLimitReason] = useState('');
   const [isSubmittingLimit, setIsSubmittingLimit] = useState(false);
@@ -167,6 +182,14 @@ export const AdminControlPage: React.FC = () => {
   const [newLeaderboardLimit, setNewLeaderboardLimit] = useState<number>(10);
   const [leaderboardReason, setLeaderboardReason] = useState('');
   const [isSubmittingLeaderboardLimit, setIsSubmittingLeaderboardLimit] = useState(false);
+
+  const [newReminderLimit, setNewReminderLimit] = useState<number>(3);
+  const [reminderLimitReason, setReminderLimitReason] = useState('');
+  const [isSubmittingReminderLimit, setIsSubmittingReminderLimit] = useState(false);
+
+  const [newDiscoverGroupsLimit, setNewDiscoverGroupsLimit] = useState<number>(5);
+  const [discoverGroupsReason, setDiscoverGroupsReason] = useState('');
+  const [isSubmittingDiscoverGroupsLimit, setIsSubmittingDiscoverGroupsLimit] = useState(false);
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -334,6 +357,8 @@ export const AdminControlPage: React.FC = () => {
         setNewLongestStreak(u.longestStreak || 0);
         setNewStarredLimit(u.maxStarredNotifications || 15);
         setNewLeaderboardLimit(u.leaderboardLimit || 10);
+        setNewReminderLimit(u.reminderLimit || 3);
+        setNewDiscoverGroupsLimit(u.discoverGroupsLimit || 5);
         setSelectedTimezone(u.timezone || 'Asia/Kolkata');
         if (u.tasks && u.tasks.length > 0) {
           setSelectedTaskId(u.tasks[0].id);
@@ -699,9 +724,15 @@ export const AdminControlPage: React.FC = () => {
         setIsSubmittingDayAction(true);
         try {
           if (dayModalMode === 'STREAK') {
+            const hasExistingTasks = selectedUserDetails?.tasks && selectedUserDetails.tasks.length > 0;
+            if (hasExistingTasks && dayModalSelectedTaskIds.length === 0) {
+              toast.error('Please select at least one task to complete on this day.');
+              return;
+            }
             const res = await grantDayStreak(selectedUserId, {
               date: dayModalDate,
-              taskId: dayModalTaskId || undefined,
+              taskId: dayModalSelectedTaskIds[0] || dayModalTaskId || undefined,
+              taskIds: dayModalSelectedTaskIds.length > 0 ? dayModalSelectedTaskIds : undefined,
               studyNote: dayModalNote.trim() || undefined,
               reason: dayModalReason.trim(),
               sensitivePin: pin,
@@ -820,6 +851,152 @@ export const AdminControlPage: React.FC = () => {
           toast.error(extractErrorMessage(err, 'Failed to update leaderboard limit.'));
         } finally {
           setIsSubmittingLeaderboardLimit(false);
+        }
+      }
+    );
+  };
+
+  // Scheduled Reminders Quota Override
+  const handleOverrideReminderLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!reminderLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Reminders Quota Override',
+      `Enter Super Admin Sensitive Password to change scheduled reminders quota for @${selectedUserDetails?.username} to ${newReminderLimit} reminders.`,
+      async (pin) => {
+        setIsSubmittingReminderLimit(true);
+        try {
+          const res = await overrideReminderLimit(selectedUserId, {
+            reminderLimit: Number(newReminderLimit),
+            reason: reminderLimitReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setReminderLimitReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update reminder quota limit.'));
+        } finally {
+          setIsSubmittingReminderLimit(false);
+        }
+      }
+    );
+  };
+
+  // Top Discover Groups Display Limit Override
+  const handleOverrideDiscoverGroupsLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!discoverGroupsReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Discover Groups Display Limit',
+      `Enter Super Admin Sensitive Password to set Discover top groups display quota for @${selectedUserDetails?.username} to Top ${newDiscoverGroupsLimit}.`,
+      async (pin) => {
+        setIsSubmittingDiscoverGroupsLimit(true);
+        try {
+          const res = await overrideDiscoverGroupsLimit(selectedUserId, {
+            discoverGroupsLimit: Number(newDiscoverGroupsLimit),
+            reason: discoverGroupsReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setDiscoverGroupsReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update discover groups limit.'));
+        } finally {
+          setIsSubmittingDiscoverGroupsLimit(false);
+        }
+      }
+    );
+  };
+
+  // Handle Profile Picture File Change
+  const handleProfileImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Unsupported image format. Allowed formats are JPEG, PNG, and WebP.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds the 5 MB limit.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setProfileImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Profile Picture Update / Remove
+  const handleUpdateProfileImage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!profileImageReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const isRemoving = profileImageMode === 'REMOVE';
+    const payloadImage = isRemoving ? null : (profileImagePreview || profileImageInput.trim());
+
+    if (!isRemoving && !payloadImage) {
+      toast.error('Please upload an image or provide a valid image URL.');
+      return;
+    }
+
+    openPinPrompt(
+      isRemoving ? 'Authorize Profile Picture Removal' : 'Authorize Profile Picture Update',
+      `Enter Super Admin Sensitive Password to ${isRemoving ? 'remove' : 'update'} profile picture for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSubmittingProfileImage(true);
+        try {
+          const res = await adminUpdateUserProfileImage(selectedUserId, {
+            profileImage: payloadImage,
+            remove: isRemoving,
+            reason: profileImageReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setProfileImageModalOpen(false);
+            setProfileImageInput('');
+            setProfileImagePreview(null);
+            setProfileImageReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update user profile picture.'));
+        } finally {
+          setIsSubmittingProfileImage(false);
         }
       }
     );
@@ -1221,6 +1398,10 @@ export const AdminControlPage: React.FC = () => {
     setDayModalNote('');
     if (selectedUserDetails?.tasks && selectedUserDetails.tasks.length > 0) {
       setDayModalTaskId(selectedUserDetails.tasks[0].id);
+      setDayModalSelectedTaskIds(selectedUserDetails.tasks.map((t: any) => t.id));
+    } else {
+      setDayModalTaskId('');
+      setDayModalSelectedTaskIds([]);
     }
     setDayModalOpen(true);
   };
@@ -1562,10 +1743,34 @@ export const AdminControlPage: React.FC = () => {
                       </button>
                       <div className="h-6 w-px bg-dark-border hidden sm:block" />
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 font-extrabold text-sm shrink-0 shadow-inner">
-                          {selectedUserDetails?.name
-                            ? selectedUserDetails.name.slice(0, 2).toUpperCase()
-                            : selectedUserDetails?.username?.slice(0, 2).toUpperCase() || 'U'}
+                        <div className="relative group shrink-0">
+                          <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 font-extrabold text-sm shrink-0 shadow-inner overflow-hidden">
+                            {selectedUserDetails?.profileImage ? (
+                              <img
+                                src={selectedUserDetails.profileImage}
+                                alt={selectedUserDetails.username}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              selectedUserDetails?.name
+                                ? selectedUserDetails.name.slice(0, 2).toUpperCase()
+                                : selectedUserDetails?.username?.slice(0, 2).toUpperCase() || 'U'
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProfileImageModalOpen(true);
+                              setProfileImagePreview(selectedUserDetails?.profileImage || null);
+                              setProfileImageInput(selectedUserDetails?.profileImage?.startsWith('http') ? selectedUserDetails.profileImage : '');
+                              setProfileImageMode(selectedUserDetails?.profileImage ? 'UPLOAD' : 'UPLOAD');
+                              setProfileImageReason(`Admin updated avatar for @${selectedUserDetails?.username}`);
+                            }}
+                            className="absolute -bottom-1 -right-1 p-1 bg-flame-500 hover:bg-flame-400 text-zinc-950 rounded-lg shadow-md transition-all scale-90 group-hover:scale-100"
+                            title="Change or Remove Profile Picture"
+                          >
+                            <Camera className="w-3 h-3" />
+                          </button>
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -1582,6 +1787,21 @@ export const AdminControlPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileImageModalOpen(true);
+                          setProfileImagePreview(selectedUserDetails?.profileImage || null);
+                          setProfileImageInput(selectedUserDetails?.profileImage?.startsWith('http') ? selectedUserDetails.profileImage : '');
+                          setProfileImageMode('UPLOAD');
+                          setProfileImageReason(`Admin updated avatar for @${selectedUserDetails?.username}`);
+                        }}
+                        className="px-2.5 py-1.5 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-xl text-[11px] font-semibold text-zinc-300 flex items-center gap-1.5 transition-colors"
+                        title="Manage User Profile Picture"
+                      >
+                        <Camera className="w-3.5 h-3.5 text-flame-400" />
+                        <span>Avatar</span>
+                      </button>
                       <button
                         type="button"
                         onClick={refreshCurrentUser}
@@ -1764,6 +1984,34 @@ export const AdminControlPage: React.FC = () => {
                       </h3>
 
                       <div className="space-y-3 text-xs">
+                        <div className="flex items-center justify-between py-1.5 border-b border-dark-border">
+                          <span className="text-zinc-400">Profile Picture</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-lg bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 font-bold text-[10px] overflow-hidden">
+                              {selectedUserDetails?.profileImage ? (
+                                <img src={selectedUserDetails.profileImage} alt="Avatar" className="w-full h-full object-cover" />
+                              ) : (
+                                selectedUserDetails?.username?.slice(0, 1).toUpperCase()
+                              )}
+                            </div>
+                            <span className="text-zinc-300 font-medium">
+                              {selectedUserDetails?.profileImage ? 'Custom Photo' : 'System Default'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProfileImageModalOpen(true);
+                                setProfileImagePreview(selectedUserDetails?.profileImage || null);
+                                setProfileImageInput(selectedUserDetails?.profileImage?.startsWith('http') ? selectedUserDetails.profileImage : '');
+                                setProfileImageMode(selectedUserDetails?.profileImage ? 'UPLOAD' : 'UPLOAD');
+                                setProfileImageReason(`Admin updated avatar for @${selectedUserDetails?.username}`);
+                              }}
+                              className="text-[10px] px-2 py-0.5 rounded bg-flame-500/10 border border-flame-500/30 text-flame-400 hover:bg-flame-500/20 font-bold"
+                            >
+                              Edit / Remove
+                            </button>
+                          </div>
+                        </div>
                         <div className="flex justify-between py-1.5 border-b border-dark-border">
                           <span className="text-zinc-400">Full Name</span>
                           <span className="font-semibold text-zinc-200">
@@ -2674,26 +2922,111 @@ export const AdminControlPage: React.FC = () => {
                       </form>
                     </div>
 
-                    {/* CARD 2: SCHEDULED REMINDERS QUOTA (3 REMINDERS) */}
+                    {/* CARD 2: SCHEDULED REMINDERS QUOTA */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
                           <Clock className="w-4 h-4 text-flame-400" />
-                          <span>Scheduled Reminders Quota (Max 3 Schedules)</span>
+                          <span>Scheduled Reminders Quota (Default: 3 Reminders)</span>
                         </h3>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
-                          {selectedUserDetails?.reminderSchedules?.length || 0} / 3 SCHEDULES
+                          {selectedUserDetails?.reminderSchedules?.length || 0} / {selectedUserDetails?.reminderLimit || 3} SCHEDULES
                         </span>
                       </div>
 
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        StreakUp caps habit reminders to a maximum of 3 scheduled alert times per habit scope.
-                        Admin can view active reminders and delete any schedule to instantly free up quota.
+                        By default, StreakUp limits users to 3 reminder times. You can <strong className="text-zinc-200">customize and increase the maximum reminders quota specifically for @{selectedUserDetails?.username}</strong> (e.g. to 5, 8, 10, or 15 schedules) so they can configure multiple alert schedules.
                       </p>
 
-                      {(!selectedUserDetails?.reminderSchedules || selectedUserDetails.reminderSchedules.length === 0) ? (
-                        <p className="text-xs text-zinc-500 py-3">No active reminder schedules found for this user.</p>
-                      ) : (
+                      <form onSubmit={handleOverrideReminderLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Maximum Reminders Quota Limit
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Reminders Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.reminderLimit || 3} reminder times allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 50)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                value={newReminderLimit}
+                                onChange={(e) => setNewReminderLimit(parseInt(e.target.value, 10) || 3)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[3, 5, 8, 10, 15].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewReminderLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newReminderLimit === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={reminderLimitReason}
+                            onChange={(e) => setReminderLimitReason(e.target.value)}
+                            placeholder="e.g. Increased reminder quota to 10 schedules upon user request"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingReminderLimit}
+                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingReminderLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Reminders Quota ({newReminderLimit} Schedules)</span>
+                        </button>
+                      </form>
+
+                      <div className="pt-2">
+                        <span className="text-xs font-bold text-zinc-300 block mb-2">
+                          Active Reminder Schedules ({selectedUserDetails?.reminderSchedules?.length || 0})
+                        </span>
+                        {(!selectedUserDetails?.reminderSchedules || selectedUserDetails.reminderSchedules.length === 0) ? (
+                          <p className="text-xs text-zinc-500 py-2">No active reminder schedules found for this user.</p>
+                        ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
                             <thead>
@@ -2740,6 +3073,7 @@ export const AdminControlPage: React.FC = () => {
                         </div>
                       )}
                     </div>
+                  </div>
 
                     {/* CARD 3: 12-HOUR FRIEND NUDGE LOCKOUT */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
@@ -2872,21 +3206,103 @@ export const AdminControlPage: React.FC = () => {
                       </form>
                     </div>
 
-                    {/* CARD 5: TOP 5 DISCOVER RANKING GROUPS */}
+                    {/* CARD 5: TOP DISCOVER RANKING GROUPS DISPLAY QUOTA */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
                           <Users className="w-4 h-4 text-flame-400" />
-                          <span>Top 5 Discover Ranking Groups</span>
+                          <span>Top Discover Ranking Groups (Default: Top 5)</span>
                         </h3>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
-                          TOP 5 FEATURED
+                          TOP {selectedUserDetails?.discoverGroupsLimit || 5} VISIBLE
                         </span>
                       </div>
 
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        Public communities in StreakUp are automatically ranked for the global Discover page. The Top 5 groups with highest member counts and daily streak activity are featured globally.
+                        By default, the global Discover communities page showcases the Top 5 most active ranking groups. As Super Admin, you can <strong className="text-zinc-200">grant @{selectedUserDetails?.username} permission to see any number of top groups</strong> on their Discover page (e.g. Top 10, 20, 50, or 100).
                       </p>
+
+                      <form onSubmit={handleOverrideDiscoverGroupsLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Visible Discover Groups Cohort
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Discover Limit
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Top ${selectedUserDetails?.discoverGroupsLimit || 5} active groups displayed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 100)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={newDiscoverGroupsLimit}
+                                onChange={(e) => setNewDiscoverGroupsLimit(parseInt(e.target.value, 10) || 5)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[5, 10, 20, 50, 100].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewDiscoverGroupsLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newDiscoverGroupsLimit === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={discoverGroupsReason}
+                            onChange={(e) => setDiscoverGroupsReason(e.target.value)}
+                            placeholder="e.g. Expanded group discovery quota to Top 20 for community leader"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingDiscoverGroupsLimit}
+                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingDiscoverGroupsLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Discover Groups Quota (Top {newDiscoverGroupsLimit})</span>
+                        </button>
+                      </form>
 
                       {(!selectedUserDetails?.ownedGroups || selectedUserDetails.ownedGroups.length === 0) ? (
                         <div className="p-3 bg-dark-surface rounded-xl border border-dark-border text-xs text-zinc-400">
@@ -4575,7 +4991,7 @@ export const AdminControlPage: React.FC = () => {
             >
               {dayModalMode === 'STREAK' ? (
                 <span>
-                  🔥 <strong>Grant Streak:</strong> Records habit completion on <strong>{dayModalDate}</strong>. Automatically awards 10 points to PointLedger, recalculates personal & group streaks, and updates heatmaps everywhere in the app.
+                  🔥 <strong>Grant Streak (Multi-Task Selection):</strong> Select which tasks were completed on <strong>{dayModalDate}</strong>. Automatically awards <strong>+5 points per task</strong> (+{dayModalSelectedTaskIds.length * 5} pts), records completions, recalculates streaks, and updates heatmaps everywhere.
                 </span>
               ) : dayModalMode === 'UNFREEZE' ? (
                 <span>
@@ -4592,22 +5008,86 @@ export const AdminControlPage: React.FC = () => {
               {dayModalMode === 'STREAK' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                      Associate Task (Optional)
-                    </label>
-                    <select
-                      value={dayModalTaskId}
-                      onChange={(e) => setDayModalTaskId(e.target.value)}
-                      className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
-                    >
-                      <option value="">General User Streak (First Active Task)</option>
-                      {selectedUserDetails?.tasks?.map((t: any) => (
-                        <option key={t.id} value={t.id}>
-                          {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal] '}
-                          {t.title}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-zinc-300">
+                        Choose Completed Tasks for {dayModalDate}
+                      </label>
+                      {selectedUserDetails?.tasks && selectedUserDetails.tasks.length > 0 && (
+                        <div className="flex items-center gap-2 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDayModalSelectedTaskIds(selectedUserDetails.tasks.map((t: any) => t.id))
+                            }
+                            className="text-flame-400 hover:text-flame-300 font-bold"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-zinc-600">|</span>
+                          <button
+                            type="button"
+                            onClick={() => setDayModalSelectedTaskIds([])}
+                            className="text-zinc-400 hover:text-zinc-300 font-bold"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {(!selectedUserDetails?.tasks || selectedUserDetails.tasks.length === 0) ? (
+                      <div className="p-3 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-400">
+                        User has no existing tasks. A default 'Daily Productivity' habit will be created (+5 pts).
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-dark-surface border border-dark-border rounded-xl">
+                        {selectedUserDetails.tasks.map((t: any) => {
+                          const isSelected = dayModalSelectedTaskIds.includes(t.id);
+                          return (
+                            <label
+                              key={t.id}
+                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors border ${
+                                isSelected
+                                  ? 'bg-flame-500/10 border-flame-500/40 text-zinc-100'
+                                  : 'bg-dark-card/50 border-dark-border/50 text-zinc-400 hover:text-zinc-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setDayModalSelectedTaskIds((prev) => [...prev, t.id]);
+                                    } else {
+                                      setDayModalSelectedTaskIds((prev) => prev.filter((id) => id !== t.id));
+                                    }
+                                  }}
+                                  className="rounded border-dark-border text-flame-500 focus:ring-flame-500/20"
+                                />
+                                <span className="truncate text-xs font-medium">
+                                  {t.isGroupTask ? `[Group: ${t.group?.name || 'Group'}] ` : '[Personal] '}
+                                  {t.title}
+                                </span>
+                              </div>
+                              <span className="shrink-0 text-[10px] font-mono font-bold text-amber-400">
+                                +5 pts
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Live Calculation Pill */}
+                    <div className="flex items-center justify-between p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl mt-2 text-xs">
+                      <span className="text-amber-200 font-medium">
+                        Selected: <strong className="text-zinc-100">{dayModalSelectedTaskIds.length}</strong> task(s)
+                      </span>
+                      <span className="text-amber-400 font-extrabold font-mono">
+                        +{dayModalSelectedTaskIds.length * 5} pts (+5 per task)
+                      </span>
+                    </div>
                   </div>
 
                   <div>
@@ -4671,6 +5151,196 @@ export const AdminControlPage: React.FC = () => {
                   )}
                   <span>
                     Authorize & {dayModalMode === 'STREAK' ? 'Apply Streak' : dayModalMode === 'UNFREEZE' ? 'Remove Freeze' : 'Apply Freeze'}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* PROFILE PICTURE MANAGEMENT MODAL                         */}
+      {/* ======================================================== */}
+      {profileImageModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-dark-card border border-flame-500/40 rounded-3xl p-6 shadow-2xl relative space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-dark-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-zinc-100">Profile Picture Permission & Control</h3>
+                  <p className="text-[11px] text-zinc-400">Target: @{selectedUserDetails?.username}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfileImageModalOpen(false)}
+                className="p-1 text-zinc-400 hover:text-zinc-200 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-dark-surface rounded-xl border border-dark-border text-xs">
+              <button
+                type="button"
+                onClick={() => setProfileImageMode('UPLOAD')}
+                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  profileImageMode === 'UPLOAD'
+                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileImageMode('URL')}
+                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  profileImageMode === 'URL'
+                    ? 'bg-flame-500 text-zinc-950 shadow-md shadow-flame-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Image URL</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileImageMode('REMOVE')}
+                className={`py-2 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  profileImageMode === 'REMOVE'
+                    ? 'bg-rose-500 text-zinc-100 shadow-md shadow-rose-500/20'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove</span>
+              </button>
+            </div>
+
+            {/* Avatar Preview Section */}
+            <div className="flex flex-col items-center justify-center p-4 bg-dark-surface rounded-2xl border border-dark-border gap-2.5">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-2xl bg-dark-card border-2 border-flame-500/40 flex items-center justify-center text-flame-400 font-extrabold text-2xl overflow-hidden shadow-inner">
+                  {profileImageMode === 'REMOVE' ? (
+                    <span className="text-zinc-500 font-mono text-sm">Default</span>
+                  ) : (profileImagePreview || profileImageInput) ? (
+                    <img
+                      src={profileImagePreview || profileImageInput}
+                      alt="Avatar Preview"
+                      className="w-full h-full object-cover"
+                      onError={() => toast.error('Failed to load image preview from provided URL.')}
+                    />
+                  ) : selectedUserDetails?.profileImage ? (
+                    <img
+                      src={selectedUserDetails.profileImage}
+                      alt="Current Avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    selectedUserDetails?.name?.slice(0, 2).toUpperCase() ||
+                    selectedUserDetails?.username?.slice(0, 2).toUpperCase() ||
+                    'U'
+                  )}
+                </div>
+              </div>
+              <span className="text-[11px] text-zinc-400 font-medium">
+                {profileImageMode === 'REMOVE'
+                  ? 'Will revert to default initial avatar'
+                  : (profileImagePreview || profileImageInput)
+                  ? 'New Avatar Preview'
+                  : 'Current Active Avatar'}
+              </span>
+            </div>
+
+            <form onSubmit={handleUpdateProfileImage} className="space-y-3 text-xs">
+              {profileImageMode === 'UPLOAD' && (
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Upload Image File (JPEG, PNG, WebP • Max 5MB)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleProfileImageFileChange}
+                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-300 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-flame-500 file:text-zinc-950 hover:file:bg-flame-400 cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {profileImageMode === 'URL' && (
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Direct Image URL (HTTP / HTTPS)
+                  </label>
+                  <input
+                    type="url"
+                    value={profileImageInput}
+                    onChange={(e) => {
+                      setProfileImageInput(e.target.value);
+                      setProfileImagePreview(null);
+                    }}
+                    placeholder="https://example.com/avatar.png"
+                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                    required
+                  />
+                </div>
+              )}
+
+              {profileImageMode === 'REMOVE' && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 leading-relaxed">
+                  Removing this profile picture will immediately clear custom photo data and restore default username initials across all leaderboards, groups, and friend feeds.
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Mandatory Administrative Reason
+                </label>
+                <input
+                  type="text"
+                  value={profileImageReason}
+                  onChange={(e) => setProfileImageReason(e.target.value)}
+                  placeholder="e.g. Administrative profile image update upon verified user request"
+                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                  required
+                />
+              </div>
+
+              {renderNotificationOptions()}
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProfileImageModalOpen(false)}
+                  className="flex-1 py-2.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingProfileImage}
+                  className={`flex-1 py-2.5 font-extrabold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-1.5 ${
+                    profileImageMode === 'REMOVE'
+                      ? 'bg-rose-500 hover:bg-rose-400 text-zinc-100'
+                      : 'bg-flame-500 hover:bg-flame-400 text-zinc-950'
+                  }`}
+                >
+                  {isSubmittingProfileImage ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : profileImageMode === 'REMOVE' ? (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {profileImageMode === 'REMOVE' ? 'Authorize & Remove Picture' : 'Authorize & Save Picture'}
                   </span>
                 </button>
               </div>
