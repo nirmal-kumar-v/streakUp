@@ -451,6 +451,9 @@ export async function deleteReminderSchedule(req: AuthenticatedRequest, res: Res
   }
 }
 
+const TEST_NOTIFICATION_COOLDOWN_MS = 5 * 60 * 1000;
+const lastTestNotificationMap = new Map<string, number>();
+
 /**
  * POST /api/notifications/test-email
  * Sends a real test email to the user's notification email address
@@ -458,6 +461,18 @@ export async function deleteReminderSchedule(req: AuthenticatedRequest, res: Res
 export async function sendTestEmail(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
+
+    const lastSent = lastTestNotificationMap.get(userId);
+    if (lastSent && Date.now() - lastSent < TEST_NOTIFICATION_COOLDOWN_MS) {
+      const remainingSec = Math.ceil((TEST_NOTIFICATION_COOLDOWN_MS - (Date.now() - lastSent)) / 1000);
+      const m = Math.floor(remainingSec / 60);
+      const s = remainingSec % 60;
+      return res.status(429).json({
+        success: false,
+        error: `Next test notification available after 5 minutes (${m}m ${s}s remaining).`,
+      });
+    }
+
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
@@ -503,6 +518,8 @@ export async function sendTestEmail(req: AuthenticatedRequest, res: Response) {
         error: `Failed to deliver test email: ${result.error}`,
       });
     }
+
+    lastTestNotificationMap.set(userId, Date.now());
 
     return res.json({
       success: true,

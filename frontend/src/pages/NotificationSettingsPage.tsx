@@ -55,6 +55,43 @@ export const NotificationSettingsPage: React.FC = () => {
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const TEST_NOTIFICATION_COOLDOWN_MS = 5 * 60 * 1000;
+  const TEST_NOTIFICATION_STORAGE_KEY = 'streakup_last_test_notification_ts';
+
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(TEST_NOTIFICATION_STORAGE_KEY);
+      if (!saved) return 0;
+      const elapsed = Date.now() - parseInt(saved, 10);
+      return elapsed < TEST_NOTIFICATION_COOLDOWN_MS ? TEST_NOTIFICATION_COOLDOWN_MS - elapsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+    const timer = setInterval(() => {
+      try {
+        const saved = localStorage.getItem(TEST_NOTIFICATION_STORAGE_KEY);
+        if (!saved) {
+          setCooldownRemaining(0);
+          return;
+        }
+        const elapsed = Date.now() - parseInt(saved, 10);
+        const remaining = TEST_NOTIFICATION_COOLDOWN_MS - elapsed;
+        if (remaining <= 0) {
+          setCooldownRemaining(0);
+        } else {
+          setCooldownRemaining(remaining);
+        }
+      } catch {
+        setCooldownRemaining(0);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownRemaining > 0]);
+
   const showFeedback = (text: string, type: 'success' | 'error' = 'success') => {
     if (type === 'error') {
       toast.error(text);
@@ -274,13 +311,22 @@ export const NotificationSettingsPage: React.FC = () => {
   };
 
   const handleSendTestEmail = async () => {
+    if (cooldownRemaining > 0) return;
     setIsSendingTest(true);
     try {
       const res = await sendTestEmail();
       if (res.success) {
+        const now = Date.now();
+        localStorage.setItem(TEST_NOTIFICATION_STORAGE_KEY, String(now));
+        setCooldownRemaining(TEST_NOTIFICATION_COOLDOWN_MS);
         showFeedback(res.message);
       }
     } catch (err: any) {
+      if (err?.response?.status === 429) {
+        const now = Date.now();
+        localStorage.setItem(TEST_NOTIFICATION_STORAGE_KEY, String(now));
+        setCooldownRemaining(TEST_NOTIFICATION_COOLDOWN_MS);
+      }
       showFeedback(extractErrorMessage(err, 'Failed to send test email'), 'error');
     } finally {
       setIsSendingTest(false);
@@ -363,15 +409,20 @@ export const NotificationSettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-start sm:items-end gap-1.5">
             <button
               onClick={handleSendTestEmail}
-              disabled={isSendingTest}
-              className="px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-300 rounded-xl inline-flex items-center gap-1.5 disabled:opacity-50"
+              disabled={isSendingTest || cooldownRemaining > 0}
+              className="px-3.5 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-300 rounded-xl inline-flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <Send className="w-3.5 h-3.5 text-flame-400" />
               {isSendingTest ? 'Sending...' : 'Send Test Email'}
             </button>
+            {cooldownRemaining > 0 && (
+              <span className="text-[11px] font-mono text-zinc-400">
+                Next test available in {Math.floor(cooldownRemaining / 60000)}m {Math.ceil((cooldownRemaining % 60000) / 1000)}s
+              </span>
+            )}
           </div>
         </div>
 

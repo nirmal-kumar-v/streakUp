@@ -274,16 +274,16 @@ export const DashboardPage: React.FC = () => {
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Current Streak with Discreet Freeze Status */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel relative overflow-visible">
-          <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
-            <span>Overall Streak</span>
-            <div className="flex items-center gap-2">
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-visible">
+          <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2 gap-1.5">
+            <span className="truncate">Overall Streak</span>
+            <div className="flex items-center gap-2 shrink-0">
               {/* Secondary Discreet Freeze Indicator */}
               <div className="relative group/freeze">
                 <button
                   type="button"
                   aria-label="Overall Streak Freeze Status"
-                  className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-all ${
+                  className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border transition-all shrink-0 ${
                     overallFreezeBalance > 0
                       ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25 hover:bg-cyan-500/20'
                       : 'bg-zinc-800/60 text-zinc-400 border-zinc-700/50 hover:bg-zinc-800'
@@ -330,8 +330,6 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              <Flame className="w-4 h-4 text-flame-500 fill-flame-500" />
             </div>
           </div>
           <div className="flex items-baseline gap-2 mt-2">
@@ -340,15 +338,10 @@ export const DashboardPage: React.FC = () => {
             </span>
             <span className="text-xs text-dark-muted font-medium">days</span>
           </div>
-          <p className="text-[11px] text-dark-muted mt-2">
-            {user?.currentStreak && user.currentStreak > 0
-              ? 'Streak active! Complete at least 1 task daily.'
-              : 'Complete a task today to begin!'}
-          </p>
         </div>
 
         {/* Longest Streak */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel relative overflow-hidden">
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-hidden">
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Longest Streak</span>
             <Trophy className="w-4 h-4 text-amber-400" />
@@ -359,11 +352,10 @@ export const DashboardPage: React.FC = () => {
             </span>
             <span className="text-xs text-dark-muted font-medium">days record</span>
           </div>
-          <p className="text-[11px] text-dark-muted mt-2">Personal all-time best consistency</p>
         </div>
 
         {/* Tasks Completed Today */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel relative overflow-hidden">
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-hidden">
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Done Today</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -382,7 +374,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Completion Rate */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel relative overflow-hidden">
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-hidden">
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Today's Progress</span>
             <TrendingUp className="w-4 h-4 text-flame-400" />
@@ -402,27 +394,24 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Points & Accountability Card */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 shrink-0">
               <Award className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xs sm:text-sm font-bold text-zinc-100 uppercase tracking-wider">
                   Accountability Points
                 </h3>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 font-bold">
-                  +5 / -2 System
+                <span className="inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 font-bold whitespace-nowrap shrink-0">
+                  +5 / -2
                 </span>
               </div>
-              <p className="text-xs text-dark-muted mt-0.5">
-                Earn +5 points for completing habits on scheduled days. Missed scheduled habits incur -2 points. Group tasks are purely streak-based.
-              </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-center bg-dark-surface px-3.5 py-1.5 rounded-xl border border-dark-border">
+          <div className="flex items-center gap-2 self-start sm:self-center bg-dark-surface px-3.5 py-1.5 rounded-xl border border-dark-border shrink-0">
             <span className="text-xs text-dark-muted font-medium">Score:</span>
             <span className="text-xl sm:text-2xl font-black font-mono text-amber-400">
               {(pointsStats?.totalPoints ?? user?.points ?? 0) > 0
@@ -436,8 +425,8 @@ export const DashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-dark-border/60">
           <div className="bg-dark-surface/60 rounded-xl p-3 border border-dark-border/60">
             <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-              Completed Scheduled Habits
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shrink-0"></span>
+              <span>Completed Scheduled Habits</span>
             </div>
             <div className="text-base sm:text-lg font-black font-mono text-emerald-400 mt-1">
               {pointsStats?.completedCount ?? 0} <span className="text-xs font-normal text-zinc-400">instances</span>
@@ -449,8 +438,8 @@ export const DashboardPage: React.FC = () => {
 
           <div className="bg-dark-surface/60 rounded-xl p-3 border border-dark-border/60">
             <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block"></span>
-              Missed Scheduled Habits
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block shrink-0"></span>
+              <span>Missed Scheduled Habits</span>
             </div>
             <div className="text-base sm:text-lg font-black font-mono text-rose-400 mt-1">
               {pointsStats?.missedCount ?? 0} <span className="text-xs font-normal text-zinc-400">instances</span>
@@ -462,8 +451,8 @@ export const DashboardPage: React.FC = () => {
 
           <div className="bg-dark-surface/60 rounded-xl p-3 border border-dark-border/60">
             <div className="text-[11px] text-dark-muted font-medium flex items-center gap-1.5">
-              <Flame className="w-3 h-3 text-flame-400 inline-block" />
-              Consistency Ratio
+              <Flame className="w-3 h-3 text-flame-400 inline-block shrink-0" />
+              <span>Consistency Ratio</span>
             </div>
             <div className="text-base sm:text-lg font-black font-mono text-zinc-100 mt-1">
               {(pointsStats?.completedCount ?? 0) + (pointsStats?.missedCount ?? 0) > 0
