@@ -129,13 +129,41 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         {/* Header */}
         <div className="p-6 border-b border-dark-border flex items-start justify-between bg-dark-bg/50">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               <span className="text-[11px] font-mono uppercase tracking-wider text-flame-400 font-bold px-2 py-0.5 rounded-md bg-flame-500/10 border border-flame-500/20">
                 {details?.task.category || 'General'}
               </span>
-              <span className="text-[11px] font-mono text-zinc-500">
-                {details?.task.recurrence === 'DAILY' ? 'Daily Habit' : 'One-Time Task'}
+              {details?.task.priority && (
+                <span
+                  className={`text-[11px] font-mono font-medium px-2 py-0.5 rounded-md border uppercase ${
+                    details.task.priority === 'HIGH'
+                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                      : details.task.priority === 'MEDIUM'
+                      ? 'bg-flame-500/10 text-flame-400 border-flame-500/20'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  {details.task.priority} Priority
+                </span>
+              )}
+              <span className="text-[11px] font-mono text-zinc-400 bg-dark-surface px-2 py-0.5 rounded-md border border-dark-border">
+                {details?.task.recurrence === 'DAILY'
+                  ? (() => {
+                      const days = details.task.scheduledDays || [0, 1, 2, 3, 4, 5, 6];
+                      if (days.length === 7) return 'Every day';
+                      const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                      if (days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d))) return 'Weekdays';
+                      if (days.length === 2 && [0, 6].every((d) => days.includes(d))) return 'Weekends';
+                      return `Repeats: ${days.map((d: number) => dayLabels[d]).join(', ')}`;
+                    })()
+                  : 'One-Time Task'}
               </span>
+              {details?.task.dueTime && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-mono text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                  <Clock className="w-3 h-3 text-amber-400" />
+                  Due {details.task.dueTime}
+                </span>
+              )}
             </div>
             <h2 className="text-xl font-black text-zinc-100 tracking-tight">
               {details?.task.title || 'Task Details'}

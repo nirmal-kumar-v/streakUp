@@ -24,6 +24,7 @@ import { GroupDetailPage } from './pages/GroupDetailPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
+import { OfflineBanner } from './components/OfflineBanner';
 import { apiClient } from './api/client';
 
 // Protected Route wrapper
@@ -68,6 +69,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100 overflow-x-hidden">
+      <OfflineBanner />
       <Navbar />
       <StreakCelebration />
       {isAuthenticated && <PostCompletionNudge />}

@@ -2,7 +2,8 @@ import { Response } from 'express';
 import { z } from 'zod';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
-import { getLocalDateString, getLocalTimeInfo } from '../services/timezoneService';
+import { getLocalDateString, getLocalTimeInfo, getTodayInTimezone, DEFAULT_TIMEZONE } from '../services/timezoneService';
+import { DateTime } from 'luxon';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
 import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
 import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '../services/notificationService';
@@ -794,18 +795,38 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
       where: { id: userId },
       select: { timezone: true }
     });
-    const timezone = user?.timezone || 'Asia/Kolkata';
+    const timezone = user?.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getTodayInTimezone(timezone);
+    const currentYear = parseInt(todayStr.slice(0, 4), 10);
 
-    const currentYear = new Date().getFullYear();
-    const requestedYear = req.query.year ? parseInt(req.query.year as string, 10) : currentYear;
-    const targetYear = !isNaN(requestedYear) ? requestedYear : currentYear;
+    const { startDate, endDate, year } = req.query;
 
-    // Fetch completions for the requested year
+    let rangeStart: string;
+    let rangeEnd: string;
+    let targetYear: number | null = null;
+
+    if (startDate && endDate) {
+      rangeStart = String(startDate);
+      rangeEnd = String(endDate);
+    } else if (year) {
+      const yr = parseInt(String(year), 10);
+      targetYear = !isNaN(yr) ? yr : currentYear;
+      rangeStart = `${targetYear}-01-01`;
+      rangeEnd = `${targetYear}-12-31`;
+    } else {
+      // Default to 365 consecutive calendar days ending today in user's timezone
+      const todayDt = DateTime.fromISO(todayStr, { zone: timezone });
+      rangeEnd = todayStr;
+      rangeStart = todayDt.minus({ days: 364 }).toFormat('yyyy-MM-dd');
+    }
+
+    // Fetch completions within date range
     const completions = await prisma.taskCompletion.findMany({
       where: {
         userId,
         completionDate: {
-          startsWith: `${targetYear}-`
+          gte: rangeStart,
+          lte: rangeEnd
         }
       },
       include: {
@@ -816,9 +837,10 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
       orderBy: { completionDate: 'asc' }
     });
 
-    // Group completions by date
+    // Group completions by date (shield future dates from having completed activity)
     const dateMap: Record<string, { count: number; tasks: Array<{ title: string; note: string | null }> }> = {};
     for (const c of completions) {
+      if (c.completionDate > todayStr) continue; // Future dates can never have completions
       if (!dateMap[c.completionDate]) {
         dateMap[c.completionDate] = { count: 0, tasks: [] };
       }
@@ -835,22 +857,42 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
       tasks: data.tasks
     })).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Determine available years from all user completions
-    const allCompletions = await prisma.taskCompletion.findMany({
-      where: { userId },
-      select: { completionDate: true }
-    });
-    const yearsSet = new Set<number>();
-    yearsSet.add(currentYear);
-    allCompletions.forEach((c) => {
-      const yr = parseInt(c.completionDate.split('-')[0], 10);
-      if (!isNaN(yr)) yearsSet.add(yr);
-    });
+    // Determine available years efficiently using min and max completions
+    const [oldestCompletion, newestCompletion] = await Promise.all([
+      prisma.taskCompletion.findFirst({
+        where: { userId },
+        orderBy: { completionDate: 'asc' },
+        select: { completionDate: true }
+      }),
+      prisma.taskCompletion.findFirst({
+        where: { userId },
+        orderBy: { completionDate: 'desc' },
+        select: { completionDate: true }
+      })
+    ]);
+
+    const yearsSet = new Set<number>([currentYear]);
+    if (oldestCompletion?.completionDate) {
+      const startYr = parseInt(oldestCompletion.completionDate.slice(0, 4), 10);
+      const endYr = newestCompletion?.completionDate
+        ? parseInt(newestCompletion.completionDate.slice(0, 4), 10)
+        : currentYear;
+
+      if (!isNaN(startYr) && !isNaN(endYr)) {
+        for (let y = Math.min(startYr, currentYear); y <= Math.max(endYr, currentYear); y++) {
+          yearsSet.add(y);
+        }
+      }
+    }
     const availableYears = Array.from(yearsSet).sort((a, b) => a - b);
 
     return res.json({
       success: true,
       year: targetYear,
+      startDate: rangeStart,
+      endDate: rangeEnd,
+      today: todayStr,
+      timezone,
       availableYears,
       activity: activityList,
       totalCompletions: completions.length,

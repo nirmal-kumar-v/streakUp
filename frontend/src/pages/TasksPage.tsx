@@ -27,12 +27,14 @@ import {
   CheckCircle2,
   Clock,
   Layers,
+  Calendar,
 } from 'lucide-react';
+import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
 export const TasksPage: React.FC = () => {
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const toast = useToast();
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -218,9 +220,20 @@ export const TasksPage: React.FC = () => {
     );
   });
 
-  // Separate pending and completed tasks
-  const pendingTasks = filteredTasks.filter((t) => !t.completedToday);
-  const completedTasks = filteredTasks.filter((t) => t.completedToday);
+  // Current day of week in user's authoritative timezone (0=Sun, 1=Mon, ..., 6=Sat)
+  const todayDayOfWeek = DateTime.now().setZone(user?.timezone || 'Asia/Kolkata').weekday % 7;
+
+  const isScheduledForToday = (t: Task) => {
+    if (t.completedToday) return true;
+    if (t.recurrence === 'ONE_TIME') return true;
+    if (!t.scheduledDays || t.scheduledDays.length === 0) return true;
+    return t.scheduledDays.includes(todayDayOfWeek);
+  };
+
+  // Separate pending today, completed today, and other scheduled days
+  const pendingTasksToday = filteredTasks.filter((t) => !t.completedToday && isScheduledForToday(t));
+  const completedTasksToday = filteredTasks.filter((t) => t.completedToday);
+  const otherScheduledTasks = filteredTasks.filter((t) => !t.completedToday && !isScheduledForToday(t));
 
   // Derive unique categories from tasks
   const categories = Array.from(new Set(['ALL', ...tasks.map((t) => t.category).filter(Boolean)]));
@@ -374,22 +387,23 @@ export const TasksPage: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Pending Tasks Section */}
-          {pendingTasks.length > 0 && (
+          {/* Pending Tasks for Today */}
+          {pendingTasksToday.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-amber-400" />
                   <h2 className="text-sm font-bold text-zinc-200 uppercase tracking-wider">
-                    To-Do Today ({pendingTasks.length})
+                    To-Do Today ({pendingTasksToday.length})
                   </h2>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3">
-                {pendingTasks.map((task) => (
+                {pendingTasksToday.map((task) => (
                   <TaskCard
                     key={task.id}
                     task={task}
+                    canTick={true}
                     onToggleComplete={handleToggleComplete}
                     onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {
@@ -404,21 +418,50 @@ export const TasksPage: React.FC = () => {
             </div>
           )}
 
-          {/* Completed Tasks Section */}
-          {completedTasks.length > 0 && (
+          {/* Completed Tasks Today */}
+          {completedTasksToday.length > 0 && (
             <div className="space-y-3 pt-4 border-t border-dark-border/60">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
-                  Completed Today ({completedTasks.length})
+                  Completed Today ({completedTasksToday.length})
                 </h2>
               </div>
               <div className="grid grid-cols-1 gap-3">
-                {completedTasks.map((task) => (
+                {completedTasksToday.map((task) => (
                   <TaskCard
                     key={task.id}
                     task={task}
+                    canTick={true}
                     onToggleComplete={handleToggleComplete}
+                    onViewDetails={(t) => setDetailTaskId(t.id)}
+                    onEdit={(t) => {
+                      setEditingTask(t);
+                      setIsModalOpen(true);
+                    }}
+                    onArchiveToggle={handleArchiveToggle}
+                    onDelete={handleDeleteTask}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Scheduled on Other Days */}
+          {otherScheduledTasks.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-dark-border/60">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-zinc-400" />
+                <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">
+                  Scheduled for Other Days ({otherScheduledTasks.length})
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {otherScheduledTasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    canTick={false}
                     onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {
                       setEditingTask(t);

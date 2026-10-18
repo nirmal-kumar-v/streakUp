@@ -24,6 +24,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { useBadges } from '../context/BadgeContext';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
@@ -42,7 +43,7 @@ export const FriendsPage: React.FC = () => {
 
   // Action pending tracking for optimistic locking and zero duplicate requests
   const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set());
-  const [confirmRemoveFriendId, setConfirmRemoveFriendId] = useState<string | null>(null);
+  const [friendToRemove, setFriendToRemove] = useState<FriendUser | null>(null);
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const isMountedRef = useRef(true);
@@ -242,7 +243,7 @@ export const FriendsPage: React.FC = () => {
   };
 
   const executeRemoveFriend = async (friend: FriendUser) => {
-    setConfirmRemoveFriendId(null);
+    setFriendToRemove(null);
     if (pendingActionIds.has(friend.id)) return;
     addPendingId(friend.id);
 
@@ -346,12 +347,9 @@ export const FriendsPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {friends.map((friend) => {
-                const isConfirmingRemove = confirmRemoveFriendId === friend.id;
-
-                return (
-                  <div
-                    key={friend.id}
+              {friends.map((friend) => (
+                <div
+                  key={friend.id}
                     className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel flex flex-col justify-between gap-3 group hover:border-zinc-700 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -382,38 +380,17 @@ export const FriendsPage: React.FC = () => {
                         </div>
 
                         <button
-                          onClick={() => setConfirmRemoveFriendId(isConfirmingRemove ? null : friend.id)}
-                          title="Remove friend"
+                          onClick={() => setFriendToRemove(friend)}
+                          title={`Remove ${friend.name} from friends`}
+                          aria-label={`Remove ${friend.name} from friends`}
                           className="p-2 text-zinc-500 hover:text-rose-400 hover:bg-dark-hover rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
                         >
                           <UserMinus className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
-
-                    {/* Non-intrusive inline remove confirmation (Replaces disruptive browser window.confirm) */}
-                    {isConfirmingRemove && (
-                      <div className="pt-2.5 mt-1 border-t border-dark-border/80 flex items-center justify-between gap-2 animate-fadeIn">
-                        <span className="text-xs text-rose-300 font-medium">Remove from friends?</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setConfirmRemoveFriendId(null)}
-                            className="text-xs px-2.5 py-1 text-zinc-400 hover:text-zinc-200 rounded-lg hover:bg-dark-hover transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => executeRemoveFriend(friend)}
-                            className="text-xs px-3 py-1 bg-rose-500 hover:bg-rose-600 active:scale-95 text-white font-bold rounded-lg shadow-sm transition-all"
-                          >
-                            Confirm
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                );
-              })}
+                ))}
             </div>
           )}
         </div>
@@ -608,6 +585,24 @@ export const FriendsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* In-app Friend Removal Confirmation Dialog */}
+      <ConfirmModal
+        isOpen={Boolean(friendToRemove)}
+        title="Remove Friend"
+        message={
+          friendToRemove
+            ? `Are you sure you want to remove ${friendToRemove.name} (@${friendToRemove.username}) from your friends list? They will no longer appear on your friends leaderboard.`
+            : ''
+        }
+        confirmText="Remove Friend"
+        cancelText="Cancel"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (friendToRemove) executeRemoveFriend(friendToRemove);
+        }}
+        onClose={() => setFriendToRemove(null)}
+      />
     </div>
   );
 };

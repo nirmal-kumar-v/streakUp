@@ -30,7 +30,9 @@ import {
   Shield,
   Zap,
   Award,
+  Calendar,
 } from 'lucide-react';
+import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
@@ -221,8 +223,23 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  const completedCount = tasks.filter((t) => t.completedToday).length;
-  const totalCount = tasks.length;
+  // Determine current day of week in user's authoritative timezone (0=Sun, 1=Mon, ..., 6=Sat)
+  const todayDayOfWeek = DateTime.now().setZone(user?.timezone || 'Asia/Kolkata').weekday % 7;
+
+  // Filter tasks into Today's Checklist vs Other Scheduled Days
+  const isScheduledForToday = (t: Task) => {
+    if (t.completedToday) return true;
+    if (t.recurrence === 'ONE_TIME') return true;
+    if (!t.scheduledDays || t.scheduledDays.length === 0) return true;
+    return t.scheduledDays.includes(todayDayOfWeek);
+  };
+
+  const activeTasks = tasks.filter((t) => t.status === 'ACTIVE');
+  const todaysTasks = activeTasks.filter((t) => isScheduledForToday(t));
+  const otherScheduledTasks = activeTasks.filter((t) => !isScheduledForToday(t));
+
+  const completedCount = todaysTasks.filter((t) => t.completedToday).length;
+  const totalCount = todaysTasks.length;
   const completionPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
@@ -483,12 +500,12 @@ export const DashboardPage: React.FC = () => {
 
         {isLoading ? (
           <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
-        ) : tasks.length === 0 ? (
+        ) : todaysTasks.length === 0 ? (
           <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">
             <ListTodo className="w-10 h-10 text-dark-muted mx-auto mb-3 opacity-60" />
             <h3 className="text-sm font-semibold text-zinc-200">No active tasks for today</h3>
             <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
-              Create your daily habits or one-time tasks to start building your streak!
+              All caught up for today! Create a new habit or check habits scheduled for other days below.
             </p>
             <button
               onClick={() => {
@@ -497,15 +514,16 @@ export const DashboardPage: React.FC = () => {
               }}
               className="mt-4 px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm inline-flex items-center gap-1.5"
             >
-              <Plus className="w-4 h-4 stroke-[3]" /> Add Your First Task
+              <Plus className="w-4 h-4 stroke-[3]" /> Add New Habit
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            {tasks.map((task) => (
+            {todaysTasks.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
+                canTick={true}
                 onToggleComplete={handleToggleComplete}
                 onViewDetails={(t) => setDetailTaskId(t.id)}
                 onEdit={(t) => {
@@ -519,6 +537,43 @@ export const DashboardPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Other Scheduled Habits (Habits scheduled for other days of the week) */}
+      {otherScheduledTasks.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-4">
+          <div className="flex items-center gap-2.5">
+            <Calendar className="w-5 h-5 text-zinc-400" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-zinc-100">Other Scheduled Habits</h2>
+                <span className="text-xs bg-dark-surface text-dark-muted px-2.5 py-0.5 rounded-full border border-dark-border font-mono">
+                  {otherScheduledTasks.length}
+                </span>
+              </div>
+              <p className="text-xs text-dark-muted mt-0.5">
+                Habits scheduled for other days of the week. They will appear in your checklist on their scheduled days.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {otherScheduledTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                canTick={false}
+                onViewDetails={(t) => setDetailTaskId(t.id)}
+                onEdit={(t) => {
+                  setEditingTask(t);
+                  setIsModalOpen(true);
+                }}
+                onArchiveToggle={handleArchiveToggle}
+                onDelete={handleDeleteTask}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Activity Heatmap Section (Requirement 3 & 7) */}
       <ActivityHeatmap timezone={user?.timezone || 'Asia/Kolkata'} />

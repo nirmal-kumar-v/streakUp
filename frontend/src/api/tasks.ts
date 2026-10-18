@@ -284,18 +284,38 @@ export interface ActivityDateItem {
 
 export interface ActivityHistoryResponse {
   success: boolean;
-  year?: number;
+  year?: number | null;
+  startDate?: string;
+  endDate?: string;
+  today?: string;
+  timezone?: string;
   availableYears?: number[];
   activity: ActivityDateItem[];
   totalCompletions: number;
   activeDaysCount?: number;
 }
 
-export async function fetchActivityHistory(year?: number) {
+export interface ActivityHistoryParams {
+  year?: number;
+  startDate?: string;
+  endDate?: string;
+}
+
+export async function fetchActivityHistory(paramsOrYear?: number | ActivityHistoryParams) {
+  const params: Record<string, any> = {};
+  if (typeof paramsOrYear === 'number') {
+    params.year = paramsOrYear;
+  } else if (paramsOrYear && typeof paramsOrYear === 'object') {
+    if (paramsOrYear.year !== undefined) params.year = paramsOrYear.year;
+    if (paramsOrYear.startDate) params.startDate = paramsOrYear.startDate;
+    if (paramsOrYear.endDate) params.endDate = paramsOrYear.endDate;
+  }
+
   const res = await apiClient.get<ActivityHistoryResponse>('/tasks/activity-history', {
-    params: year ? { year } : undefined
+    params: Object.keys(params).length > 0 ? params : undefined,
   });
   return res.data;
 }
+
 
 

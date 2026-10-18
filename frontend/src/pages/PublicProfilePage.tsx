@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchPublicProfile, PublicProfile } from '../api/user';
-import { sendFriendRequest, acceptFriendRequest } from '../api/friends';
+import { sendFriendRequest, acceptFriendRequest, removeFriend } from '../api/friends';
 import { useAuth } from '../context/AuthContext';
 import { useBadges } from '../context/BadgeContext';
 import { useToast } from '../context/ToastContext';
@@ -16,8 +16,10 @@ import {
   ArrowLeft,
   User as UserIcon,
   Award,
+  UserMinus,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { extractErrorMessage } from '../utils/error';
 
 export const PublicProfilePage: React.FC = () => {
@@ -30,6 +32,7 @@ export const PublicProfilePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isActionPending, setIsActionPending] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
   const loadProfile = async () => {
     if (!username) return;
@@ -87,6 +90,25 @@ export const PublicProfilePage: React.FC = () => {
     } catch (err: any) {
       setProfile({ ...profile, relationshipStatus: prevStatus });
       toast.error(extractErrorMessage(err, 'Failed to accept friend request. Please try again.'));
+    } finally {
+      setIsActionPending(false);
+    }
+  };
+
+  const handleRemoveFriend = async () => {
+    if (!profile) return;
+    setShowRemoveConfirm(false);
+    setIsActionPending(true);
+    const prevStatus = profile.relationshipStatus;
+    setProfile({ ...profile, relationshipStatus: 'NONE' });
+    toast.info(`Removed @${profile.username} from friends`);
+
+    try {
+      const res = await removeFriend(profile.id);
+      if (!res.success) throw new Error(res.message || 'Failed to remove friend');
+    } catch (err: any) {
+      setProfile({ ...profile, relationshipStatus: prevStatus });
+      toast.error(extractErrorMessage(err, 'Failed to remove friend. Please try again.'));
     } finally {
       setIsActionPending(false);
     }
@@ -169,9 +191,20 @@ export const PublicProfilePage: React.FC = () => {
                   Edit Your Profile
                 </Link>
               ) : profile.relationshipStatus === 'FRIENDS' ? (
-                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold">
-                  <Check className="w-4 h-4 stroke-[3]" /> Friends with {profile.name.split(' ')[0]}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold">
+                    <Check className="w-3.5 h-3.5 stroke-[3]" /> Friends with {profile.name.split(' ')[0]}
+                  </span>
+                  <button
+                    onClick={() => setShowRemoveConfirm(true)}
+                    disabled={isActionPending}
+                    title="Remove friend"
+                    aria-label={`Remove ${profile.name} from friends`}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 border border-zinc-800 hover:border-rose-500/20 rounded-xl transition-all disabled:opacity-50"
+                  >
+                    <UserMinus className="w-3.5 h-3.5" /> Remove
+                  </button>
+                </div>
               ) : profile.relationshipStatus === 'REQUEST_SENT' ? (
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-dark-surface text-zinc-400 border border-dark-border rounded-xl text-xs font-medium">
                   <Clock className="w-4 h-4 text-amber-400" /> Friend Request Pending
@@ -260,6 +293,18 @@ export const PublicProfilePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* In-app Friend Removal Confirmation Dialog */}
+      <ConfirmModal
+        isOpen={showRemoveConfirm}
+        title="Remove Friend"
+        message={`Are you sure you want to remove ${profile.name} (@${profile.username}) from your friends list? They will no longer appear on your friends leaderboard.`}
+        confirmText="Remove Friend"
+        cancelText="Cancel"
+        confirmVariant="danger"
+        onConfirm={handleRemoveFriend}
+        onClose={() => setShowRemoveConfirm(false)}
+      />
     </div>
   );
 };
