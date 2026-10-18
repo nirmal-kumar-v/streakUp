@@ -3,17 +3,24 @@ import { DateTime } from 'luxon';
 import {
   Calendar,
   CheckCircle2,
+  Flame,
   X,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { ActivityTaskInfo, fetchActivityHistory, ActivityHistoryResponse } from '../api/tasks';
 
 interface ActivityHeatmapProps {
   timezone?: string;
+  currentStreak?: number;
 }
 
 export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   timezone = 'Asia/Kolkata',
+  currentStreak,
 }) => {
+  const { user } = useAuth();
+  const streak = currentStreak !== undefined ? currentStreak : (user?.currentStreak || 0);
+
   // Current date in authoritative user timezone
   const todayDt = useMemo(() => {
     return DateTime.now().setZone(timezone).startOf('day');
@@ -24,7 +31,6 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   const endDate = todayDt;
 
   const [activityMap, setActivityMap] = useState<Map<string, { count: number; tasks: ActivityTaskInfo[] }>>(new Map());
-  const [totalCompletions, setTotalCompletions] = useState(0);
   const [activeDaysCount, setActiveDaysCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +66,6 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       });
     });
     setActivityMap(map);
-    setTotalCompletions(res.totalCompletions || 0);
     setActiveDaysCount(res.activeDaysCount || 0);
   };
 
@@ -189,23 +194,21 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
             <h3 className="text-sm font-bold text-zinc-100">
               Activity Heatmap
             </h3>
-            <p className="text-[11px] text-dark-muted">
-              365 consecutive calendar days ending today ({todayDt.toFormat('LLL d, yyyy')})
-            </p>
           </div>
         </div>
 
         {/* Aggregate Stats */}
-        <div className="flex items-center gap-3 text-xs font-mono">
-          <div className="flex items-center gap-1.5 text-zinc-300">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+        <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono">
+          <div className="flex items-center gap-1.5 text-flame-400 font-semibold">
+            <Flame className="w-3.5 h-3.5 fill-flame-500 text-flame-500 shrink-0" />
             <span>
-              <strong>{activeDaysCount}</strong> active days
+              <strong>{streak}</strong> {streak === 1 ? 'day streak' : 'days streak'}
             </span>
           </div>
-          <div className="text-dark-muted">
+          <div className="flex items-center gap-1.5 text-zinc-300">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>
-              <strong>{totalCompletions}</strong> total habits done
+              <strong>{activeDaysCount}</strong> working {activeDaysCount === 1 ? 'day' : 'days'} in past 365 days
             </span>
           </div>
         </div>

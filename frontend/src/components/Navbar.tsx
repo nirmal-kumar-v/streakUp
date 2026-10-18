@@ -24,6 +24,34 @@ export const Navbar: React.FC = () => {
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Auto-close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && mobileMenuOpen) {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileMenuOpen]);
+
+  // Lock body scroll while mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
+
   // Streak celebration animation highlight listener
   const [isStreakHighlighted, setIsStreakHighlighted] = useState(false);
 
@@ -116,7 +144,12 @@ export const Navbar: React.FC = () => {
       ];
 
   return (
-    <nav className="sticky top-0 z-40 bg-dark-bg/95 backdrop-blur-md border-b border-dark-border h-16 transition-colors">
+    <>
+      <nav
+        className={`sticky top-0 z-50 border-b border-dark-border h-16 transition-colors ${
+          mobileMenuOpen ? 'bg-[#09090b]' : 'bg-dark-bg/95 backdrop-blur-md'
+        }`}
+      >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full">
         <div className="flex items-center justify-between h-full">
           {/* Logo / Brand */}
@@ -323,60 +356,78 @@ export const Navbar: React.FC = () => {
           </div>
         </div>
       </div>
+    </nav>
 
-      {/* Mobile Drawer */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-b border-dark-border bg-dark-bg/98 backdrop-blur-lg px-4 pt-2 pb-6 space-y-1 shadow-2xl">
-          {navLinks.map((link) => {
-            const Icon = link.icon;
-            const active = isActive(link.path);
-            return (
+    {/* Mobile Drawer Backdrop & Solid Menu Panel (Rendered outside <nav> to prevent backdrop-filter clipping) */}
+    {mobileMenuOpen && (
+      <div className="md:hidden">
+        {/* Backdrop Scrim */}
+        <div
+          className="fixed inset-0 top-16 bg-black/80 z-[90] animate-fadeIn"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+
+        {/* Solid Drawer Panel (100% Opaque, Full Width, Below Nav) */}
+        <div
+          id="mobile-drawer-menu"
+          className="fixed top-16 inset-x-0 bottom-0 z-[100] border-t border-dark-border px-4 pt-4 pb-8 flex flex-col justify-between shadow-2xl overflow-y-auto animate-fadeIn"
+          style={{ backgroundColor: '#09090b' }}
+        >
+          <div className="space-y-1.5">
+            {navLinks.map((link) => {
+              const Icon = link.icon;
+              const active = isActive(link.path);
+              return (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
+                    active
+                      ? 'bg-dark-surface text-flame-400 border border-dark-border shadow-sm'
+                      : 'text-zinc-300 hover:text-zinc-100 hover:bg-dark-hover active:bg-dark-hover'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className={`w-4 h-4 ${active ? 'text-flame-500' : 'text-zinc-400'}`} />
+                    <span>{link.label}</span>
+                  </div>
+                  {link.badge !== undefined && (
+                    <span className="bg-flame-500 text-zinc-950 text-xs font-black px-2 py-0.5 rounded-full">
+                      {link.badge}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+
+          {isAuthenticated && user ? (
+            <div className="pt-4 mt-4 border-t border-dark-border space-y-2">
               <Link
-                key={link.path}
-                to={link.path}
+                to={`/profile/${user.username}`}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  active
-                    ? 'bg-dark-surface text-flame-400 border border-dark-border'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-dark-hover'
-                }`}
+                className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-zinc-200 hover:text-flame-400 hover:bg-dark-hover rounded-xl transition-colors bg-dark-surface/50 border border-dark-border"
               >
-                <div className="flex items-center gap-3">
-                  <Icon className="w-4 h-4 text-flame-500" />
-                  <span>{link.label}</span>
+                <InitialsAvatar name={user.name} image={user.profileImage} size="xs" />
+                <div className="flex flex-col">
+                  <span className="font-semibold text-zinc-100">{user.name}</span>
+                  <span className="text-[11px] text-dark-muted font-mono">@{user.username}</span>
                 </div>
-                {link.badge !== undefined && (
-                  <span className="bg-flame-500 text-zinc-950 text-xs font-black px-2 py-0.5 rounded-full">
-                    {link.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-
-          {isAuthenticated ? (
-            <div className="pt-2 border-t border-dark-border space-y-1">
-              <Link
-                to={`/profile/${user?.username}`}
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold text-zinc-300 hover:text-flame-400 rounded-xl"
-              >
-                <InitialsAvatar name={user?.name || ''} image={user?.profileImage} size="xs" />
-                <span>Profile & Settings</span>
               </Link>
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   handleLogout();
                 }}
-                className="w-full flex items-center gap-3 px-3.5 py-2.5 text-sm font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl transition-colors"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Sign Out</span>
               </button>
             </div>
           ) : (
-            <div className="pt-3 border-t border-dark-border flex flex-col gap-2">
+            <div className="pt-4 mt-4 border-t border-dark-border flex flex-col gap-2">
               <Link
                 to="/login"
                 onClick={() => setMobileMenuOpen(false)}
@@ -394,7 +445,8 @@ export const Navbar: React.FC = () => {
             </div>
           )}
         </div>
-      )}
-    </nav>
+      </div>
+    )}
+  </>
   );
 };

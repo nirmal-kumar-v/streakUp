@@ -576,7 +576,10 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* Activity Heatmap Section (Requirement 3 & 7) */}
-      <ActivityHeatmap timezone={user?.timezone || 'Asia/Kolkata'} />
+      <ActivityHeatmap
+        timezone={user?.timezone || 'Asia/Kolkata'}
+        currentStreak={user?.currentStreak || 0}
+      />
 
       {/* Task Creation / Edit Modal */}
       <TaskModal
