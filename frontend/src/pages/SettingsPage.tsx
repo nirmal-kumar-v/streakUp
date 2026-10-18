@@ -34,9 +34,14 @@ import {
   RotateCw,
   Lock,
   X,
+  FileText,
+  Shield,
+  ChevronRight,
+  HelpCircle,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { useAppLock } from '../context/AppLockContext';
+import { DEFAULT_SECURITY_QUESTIONS } from '../utils/pinSecurity';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -45,6 +50,7 @@ export const SettingsPage: React.FC = () => {
   // App Lock Context & State
   const {
     isAppLockEnabled,
+    securityQuestion,
     setupPin,
     changePin,
     disableAppLock,
@@ -54,6 +60,8 @@ export const SettingsPage: React.FC = () => {
   const [appLockPin, setAppLockPin] = useState('');
   const [appLockConfirmPin, setAppLockConfirmPin] = useState('');
   const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
+  const [appLockSecQuestion, setAppLockSecQuestion] = useState<string>(DEFAULT_SECURITY_QUESTIONS[0]);
+  const [appLockSecAnswer, setAppLockSecAnswer] = useState<string>('');
   const [appLockModalError, setAppLockModalError] = useState('');
   const [appLockModalLoading, setAppLockModalLoading] = useState(false);
   const [appLockSuccessMsg, setAppLockSuccessMsg] = useState('');
@@ -61,6 +69,8 @@ export const SettingsPage: React.FC = () => {
   const handleOpenSetupModal = () => {
     setAppLockPin('');
     setAppLockConfirmPin('');
+    setAppLockSecQuestion(DEFAULT_SECURITY_QUESTIONS[0]);
+    setAppLockSecAnswer('');
     setAppLockModalError('');
     setAppLockModal('setup');
   };
@@ -69,6 +79,8 @@ export const SettingsPage: React.FC = () => {
     setAppLockCurrentPin('');
     setAppLockPin('');
     setAppLockConfirmPin('');
+    setAppLockSecQuestion(securityQuestion || DEFAULT_SECURITY_QUESTIONS[0]);
+    setAppLockSecAnswer('');
     setAppLockModalError('');
     setAppLockModal('change');
   };
@@ -90,10 +102,15 @@ export const SettingsPage: React.FC = () => {
       return;
     }
 
+    if (!appLockSecAnswer.trim()) {
+      setAppLockModalError('Please enter an answer to your recovery security question.');
+      return;
+    }
+
     setAppLockModalLoading(true);
     setAppLockModalError('');
     try {
-      const success = await setupPin(appLockPin);
+      const success = await setupPin(appLockPin, appLockSecQuestion, appLockSecAnswer.trim());
       if (success) {
         setAppLockModal('none');
         setAppLockSuccessMsg('App Lock enabled successfully!');
@@ -126,7 +143,12 @@ export const SettingsPage: React.FC = () => {
     setAppLockModalLoading(true);
     setAppLockModalError('');
     try {
-      const res = await changePin(appLockCurrentPin, appLockPin);
+      const res = await changePin(
+        appLockCurrentPin,
+        appLockPin,
+        appLockSecQuestion,
+        appLockSecAnswer.trim() || undefined
+      );
       if (res.success) {
         setAppLockModal('none');
         setAppLockSuccessMsg('PIN updated successfully!');
@@ -1163,8 +1185,79 @@ export const SettingsPage: React.FC = () => {
                 10 seconds
               </span>
             </div>
+
+            {/* Recovery Question Info */}
+            <div className="flex items-center justify-between p-4 bg-dark-surface/50 border border-dark-border rounded-2xl">
+              <div>
+                <div className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4 text-flame-400" />
+                  <span>Recovery Security Question</span>
+                </div>
+                <p className="text-[11px] text-dark-muted mt-0.5">
+                  {securityQuestion || 'Configured during PIN setup for PIN recovery'}
+                </p>
+              </div>
+              <span className="text-[11px] font-semibold text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg">
+                Active
+              </span>
+            </div>
           </div>
         )}
+      </div>
+
+      {/* SECTION: LEGAL & PRIVACY */}
+      <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-4">
+        <div>
+          <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-flame-500" />
+            <span>Legal & Privacy</span>
+          </h2>
+          <p className="text-xs text-dark-muted mt-0.5">
+            Review StreakUp platform agreements, community terms, and data protection practices.
+          </p>
+        </div>
+
+        <div className="divide-y divide-dark-border/60 rounded-2xl border border-dark-border overflow-hidden bg-dark-surface/40">
+          <Link
+            to="/terms"
+            className="flex items-center justify-between p-4 hover:bg-dark-hover transition-colors group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-flame-500/10 border border-flame-500/20 text-flame-400 flex items-center justify-center shrink-0">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-zinc-200 group-hover:text-flame-400 transition-colors">
+                  Terms & Conditions
+                </div>
+                <div className="text-[11px] text-dark-muted">
+                  Account responsibilities, streak rules, points, and service terms
+                </div>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-200 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </Link>
+
+          <Link
+            to="/privacy"
+            className="flex items-center justify-between p-4 hover:bg-dark-hover transition-colors group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-zinc-200 group-hover:text-emerald-400 transition-colors">
+                  Privacy Policy
+                </div>
+                <div className="text-[11px] text-dark-muted">
+                  What data we collect, zero ad-brokerage guarantee, and deletion rights
+                </div>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-zinc-200 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </Link>
+        </div>
       </div>
 
       {/* Danger Zone: Permanent Account Deletion (Requirement 4 & 8) */}
@@ -1364,6 +1457,49 @@ export const SettingsPage: React.FC = () => {
                 />
               </div>
 
+              {/* Security Question for Recovery */}
+              <div className="pt-2 border-t border-dark-border/60 space-y-3">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-flame-400">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>PIN Recovery Security Question</span>
+                </div>
+                <p className="text-[11px] text-dark-muted">
+                  Used to reset your PIN if forgotten, without requiring email or SMS OTP.
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Select Question
+                  </label>
+                  <select
+                    value={appLockSecQuestion}
+                    onChange={(e) => setAppLockSecQuestion(e.target.value)}
+                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
+                  >
+                    {DEFAULT_SECURITY_QUESTIONS.map((q) => (
+                      <option key={q} value={q} className="bg-dark-card text-zinc-200">
+                        {q}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    Your Answer
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter memorable answer"
+                    value={appLockSecAnswer}
+                    onChange={(e) => setAppLockSecAnswer(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                  />
+                  <p className="text-[10px] text-zinc-500 mt-1">
+                    Your answer is cryptographically hashed with salt and never stored in plain text.
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-dark-border">
                 <button
                   type="button"
@@ -1374,7 +1510,7 @@ export const SettingsPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={appLockModalLoading || appLockPin.length !== 4 || appLockConfirmPin.length !== 4}
+                  disabled={appLockModalLoading || appLockPin.length !== 4 || appLockConfirmPin.length !== 4 || !appLockSecAnswer.trim()}
                   className="px-5 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-40 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
                 >
                   {appLockModalLoading ? 'Saving...' : 'Set PIN & Enable'}
@@ -1456,6 +1592,32 @@ export const SettingsPage: React.FC = () => {
                   value={appLockConfirmPin}
                   onChange={(e) => setAppLockConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   className="w-full text-center tracking-[0.5em] font-mono text-xl py-2.5 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500/80"
+                />
+              </div>
+
+              {/* Optional Security Question update */}
+              <div className="pt-2 border-t border-dark-border/60 space-y-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-300">
+                  <HelpCircle className="w-3.5 h-3.5 text-flame-400" />
+                  <span>Update Security Question (Optional)</span>
+                </div>
+                <select
+                  value={appLockSecQuestion}
+                  onChange={(e) => setAppLockSecQuestion(e.target.value)}
+                  className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500/80"
+                >
+                  {DEFAULT_SECURITY_QUESTIONS.map((q) => (
+                    <option key={q} value={q} className="bg-dark-card text-zinc-200">
+                      {q}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="New answer (leave blank to keep existing)"
+                  value={appLockSecAnswer}
+                  onChange={(e) => setAppLockSecAnswer(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500/80"
                 />
               </div>
 

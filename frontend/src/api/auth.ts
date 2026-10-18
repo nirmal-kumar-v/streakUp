@@ -34,6 +34,8 @@ export async function registerUser(data: {
   password: string;
   confirmPassword?: string;
   timezone?: string;
+  termsAccepted?: boolean;
+  termsVersion?: string;
 }): Promise<AuthResponse> {
   const res = await apiClient.post<AuthResponse>('/auth/register', data);
   return res.data;

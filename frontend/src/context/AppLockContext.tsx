@@ -1,11 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from './AuthContext';
-import { generateSalt, hashPin, verifyPinHash } from '../utils/pinSecurity';
+import {
+  generateSalt,
+  hashPin,
+  verifyPinHash,
+  hashSecurityAnswer,
+  verifySecurityAnswerHash,
+} from '../utils/pinSecurity';
 
-interface StoredAppLockData {
+export interface StoredAppLockData {
   enabled: boolean;
   salt: string;
   pinHash: string;
+  securityQuestion?: string;
+  securityAnswerHash?: string;
 }
 
 interface AppLockContextType {
@@ -14,10 +22,17 @@ interface AppLockContextType {
   hasPinSet: boolean;
   failedAttempts: number;
   lockoutRemainingSeconds: number;
-  setupPin: (pin: string) => Promise<boolean>;
-  changePin: (currentPin: string, newPin: string) => Promise<{ success: boolean; error?: string }>;
+  securityQuestion?: string;
+  setupPin: (pin: string, securityQuestion?: string, securityAnswer?: string) => Promise<boolean>;
+  changePin: (
+    currentPin: string,
+    newPin: string,
+    securityQuestion?: string,
+    securityAnswer?: string
+  ) => Promise<{ success: boolean; error?: string }>;
   disableAppLock: (currentPin: string) => Promise<{ success: boolean; error?: string }>;
   verifyAndUnlock: (pin: string) => Promise<{ success: boolean; error?: string }>;
+  verifySecurityAnswerAndResetPin: (answer: string, newPin: string) => Promise<{ success: boolean; error?: string }>;
   lockApp: () => void;
   unlockApp: () => void;
 }
@@ -40,6 +55,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isAppLockEnabled, setIsAppLockEnabled] = useState(false);
   const [hasPinSet, setHasPinSet] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [securityQuestion, setSecurityQuestion] = useState<string | undefined>(undefined);
 
   // Initialize failed attempts and lockout state from localStorage to prevent refresh bypass
   const [failedAttempts, setFailedAttempts] = useState<number>(() => {
@@ -86,6 +102,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
+      setSecurityQuestion(undefined);
       return;
     }
 
@@ -96,6 +113,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (parsed.enabled && parsed.pinHash && parsed.salt) {
           setIsAppLockEnabled(true);
           setHasPinSet(true);
+          setSecurityQuestion(parsed.securityQuestion);
 
           // Check if user is locked out due to wrong PIN attempts
           const storedLockout = localStorage.getItem(lockoutStorageKey);
@@ -125,16 +143,19 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setIsAppLockEnabled(false);
           setHasPinSet(false);
           setIsLocked(false);
+          setSecurityQuestion(undefined);
         }
       } else {
         setIsAppLockEnabled(false);
         setHasPinSet(false);
         setIsLocked(false);
+        setSecurityQuestion(undefined);
       }
     } catch {
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
+      setSecurityQuestion(undefined);
     }
   }, [isAuthenticated, user, configStorageKey, lockoutStorageKey, bgStorageKey, sessionUnlockedKey]);
 
@@ -233,23 +254,35 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [isAppLockEnabled, isAuthenticated, bgStorageKey, sessionUnlockedKey]);
 
-  // Setup / Enable PIN
-  const setupPin = async (pin: string): Promise<boolean> => {
+  // Setup / Enable PIN with optional Security Question & Answer
+  const setupPin = async (
+    pin: string,
+    secQuestion?: string,
+    secAnswer?: string
+  ): Promise<boolean> => {
     if (!user || pin.length < 4) return false;
 
     try {
       const salt = generateSalt();
       const pinHash = await hashPin(pin, salt, userId);
 
+      let answerHash: string | undefined = undefined;
+      if (secQuestion && secAnswer && secAnswer.trim()) {
+        answerHash = await hashSecurityAnswer(secAnswer, salt, userId);
+      }
+
       const config: StoredAppLockData = {
         enabled: true,
         salt,
         pinHash,
+        securityQuestion: secQuestion?.trim() || undefined,
+        securityAnswerHash: answerHash,
       };
 
       localStorage.setItem(configStorageKey, JSON.stringify(config));
       setIsAppLockEnabled(true);
       setHasPinSet(true);
+      setSecurityQuestion(config.securityQuestion);
       setIsLocked(false);
       setFailedAttempts(0);
       setLockoutUntil(null);
@@ -265,7 +298,12 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Change PIN (requires validating current PIN first)
-  const changePin = async (currentPin: string, newPin: string): Promise<{ success: boolean; error?: string }> => {
+  const changePin = async (
+    currentPin: string,
+    newPin: string,
+    secQuestion?: string,
+    secAnswer?: string
+  ): Promise<{ success: boolean; error?: string }> => {
     const raw = localStorage.getItem(configStorageKey);
     if (!raw) return { success: false, error: 'App lock configuration not found.' };
 
@@ -283,14 +321,28 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const newSalt = generateSalt();
       const newHash = await hashPin(newPin, newSalt, userId);
 
+      let newAnswerHash: string | undefined = undefined;
+      let finalQuestion = parsed.securityQuestion;
+
+      if (secQuestion && secAnswer && secAnswer.trim()) {
+        finalQuestion = secQuestion.trim();
+        newAnswerHash = await hashSecurityAnswer(secAnswer, newSalt, userId);
+      } else if (parsed.securityAnswerHash) {
+        // If question not changed but was present, keep existing answer hash
+        newAnswerHash = parsed.securityAnswerHash;
+      }
+
       const updated: StoredAppLockData = {
         ...parsed,
         salt: newSalt,
         pinHash: newHash,
+        securityQuestion: finalQuestion,
+        securityAnswerHash: newAnswerHash,
       };
 
       localStorage.setItem(configStorageKey, JSON.stringify(updated));
       setFailedAttempts(0);
+      setSecurityQuestion(finalQuestion);
       localStorage.removeItem(attemptsStorageKey);
       return { success: true };
     } catch {
@@ -305,6 +357,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
+      setSecurityQuestion(undefined);
       return { success: true };
     }
 
@@ -324,6 +377,7 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setIsAppLockEnabled(false);
       setHasPinSet(false);
       setIsLocked(false);
+      setSecurityQuestion(undefined);
       setFailedAttempts(0);
       setLockoutUntil(null);
 
@@ -385,6 +439,63 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // Verify Security Question Answer and Reset PIN (No OTP required)
+  const verifySecurityAnswerAndResetPin = async (
+    answer: string,
+    newPin: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const raw = localStorage.getItem(configStorageKey);
+    if (!raw) return { success: false, error: 'App lock configuration not found.' };
+
+    try {
+      const parsed: StoredAppLockData = JSON.parse(raw);
+      if (!parsed.securityAnswerHash || !parsed.salt) {
+        return {
+          success: false,
+          error: 'No security question is configured. Please sign out to regain access.',
+        };
+      }
+
+      if (!answer.trim()) {
+        return { success: false, error: 'Please enter your security answer.' };
+      }
+
+      const isAnswerValid = await verifySecurityAnswerHash(answer, parsed.salt, parsed.securityAnswerHash, userId);
+      if (!isAnswerValid) {
+        return { success: false, error: 'Incorrect answer. Please check your answer and try again.' };
+      }
+
+      if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+        return { success: false, error: 'New PIN must be exactly 4 numeric digits.' };
+      }
+
+      const newSalt = generateSalt();
+      const newPinHash = await hashPin(newPin, newSalt, userId);
+      const newAnswerHash = await hashSecurityAnswer(answer, newSalt, userId);
+
+      const updated: StoredAppLockData = {
+        ...parsed,
+        salt: newSalt,
+        pinHash: newPinHash,
+        securityAnswerHash: newAnswerHash,
+      };
+
+      localStorage.setItem(configStorageKey, JSON.stringify(updated));
+      localStorage.removeItem(lockoutStorageKey);
+      localStorage.removeItem(attemptsStorageKey);
+      sessionStorage.setItem(sessionUnlockedKey, 'true');
+
+      setFailedAttempts(0);
+      setLockoutUntil(null);
+      setLockoutRemainingSeconds(0);
+      setIsLocked(false);
+
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Failed to reset PIN. Please try again.' };
+    }
+  };
+
   const lockApp = () => {
     if (isAppLockEnabled) {
       setIsLocked(true);
@@ -405,10 +516,12 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
         hasPinSet,
         failedAttempts,
         lockoutRemainingSeconds,
+        securityQuestion,
         setupPin,
         changePin,
         disableAppLock,
         verifyAndUnlock,
+        verifySecurityAnswerAndResetPin,
         lockApp,
         unlockApp,
       }}

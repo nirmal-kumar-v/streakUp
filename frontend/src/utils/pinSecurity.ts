@@ -1,7 +1,17 @@
 /**
- * Secure client-side PIN hashing and verification using Web Crypto API.
- * Never stores plaintext PINs in localStorage or sessionStorage.
+ * Secure client-side PIN and Security Question hashing and verification using Web Crypto API.
+ * Never stores plaintext PINs or plaintext security answers in localStorage or sessionStorage.
  */
+
+// Preset security questions for App Lock recovery
+export const DEFAULT_SECURITY_QUESTIONS = [
+  'What was the name of your first school?',
+  'In what city was your first job or high school?',
+  'What is the name of your favorite childhood pet?',
+  'What is your all-time favorite book or movie?',
+  'What was the model of your first car or bike?',
+  'What is your favorite sports team or athlete?',
+] as const;
 
 // Convert ArrayBuffer to hex string
 function bufferToHex(buffer: ArrayBuffer): string {
@@ -41,5 +51,33 @@ export async function verifyPinHash(
   userId: string = 'global'
 ): Promise<boolean> {
   const calculatedHash = await hashPin(inputPin, salt, userId);
+  return calculatedHash === expectedHash;
+}
+
+/**
+ * Hash normalized security answer (trimmed and lowercased) with salt and userId
+ */
+export async function hashSecurityAnswer(
+  answer: string,
+  salt: string,
+  userId: string = 'global'
+): Promise<string> {
+  const normalized = answer.trim().toLowerCase();
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`streakup_sec_answer_v1:${salt}:${userId}:${normalized}`);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+  return bufferToHex(hashBuffer);
+}
+
+/**
+ * Verify an input security answer against stored salt and expected hash
+ */
+export async function verifySecurityAnswerHash(
+  inputAnswer: string,
+  salt: string,
+  expectedHash: string,
+  userId: string = 'global'
+): Promise<boolean> {
+  const calculatedHash = await hashSecurityAnswer(inputAnswer, salt, userId);
   return calculatedHash === expectedHash;
 }

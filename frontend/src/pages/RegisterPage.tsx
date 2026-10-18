@@ -5,6 +5,7 @@ import { fetchTimezones, TimezoneOption } from '../api/user';
 import { useAuth } from '../context/AuthContext';
 import { AlertCircle, ArrowRight, Lock, User as UserIcon, Mail, Globe, CheckCircle2, RotateCw, KeyRound, Edit2 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { PolicyModal } from '../components/PolicyModal';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
@@ -27,6 +28,11 @@ export const RegisterPage: React.FC = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Terms and Privacy acceptance
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [policyModalTab, setPolicyModalTab] = useState<'terms' | 'privacy'>('terms');
 
   useEffect(() => {
     fetchTimezones().then((res) => {
@@ -70,6 +76,11 @@ export const RegisterPage: React.FC = () => {
       return;
     }
 
+    if (!agreeToTerms) {
+      setError('Please agree to the Terms & Conditions and acknowledge the Privacy Policy to proceed.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -80,7 +91,17 @@ export const RegisterPage: React.FC = () => {
         password,
         confirmPassword,
         timezone,
+        termsAccepted: true,
+        termsVersion: '1.0',
       });
+
+      // Record client-side acceptance timestamp
+      try {
+        localStorage.setItem(
+          'streakup_terms_accepted_v1',
+          JSON.stringify({ version: '1.0', acceptedAt: new Date().toISOString() })
+        );
+      } catch {}
 
       if (res.success && res.pendingVerification) {
         setStep('verify');
@@ -295,10 +316,51 @@ export const RegisterPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Terms & Privacy Acceptance Checkbox */}
+            <div className="flex items-start gap-2.5 pt-2 text-xs">
+              <input
+                type="checkbox"
+                id="agreeToTerms"
+                checked={agreeToTerms}
+                onChange={(e) => {
+                  setAgreeToTerms(e.target.checked);
+                  if (error.includes('Terms')) setError('');
+                }}
+                className="mt-0.5 w-4 h-4 rounded bg-dark-surface border-dark-border text-flame-500 focus:ring-0 focus:ring-offset-0 cursor-pointer shrink-0"
+              />
+              <label htmlFor="agreeToTerms" className="text-zinc-400 leading-relaxed cursor-pointer select-none">
+                I agree to the{' '}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPolicyModalTab('terms');
+                    setPolicyModalOpen(true);
+                  }}
+                  className="text-flame-400 hover:text-flame-300 font-semibold underline underline-offset-2"
+                >
+                  Terms & Conditions
+                </button>{' '}
+                and acknowledge the{' '}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPolicyModalTab('privacy');
+                    setPolicyModalOpen(true);
+                  }}
+                  className="text-flame-400 hover:text-flame-300 font-semibold underline underline-offset-2"
+                >
+                  Privacy Policy
+                </button>
+                .
+              </label>
+            </div>
+
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 mt-6 py-2.5 px-4 bg-gradient-to-r from-flame-500 to-amber-500 hover:from-flame-600 hover:to-amber-600 text-zinc-950 font-bold rounded-xl shadow-lg shadow-flame-500/20 transition-all text-sm disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 mt-4 py-2.5 px-4 bg-gradient-to-r from-flame-500 to-amber-500 hover:from-flame-600 hover:to-amber-600 text-zinc-950 font-bold rounded-xl shadow-lg shadow-flame-500/20 transition-all text-sm disabled:opacity-50"
             >
               {isSubmitting ? (
                 <div className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
@@ -389,6 +451,13 @@ export const RegisterPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Policy Modal for reading without losing registration form inputs */}
+      <PolicyModal
+        isOpen={policyModalOpen}
+        initialTab={policyModalTab}
+        onClose={() => setPolicyModalOpen(false)}
+      />
     </div>
   );
 };

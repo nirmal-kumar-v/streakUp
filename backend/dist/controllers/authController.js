@@ -36,6 +36,8 @@ const registerSchema = zod_1.z.object({
     password: zod_1.z.string().min(6, 'Password must be at least 6 characters long'),
     confirmPassword: zod_1.z.string().optional(),
     timezone: zod_1.z.string().optional(),
+    termsAccepted: zod_1.z.boolean().optional(),
+    termsVersion: zod_1.z.string().optional(),
 }).refine(data => !data.confirmPassword || data.password === data.confirmPassword, {
     message: 'Passwords do not match',
     path: ['confirmPassword']

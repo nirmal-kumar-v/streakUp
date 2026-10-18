@@ -23,6 +23,8 @@ import { NotificationsPage } from './pages/NotificationsPage';
 import { NotificationSettingsPage } from './pages/NotificationSettingsPage';
 import { GroupsPage } from './pages/GroupsPage';
 import { GroupDetailPage } from './pages/GroupDetailPage';
+import { TermsPage } from './pages/TermsPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
@@ -87,6 +89,8 @@ export const AppContent: React.FC = () => {
           <Route path="/leaderboard" element={<Navigate to="/leaderboard/friends" replace />} />
           <Route path="/leaderboard/global" element={<GlobalLeaderboardPage />} />
           <Route path="/profile/:username" element={<PublicProfilePage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
           {/* Protected Routes */}
           <Route
