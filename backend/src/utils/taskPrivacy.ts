@@ -12,6 +12,10 @@ export function isTaskVisibleToUser(
     userId: string;
     hiddenFrom?: string[] | null;
     visibleOnlyTo?: string[] | null;
+    groupId?: string | null;
+    group?: {
+      hiddenFrom?: string[] | null;
+    } | null;
   },
   viewer: {
     id: string;
@@ -23,13 +27,22 @@ export function isTaskVisibleToUser(
     return true;
   }
 
-  const hidden = (task.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
-  const visible = (task.visibleOnlyTo || []).map((v) => v.trim().toLowerCase().replace(/^@/, ''));
-
   const viewerId = viewer.id.toLowerCase();
   const viewerUsername = (viewer.username || '').toLowerCase().replace(/^@/, '');
 
-  // 1. Check hiddenFrom
+  // 1. Group-level privacy: If group owner hid this viewer from the group,
+  // tasks belonging to this group are invisible to the viewer.
+  if (task.group?.hiddenFrom && task.group.hiddenFrom.length > 0) {
+    const groupHidden = task.group.hiddenFrom.map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+    if (groupHidden.includes('all') || groupHidden.includes(viewerId) || (viewerUsername && groupHidden.includes(viewerUsername))) {
+      return false;
+    }
+  }
+
+  const hidden = (task.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+  const visible = (task.visibleOnlyTo || []).map((v) => v.trim().toLowerCase().replace(/^@/, ''));
+
+  // 2. Check task hiddenFrom
   if (hidden.length > 0) {
     // If hidden from 'all', hide from everyone
     if (hidden.includes('all')) {
@@ -41,7 +54,7 @@ export function isTaskVisibleToUser(
     }
   }
 
-  // 2. Check visibleOnlyTo
+  // 3. Check visibleOnlyTo
   if (visible.length > 0) {
     // Must be explicitly in visibleOnlyTo
     const isAllowed = visible.includes(viewerId) || (viewerUsername && visible.includes(viewerUsername));

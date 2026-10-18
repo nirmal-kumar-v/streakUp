@@ -22,8 +22,10 @@ import {
   Trophy,
   Info,
   ArrowRight,
+  Star,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { toggleStarNotification } from '../api/notifications';
 
 export const NotificationsPage: React.FC = () => {
   const { decrementNotifications, clearNotifications, setUnreadNotificationsCount } = useBadges();
@@ -32,10 +34,11 @@ export const NotificationsPage: React.FC = () => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [allCount, setAllCount] = useState<number>(0);
+  const [starredCount, setStarredCount] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'reminders' | 'friends' | 'milestones'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'starred' | 'reminders' | 'friends' | 'milestones'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const loadNotifications = useCallback(async (targetPage = 1, filter = activeFilter) => {
@@ -44,11 +47,13 @@ export const NotificationsPage: React.FC = () => {
       setIsLoading(true);
     }
     try {
-      let statusParam: 'all' | 'unread' | undefined = undefined;
+      let statusParam: 'all' | 'unread' | 'starred' | undefined = undefined;
       let categoryParam: NotificationCategory | undefined = undefined;
 
       if (filter === 'unread') {
         statusParam = 'unread';
+      } else if (filter === 'starred') {
+        statusParam = 'starred';
       }
 
       const res = await fetchNotifications({
@@ -79,6 +84,9 @@ export const NotificationsPage: React.FC = () => {
 
         setNotifications(filteredList);
         setUnreadCount(res.unreadCount);
+        if (typeof res.starredCount === 'number') {
+          setStarredCount(res.starredCount);
+        }
         if (typeof res.allCount === 'number') {
           setAllCount(res.allCount);
         } else if (filter === 'all') {
@@ -98,6 +106,38 @@ export const NotificationsPage: React.FC = () => {
   useEffect(() => {
     loadNotifications(1, activeFilter);
   }, [activeFilter]);
+
+  const handleToggleStar = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target) return;
+
+    if (!target.isStarred && starredCount >= 15) {
+      toast.error('Maximum 15 starred notifications allowed. Unstar an older notification first.');
+      return;
+    }
+
+    const nextStarred = !target.isStarred;
+    // Optimistic update
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isStarred: nextStarred } : n))
+    );
+    setStarredCount((c) => Math.max(0, Math.min(15, c + (nextStarred ? 1 : -1))));
+
+    try {
+      const res = await toggleStarNotification(id);
+      if (!res.success) throw new Error('Failed to update star');
+      if (nextStarred) {
+        toast.info('Notification starred (saved permanently)');
+      }
+    } catch (err: any) {
+      // Rollback
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isStarred: target.isStarred } : n))
+      );
+      setStarredCount((c) => Math.max(0, Math.min(15, c + (nextStarred ? -1 : 1))));
+      toast.error(extractErrorMessage(err, 'Failed to update star status'));
+    }
+  };
 
   const handleMarkAsRead = async (id: string) => {
     const target = notifications.find((n) => n.id === id);
@@ -290,6 +330,18 @@ export const NotificationsPage: React.FC = () => {
         </button>
 
         <button
+          onClick={() => setActiveFilter('starred')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 ${
+            activeFilter === 'starred'
+              ? 'bg-amber-400 text-zinc-950 font-black shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200'
+          }`}
+        >
+          <Star className={`w-3.5 h-3.5 ${activeFilter === 'starred' ? 'fill-zinc-950 text-zinc-950' : 'text-amber-400 fill-amber-400/30'}`} />
+          Starred ({starredCount}/15)
+        </button>
+
+        <button
           onClick={() => setActiveFilter('reminders')}
           className={`px-4 py-2 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 ${
             activeFilter === 'reminders'
@@ -424,6 +476,17 @@ export const NotificationsPage: React.FC = () => {
 
                 {/* Card Controls */}
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleToggleStar(item.id)}
+                    title={item.isStarred ? 'Unstar notification' : 'Star notification (kept permanently)'}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      item.isStarred
+                        ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-400/10'
+                        : 'text-zinc-500 hover:text-amber-400 hover:bg-dark-hover'
+                    }`}
+                  >
+                    <Star className={`w-4 h-4 ${item.isStarred ? 'fill-amber-400' : ''}`} />
+                  </button>
                   {!item.isRead && (
                     <button
                       onClick={() => handleMarkAsRead(item.id)}

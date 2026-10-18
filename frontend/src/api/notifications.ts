@@ -21,6 +21,8 @@ export interface NotificationItem {
   actionUrl?: string | null;
   isRead: boolean;
   readAt?: string | null;
+  isStarred?: boolean;
+  starredAt?: string | null;
   createdAt: string;
   friend?: {
     id: string;
@@ -68,7 +70,7 @@ export interface ReminderScheduleItem {
 
 export async function fetchNotifications(params?: {
   category?: NotificationCategory;
-  status?: 'all' | 'unread' | 'read';
+  status?: 'all' | 'unread' | 'read' | 'starred';
   page?: number;
   limit?: number;
 }) {
@@ -79,6 +81,7 @@ export async function fetchNotifications(params?: {
     unreadCount: number;
     totalCount: number;
     allCount?: number;
+    starredCount?: number;
     page: number;
     totalPages: number;
   };
@@ -86,6 +89,11 @@ export async function fetchNotifications(params?: {
 
 export async function markNotificationRead(id: string) {
   const res = await api.patch(`/notifications/${id}/read`);
+  return res.data as { success: boolean; notification: NotificationItem };
+}
+
+export async function toggleStarNotification(id: string) {
+  const res = await api.patch(`/notifications/${id}/star`);
   return res.data as { success: boolean; notification: NotificationItem };
 }
 

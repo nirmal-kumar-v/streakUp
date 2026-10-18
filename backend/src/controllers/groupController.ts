@@ -16,6 +16,7 @@ const updateGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50).optional(),
   description: z.string().trim().max(300).optional().nullable(),
   scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
+  hiddenFrom: z.array(z.string()).optional(),
 });
 
 const inviteToGroupSchema = z.object({
@@ -182,9 +183,16 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    const currentUser = await prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { username: true },
+    });
+    const cUsername = (currentUser?.username || '').toLowerCase().replace(/^@/, '');
+    const cId = currentUserId.toLowerCase();
+
     const groups = await prisma.group.findMany({
       where: whereClause,
-      take: 25,
+      take: 50,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -192,6 +200,8 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
         description: true,
         joinCode: true,
         scheduledDays: true,
+        ownerId: true,
+        hiddenFrom: true,
         createdAt: true,
         _count: {
           select: { members: true },
@@ -199,9 +209,18 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    // Check membership and join request status for current user for each group
+    const visibleGroups = groups.filter((g) => {
+      if (g.ownerId === currentUserId) return true;
+      const hidden = (g.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+      if (hidden.includes('all') || hidden.includes(cId) || (cUsername && hidden.includes(cUsername))) {
+        return false;
+      }
+      return true;
+    });
+
+    // Check membership and join request status for current user for each visible group
     const groupsWithStatus = await Promise.all(
-      groups.map(async (g) => {
+      visibleGroups.map(async (g) => {
         const membership = await prisma.groupMember.findUnique({
           where: { groupId_userId: { groupId: g.id, userId: currentUserId } },
           select: { role: true },
@@ -618,13 +637,21 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       return res.status(404).json({ success: false, error: 'Group not found.' });
     }
 
-    // Fetch user's timezone for today's date
+    // Fetch user's timezone & username
     const currentUser = await prisma.user.findUnique({
       where: { id: userId },
-      select: { timezone: true },
+      select: { username: true, timezone: true },
     });
     const timezone = currentUser?.timezone || 'Asia/Kolkata';
     const todayDateStr = getLocalDateString(timezone);
+    const cUsername = (currentUser?.username || '').toLowerCase().replace(/^@/, '');
+    const cId = userId.toLowerCase();
+
+    // Check if group owner hid this user from finding/viewing the group
+    const groupHidden = (group.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+    if (group.ownerId !== userId && (groupHidden.includes('all') || groupHidden.includes(cId) || (cUsername && groupHidden.includes(cUsername)))) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
 
     // Fetch user's assigned group task
     const userTask = await prisma.task.findFirst({
@@ -648,9 +675,19 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       });
     }
 
+    // Filter out members who hid current user (the count will match visible members)
+    const visibleGroupMembers = group.members.filter((m) => {
+      if (m.userId === userId) return true; // always show self
+      const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+      if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
+        return false;
+      }
+      return true;
+    });
+
     // Build members list with individual task streaks and friendship status
     const members = await Promise.all(
-      group.members.map(async (m) => {
+      visibleGroupMembers.map(async (m) => {
         const mTask = await prisma.task.findFirst({
           where: { userId: m.user.id, groupId: id },
           select: { currentStreak: true, longestStreak: true },
@@ -685,6 +722,8 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
         isOwner: membership.role === 'OWNER',
         isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
         memberCount: members.length,
+        groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
+        memberHiddenFrom: membership.hiddenFrom || [],
         pendingRequestsCount,
         hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
         createdAt: group.createdAt,
@@ -766,13 +805,25 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { timezone: true },
+      select: { username: true, timezone: true },
     });
     const timezone = user?.timezone || DEFAULT_TIMEZONE;
     const { startDate, endDate } = getLocalWeekRange(timezone);
+    const cUsername = (user?.username || '').toLowerCase().replace(/^@/, '');
+    const cId = userId.toLowerCase();
+
+    // Filter out members who hid current user
+    const visibleMembers = members.filter((m) => {
+      if (m.userId === userId) return true;
+      const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+      if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
+        return false;
+      }
+      return true;
+    });
 
     const rankedList = await Promise.all(
-      members.map(async (m) => {
+      visibleMembers.map(async (m) => {
         // Individual group task
         const memberTask = await prisma.task.findFirst({
           where: { userId: m.user.id, groupId: id },
@@ -895,6 +946,12 @@ export async function getGroupNotes(req: AuthenticatedRequest, res: Response) {
             userId: true,
             hiddenFrom: true,
             visibleOnlyTo: true,
+            groupId: true,
+            group: {
+              select: {
+                hiddenFrom: true,
+              },
+            },
           },
         },
         reactions: true,
@@ -1157,13 +1214,14 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const { name, description, scheduledDays } = parseResult.data;
+    const { name, description, scheduledDays, hiddenFrom } = parseResult.data;
 
     const updatedGroup = await prisma.$transaction(async (tx) => {
       const dataToUpdate: any = {};
       if (name !== undefined) dataToUpdate.name = name;
       if (description !== undefined) dataToUpdate.description = description;
       if (scheduledDays !== undefined) dataToUpdate.scheduledDays = scheduledDays;
+      if (hiddenFrom !== undefined) dataToUpdate.hiddenFrom = hiddenFrom;
 
       const group = await tx.group.update({
         where: { id },
@@ -1194,6 +1252,46 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     console.error('updateGroup error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update group.' });
+  }
+}
+
+/**
+ * Update member-level privacy for a specific group
+ * A member can hide their presence in this group from specific users.
+ */
+export async function updateMemberGroupPrivacy(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params; // groupId
+    const { hiddenFrom } = req.body;
+
+    if (!Array.isArray(hiddenFrom)) {
+      return res.status(400).json({ success: false, error: 'hiddenFrom must be an array of usernames/IDs.' });
+    }
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ success: false, error: 'Forbidden. You are not a member of this group.' });
+    }
+
+    const updated = await prisma.groupMember.update({
+      where: { groupId_userId: { groupId: id, userId } },
+      data: {
+        hiddenFrom,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Member privacy updated.',
+      hiddenFrom: updated.hiddenFrom,
+    });
+  } catch (err: any) {
+    console.error('updateMemberGroupPrivacy error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update member privacy.' });
   }
 }
 

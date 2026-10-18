@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Task, Priority, Recurrence } from '../api/tasks';
 import { fetchFriendsList, FriendUser } from '../api/friends';
 import { X, Clock, Tag, AlertCircle, Sparkles, Shield, Eye, EyeOff } from 'lucide-react';
+import { InitialsAvatar } from './InitialsAvatar';
 import { extractErrorMessage } from '../utils/error';
 import { useBodyScrollLock } from '../utils/scrollLock';
 
@@ -53,6 +54,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [visibleOnlyTo, setVisibleOnlyTo] = useState<string[]>([]);
   const [hideFromInput, setHideFromInput] = useState('');
   const [showOnlyToInput, setShowOnlyToInput] = useState('');
+  const [hideSuggestionsOpen, setHideSuggestionsOpen] = useState(false);
+  const [showSuggestionsOpen, setShowSuggestionsOpen] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -148,6 +151,37 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const removeVisibleOnlyTo = (name: string) => {
     setVisibleOnlyTo(visibleOnlyTo.filter((v) => v !== name));
   };
+
+  const filteredHideSuggestions = useMemo(() => {
+    const q = hideFromInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return [];
+    const list: Array<{ id: string; label: string; sublabel?: string; isAll?: boolean; image?: string | null }> = [];
+    if ('all'.startsWith(q) || 'everyone'.startsWith(q)) {
+      list.push({ id: 'all', label: 'all', sublabel: 'Hide from everyone', isAll: true });
+    }
+    friendsList.forEach((f) => {
+      const u = f.username.toLowerCase();
+      const n = (f.name || '').toLowerCase();
+      if ((u.includes(q) || n.includes(q)) && !hiddenFrom.includes(u)) {
+        list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
+      }
+    });
+    return list.slice(0, 6);
+  }, [hideFromInput, friendsList, hiddenFrom]);
+
+  const filteredShowSuggestions = useMemo(() => {
+    const q = showOnlyToInput.trim().toLowerCase().replace(/^@/, '');
+    if (!q) return [];
+    const list: Array<{ id: string; label: string; sublabel?: string; image?: string | null }> = [];
+    friendsList.forEach((f) => {
+      const u = f.username.toLowerCase();
+      const n = (f.name || '').toLowerCase();
+      if ((u.includes(q) || n.includes(q)) && !visibleOnlyTo.includes(u)) {
+        list.push({ id: f.id, label: f.username, sublabel: f.name, image: f.profileImage });
+      }
+    });
+    return list.slice(0, 6);
+  }, [showOnlyToInput, friendsList, visibleOnlyTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -454,54 +488,72 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 </span>
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. all, or username"
-                  value={hideFromInput}
-                  onChange={(e) => setHideFromInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addHideFrom(hideFromInput);
-                    }
-                  }}
-                  className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-rose-500/60"
-                />
-                <button
-                  type="button"
-                  onClick={() => addHideFrom(hideFromInput)}
-                  className="px-3 py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-                >
-                  Add
-                </button>
-              </div>
-
-              {/* Quick Suggestions */}
-              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                <span className="text-[10px] text-zinc-500">Quick add:</span>
-                <button
-                  type="button"
-                  onClick={() => addHideFrom('all')}
-                  className={`text-[10px] font-mono px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
-                    hiddenFrom.includes('all')
-                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 font-bold'
-                      : 'bg-dark-surface text-amber-400 border-amber-500/30 hover:bg-amber-500/10'
-                  }`}
-                >
-                  Hide from "all"
-                </button>
-                {friendsList.slice(0, 4).map((f) => (
+              <div className="relative">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Type name or 'all'..."
+                    value={hideFromInput}
+                    onChange={(e) => {
+                      setHideFromInput(e.target.value);
+                      setHideSuggestionsOpen(true);
+                    }}
+                    onFocus={() => setHideSuggestionsOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addHideFrom(hideFromInput);
+                        setHideSuggestionsOpen(false);
+                      }
+                    }}
+                    className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-rose-500/60"
+                  />
                   <button
-                    key={f.id}
                     type="button"
-                    onClick={() => addHideFrom(f.username)}
-                    disabled={hiddenFrom.includes(f.username.toLowerCase())}
-                    className="text-[10px] px-2 py-0.5 rounded-md border border-dark-border bg-dark-surface text-zinc-400 hover:text-zinc-200 disabled:opacity-40 transition-colors cursor-pointer"
+                    onClick={() => {
+                      addHideFrom(hideFromInput);
+                      setHideSuggestionsOpen(false);
+                    }}
+                    className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer shadow-sm"
                   >
-                    @{f.username}
+                    Add
                   </button>
-                ))}
+                </div>
+
+                {/* Auto-suggest dropdown */}
+                {hideSuggestionsOpen && filteredHideSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-14 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden py-1 max-h-44 overflow-y-auto">
+                    {filteredHideSuggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          addHideFrom(s.label);
+                          setHideSuggestionsOpen(false);
+                        }}
+                        className="w-full px-3 py-1.5 text-left hover:bg-zinc-800 flex items-center justify-between gap-2 text-xs transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {s.isAll ? (
+                            <span className="w-5 h-5 rounded-md bg-rose-500/20 text-rose-300 flex items-center justify-center text-xs font-bold">🛡️</span>
+                          ) : (
+                            <InitialsAvatar name={s.sublabel || s.label} image={s.image} size="sm" />
+                          )}
+                          <div className="truncate">
+                            <span className="font-semibold text-zinc-200 block truncate">
+                              {s.isAll ? '"all" (Hide from everyone)' : `@${s.label}`}
+                            </span>
+                            {s.sublabel && !s.isAll && (
+                              <span className="text-[10px] text-zinc-400 block truncate">{s.sublabel}</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono">Select</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Active Hidden Tags */}
@@ -542,46 +594,67 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 </span>
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. friend_username"
-                  value={showOnlyToInput}
-                  onChange={(e) => setShowOnlyToInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
+              <div className="relative">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Type name to whitelist..."
+                    value={showOnlyToInput}
+                    onChange={(e) => {
+                      setShowOnlyToInput(e.target.value);
+                      setShowSuggestionsOpen(true);
+                    }}
+                    onFocus={() => setShowSuggestionsOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addVisibleOnlyTo(showOnlyToInput);
+                        setShowSuggestionsOpen(false);
+                      }
+                    }}
+                    className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
                       addVisibleOnlyTo(showOnlyToInput);
-                    }
-                  }}
-                  className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
-                />
-                <button
-                  type="button"
-                  onClick={() => addVisibleOnlyTo(showOnlyToInput)}
-                  className="px-3 py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
-                >
-                  Add
-                </button>
-              </div>
-
-              {/* Suggested Friends */}
-              {friendsList.length > 0 && (
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10px] text-zinc-500">Friends:</span>
-                  {friendsList.slice(0, 5).map((f) => (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => addVisibleOnlyTo(f.username)}
-                      disabled={visibleOnlyTo.includes(f.username.toLowerCase())}
-                      className="text-[10px] px-2 py-0.5 rounded-md border border-dark-border bg-dark-surface text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40 transition-colors cursor-pointer"
-                    >
-                      +{f.username}
-                    </button>
-                  ))}
+                      setShowSuggestionsOpen(false);
+                    }}
+                    className="px-3.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 hover:text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer shadow-sm"
+                  >
+                    Add
+                  </button>
                 </div>
-              )}
+
+                {/* Auto-suggest dropdown */}
+                {showSuggestionsOpen && filteredShowSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-14 mt-1 z-50 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden py-1 max-h-44 overflow-y-auto">
+                    {filteredShowSuggestions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          addVisibleOnlyTo(s.label);
+                          setShowSuggestionsOpen(false);
+                        }}
+                        className="w-full px-3 py-1.5 text-left hover:bg-zinc-800 flex items-center justify-between gap-2 text-xs transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <InitialsAvatar name={s.sublabel || s.label} image={s.image} size="sm" />
+                          <div className="truncate">
+                            <span className="font-semibold text-zinc-200 block truncate">@{s.label}</span>
+                            {s.sublabel && (
+                              <span className="text-[10px] text-zinc-400 block truncate">{s.sublabel}</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono">Select</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Active Visible Tags */}
               {visibleOnlyTo.length > 0 && (

@@ -44,6 +44,8 @@ export interface GroupDetail {
   isOwner: boolean;
   isAdmin: boolean;
   memberCount: number;
+  groupHiddenFrom?: string[];
+  memberHiddenFrom?: string[];
   pendingRequestsCount?: number;
   hasActiveDashboardTask?: boolean;
   createdAt: string;
@@ -253,8 +255,24 @@ export async function removeMemberFromGroup(id: string, targetUserId: string) {
   return res.data;
 }
 
-export async function updateGroup(id: string, data: { name?: string; description?: string | null; scheduledDays?: number[] }) {
+export async function updateGroup(
+  id: string,
+  data: {
+    name?: string;
+    description?: string | null;
+    scheduledDays?: number[];
+    hiddenFrom?: string[];
+  }
+) {
   const res = await apiClient.put<{ success: boolean; message: string; group: GroupDetail }>(`/groups/${id}`, data);
+  return res.data;
+}
+
+export async function updateMemberGroupPrivacy(id: string, hiddenFrom: string[]) {
+  const res = await apiClient.put<{ success: boolean; message: string; hiddenFrom: string[] }>(
+    `/groups/${id}/member-privacy`,
+    { hiddenFrom }
+  );
   return res.data;
 }
 

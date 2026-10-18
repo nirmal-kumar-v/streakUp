@@ -25,6 +25,17 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
     const userId = req.user!.userId;
     const { category, status = 'all', page = '1', limit = '20' } = req.query;
 
+    // Auto-clean read, non-starred notifications older than 15 days
+    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    await prisma.notification.deleteMany({
+      where: {
+        userId,
+        isRead: true,
+        isStarred: false,
+        createdAt: { lt: fifteenDaysAgo },
+      },
+    });
+
     const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
     const limitNum = Math.min(50, Math.max(1, parseInt(limit as string, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
@@ -42,9 +53,11 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
       where.isRead = false;
     } else if (status === 'read') {
       where.isRead = true;
+    } else if (status === 'starred') {
+      where.isStarred = true;
     }
 
-    const [notifications, totalCount, unreadCount, allCount] = await Promise.all([
+    const [notifications, totalCount, unreadCount, allCount, starredCount] = await Promise.all([
       prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -81,6 +94,13 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
           isDismissed: false,
         },
       }),
+      prisma.notification.count({
+        where: {
+          userId,
+          isDismissed: false,
+          isStarred: true,
+        },
+      }),
     ]);
 
     return res.json({
@@ -89,12 +109,57 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
       unreadCount,
       totalCount,
       allCount,
+      starredCount,
       page: pageNum,
       totalPages: Math.ceil(totalCount / limitNum) || 1,
     });
   } catch (err: any) {
     console.error('getNotifications error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve notifications.' });
+  }
+}
+
+/**
+ * PATCH /api/notifications/:id/star
+ * Toggle starred status for a notification (Max 15 starred notifications allowed)
+ */
+export async function toggleStarNotification(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params;
+
+    const notif = await prisma.notification.findUnique({ where: { id } });
+    if (!notif) {
+      return res.status(404).json({ success: false, error: 'Notification not found.' });
+    }
+    if (notif.userId !== userId) {
+      return res.status(403).json({ success: false, error: 'Unauthorized.' });
+    }
+
+    if (!notif.isStarred) {
+      const currentStarred = await prisma.notification.count({
+        where: { userId, isDismissed: false, isStarred: true },
+      });
+      if (currentStarred >= 15) {
+        return res.status(400).json({
+          success: false,
+          error: 'Maximum 15 starred notifications allowed. Please unstar an older notification first.',
+        });
+      }
+    }
+
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: {
+        isStarred: !notif.isStarred,
+        starredAt: !notif.isStarred ? new Date() : null,
+      },
+    });
+
+    return res.json({ success: true, notification: updated });
+  } catch (err: any) {
+    console.error('toggleStarNotification error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update star status.' });
   }
 }
 

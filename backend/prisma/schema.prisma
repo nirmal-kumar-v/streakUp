@@ -277,10 +277,13 @@ model Notification {
   readAt       DateTime?
   isDismissed  Boolean              @default(false)
   dismissedAt  DateTime?
+  isStarred    Boolean              @default(false)
+  starredAt    DateTime?
   eventKey     String?              // Idempotency / deduplication key
   createdAt    DateTime             @default(now())
 
   @@index([userId, isDismissed, isRead, createdAt(sort: Desc)])
+  @@index([userId, isDismissed, isStarred])
   @@index([userId, eventKey])
   @@index([friendId])
   @@index([taskId])
@@ -423,6 +426,7 @@ model Group {
   scheduledDays Int[]              @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun, 1=Mon, ..., 6=Sat
   ownerId       String
   owner         User               @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
+  hiddenFrom    String[]           @default([]) // usernames or "all" hidden by owner from finding group or seeing group tasks
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   members       GroupMember[]
@@ -435,13 +439,14 @@ model Group {
 }
 
 model GroupMember {
-  id       String    @id @default(uuid())
-  groupId  String
-  group    Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  userId   String
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role     GroupRole @default(MEMBER)
-  joinedAt DateTime  @default(now())
+  id         String    @id @default(uuid())
+  groupId    String
+  group      Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       GroupRole @default(MEMBER)
+  hiddenFrom String[]  @default([]) // usernames hidden by this member from seeing their presence in the group
+  joinedAt   DateTime  @default(now())
 
   @@unique([groupId, userId])
   @@index([userId])

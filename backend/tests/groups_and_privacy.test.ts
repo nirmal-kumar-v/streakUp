@@ -69,4 +69,38 @@ describe('Task Privacy and Visibility Engine', () => {
     expect(isTaskVisibleToUser(defaultTask, viewerAlice)).toBe(true);
     expect(isTaskVisibleToUser(defaultTask, viewerBob)).toBe(true);
   });
+
+  it('hides all group tasks from viewer if group owner hid viewer from the group', () => {
+    const groupTaskHiddenByOwner = {
+      userId: viewerBob.id, // Bob created completion for shared group task
+      hiddenFrom: [],
+      visibleOnlyTo: [],
+      groupId: 'grp-123',
+      group: {
+        hiddenFrom: ['@alice'], // Owner hid Alice from group
+      },
+    };
+
+    // Alice is hidden by group owner -> cannot see Bob's group task
+    expect(isTaskVisibleToUser(groupTaskHiddenByOwner, viewerAlice)).toBe(false);
+    // Charlie is not hidden -> can see Bob's group task
+    expect(isTaskVisibleToUser(groupTaskHiddenByOwner, viewerCharlie)).toBe(true);
+  });
+
+  it('hides all group tasks from everyone if group owner hid "all"', () => {
+    const groupTaskHiddenAll = {
+      userId: viewerBob.id,
+      hiddenFrom: [],
+      visibleOnlyTo: [],
+      groupId: 'grp-private',
+      group: {
+        hiddenFrom: ['all'],
+      },
+    };
+
+    expect(isTaskVisibleToUser(groupTaskHiddenAll, viewerAlice)).toBe(false);
+    expect(isTaskVisibleToUser(groupTaskHiddenAll, viewerCharlie)).toBe(false);
+    // Owner of the specific task (Bob) can still see their own task
+    expect(isTaskVisibleToUser(groupTaskHiddenAll, viewerBob)).toBe(true);
+  });
 });

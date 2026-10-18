@@ -82,6 +82,12 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
             freezeRechargeDays: true,
             hiddenFrom: true,
             visibleOnlyTo: true,
+            groupId: true,
+            group: {
+              select: {
+                hiddenFrom: true,
+              },
+            },
             completions: {
               orderBy: { completionDate: 'desc' },
               take: 5,
@@ -197,7 +203,13 @@ export async function getFriendsStudyActivity(req: AuthenticatedRequest, res: Re
             currentStreak: true,
             recurrence: true,
             hiddenFrom: true,
-            visibleOnlyTo: true
+            visibleOnlyTo: true,
+            groupId: true,
+            group: {
+              select: {
+                hiddenFrom: true,
+              },
+            },
           }
         },
         reactions: {

@@ -150,8 +150,16 @@ export const PrivacyPolicyPage: React.FC = () => {
               <span className="text-flame-500 font-mono text-sm">05.</span> Data Retention & Permanent Deletion
             </h2>
             <p>
-              We retain your data for as long as your account remains active. You maintain absolute control over your information:
+              We retain your account data for as long as your account remains active. Operational data is retained according to the following policies:
             </p>
+            <ul className="list-disc pl-5 space-y-1.5 text-zinc-400">
+              <li>
+                <strong className="text-zinc-200">In-App Notifications:</strong> To ensure high system performance and prevent unnecessary data accumulation, read in-app notifications are automatically pruned 15 days after creation. Users may star up to 15 key notifications to retain them indefinitely in their Starred Notifications archive.
+              </li>
+              <li>
+                <strong className="text-zinc-200">Habit & Streak History:</strong> Your active tasks, streak records, completion logs, and leaderboard points are preserved until manually edited or deleted by you.
+              </li>
+            </ul>
             <div className="p-3.5 bg-rose-500/10 border border-rose-500/25 rounded-2xl text-xs text-rose-300 flex items-start gap-2.5">
               <Trash2 className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div>

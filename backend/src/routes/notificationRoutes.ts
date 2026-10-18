@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/authMiddleware';
 import {
   getNotifications,
   markNotificationAsRead,
+  toggleStarNotification,
   markAllNotificationsAsRead,
   dismissNotification,
   getPreferences,
@@ -25,6 +26,7 @@ router.use(requireAuth);
 // Notification Center Endpoints
 router.get('/', getNotifications);
 router.patch('/:id/read', markNotificationAsRead);
+router.patch('/:id/star', toggleStarNotification);
 router.post('/mark-all-read', markAllNotificationsAsRead);
 router.delete('/:id', dismissNotification);
 

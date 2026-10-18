@@ -105,6 +105,9 @@ export const TermsPage: React.FC = () => {
                 <strong className="text-zinc-200">Public Visibility:</strong> When you accept friend requests or join groups, other members may see your habit completion status, study notes, streaks, points, and leaderboard rank.
               </li>
               <li>
+                <strong className="text-zinc-200">In-App Notifications & Archive:</strong> To optimize system resources, read in-app notifications are automatically deleted 15 days following receipt, unless saved to your Starred archive (maximum 15 starred notifications per account).
+              </li>
+              <li>
                 <strong className="text-zinc-200">Acceptable Content:</strong> You may not use offensive, vulgar, defamatory, threatening, or illegal text in display names, usernames, habit titles, study notes, or group descriptions.
               </li>
               <li>

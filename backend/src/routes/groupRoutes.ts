@@ -20,6 +20,7 @@ import {
   promoteMemberToAdmin,
   removeMemberFromGroup,
   leaveGroup,
+  updateMemberGroupPrivacy,
 } from '../controllers/groupController';
 import { requireAuth } from '../middleware/authMiddleware';
 
@@ -39,6 +40,7 @@ router.post('/invitations/:invitationId/respond', respondToGroupInvitation);
 // Group-specific actions
 router.get('/:id', getGroupDetails);
 router.put('/:id', updateGroup);
+router.put('/:id/member-privacy', updateMemberGroupPrivacy);
 router.post('/:id/join-request', requestToJoinGroup);
 router.delete('/:id/join-request', cancelJoinRequest);
 
