@@ -1462,14 +1462,6 @@ export async function inviteToGroup(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ success: false, error: `${targetUser.name || targetUser.username} is already a member of this group.` });
     }
 
-    // Check group existence
-    const group = await prisma.group.findUnique({
-      where: { id },
-      select: { id: true, name: true },
-    });
-    if (!group) {
-      return res.status(404).json({ success: false, error: 'Group not found.' });
-    }
 
     // Check existing invitation
     const existingInvite = await prisma.groupInvitation.findUnique({
@@ -1598,6 +1590,11 @@ export async function respondToGroupInvitation(req: AuthenticatedRequest, res: R
 
     if (!invitation || invitation.inviteeId !== userId) {
       return res.status(404).json({ success: false, error: 'Invitation not found.' });
+    }
+
+    const group = invitation.group;
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Associated group not found.' });
     }
 
     if (invitation.status !== 'PENDING') {
