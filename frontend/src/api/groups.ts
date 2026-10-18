@@ -21,6 +21,9 @@ export interface GroupUserTask {
   longestStreak: number;
   freezeBalance: number;
   freezeRechargeDays: number;
+  status?: 'ACTIVE' | 'ARCHIVED';
+  hiddenFrom?: string[];
+  visibleOnlyTo?: string[];
   completedToday: boolean;
   todayStudyNote: string | null;
 }
@@ -42,6 +45,7 @@ export interface GroupDetail {
   isAdmin: boolean;
   memberCount: number;
   pendingRequestsCount?: number;
+  hasActiveDashboardTask?: boolean;
   createdAt: string;
   userTask?: GroupUserTask | null;
   members: GroupMemberItem[];
@@ -94,6 +98,41 @@ export interface GroupJoinRequestItem {
     profileImage: string | null;
     currentStreak: number;
   };
+}
+
+export interface OwnerJoinRequestItem {
+  id: string;
+  groupId: string;
+  groupName: string;
+  joinCode: string;
+  scheduledDays: number[];
+  userId: string;
+  user: {
+    id: string;
+    name: string;
+    username: string;
+    profileImage: string | null;
+    createdAt: string;
+  };
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'CANCELLED';
+  createdAt: string;
+}
+
+export interface GroupInvitationItem {
+  id: string;
+  groupId: string;
+  groupName: string;
+  groupDescription: string | null;
+  joinCode: string;
+  scheduledDays: number[];
+  memberCount: number;
+  inviter: {
+    id: string;
+    name: string;
+    username: string;
+    profileImage: string | null;
+  };
+  createdAt: string;
 }
 
 export interface GroupLeaderboardEntry {
@@ -211,6 +250,44 @@ export async function promoteMemberToAdmin(id: string, targetUserId: string) {
 
 export async function removeMemberFromGroup(id: string, targetUserId: string) {
   const res = await apiClient.delete<{ success: boolean; message: string }>(`/groups/${id}/members/${targetUserId}`);
+  return res.data;
+}
+
+export async function updateGroup(id: string, data: { name?: string; description?: string | null; scheduledDays?: number[] }) {
+  const res = await apiClient.put<{ success: boolean; message: string; group: GroupDetail }>(`/groups/${id}`, data);
+  return res.data;
+}
+
+export async function fetchAllOwnerJoinRequests() {
+  const res = await apiClient.get<{ success: boolean; requests: OwnerJoinRequestItem[] }>('/groups/all-requests');
+  return res.data;
+}
+
+export async function inviteToGroup(id: string, data: { inviteeUserId?: string; inviteeUsername?: string }) {
+  const res = await apiClient.post<{ success: boolean; message: string; invitation: any }>(`/groups/${id}/invite`, data);
+  return res.data;
+}
+
+export async function fetchUserGroupInvitations() {
+  const res = await apiClient.get<{ success: boolean; invitations: GroupInvitationItem[] }>('/groups/invitations');
+  return res.data;
+}
+
+export async function respondToGroupInvitation(invitationId: string, action: 'ACCEPT' | 'REJECT') {
+  const res = await apiClient.post<{ success: boolean; message: string; groupId?: string }>(
+    `/groups/invitations/${invitationId}/respond`,
+    { action }
+  );
+  return res.data;
+}
+
+export async function makeGroupTask(id: string) {
+  const res = await apiClient.post<{ success: boolean; message: string; task: any }>(`/groups/${id}/make-task`);
+  return res.data;
+}
+
+export async function removeGroupTask(id: string) {
+  const res = await apiClient.delete<{ success: boolean; message: string }>(`/groups/${id}/task`);
   return res.data;
 }
 

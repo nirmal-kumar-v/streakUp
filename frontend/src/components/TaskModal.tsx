@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Task, Priority, Recurrence } from '../api/tasks';
-import { X, Clock, Tag, AlertCircle, Sparkles } from 'lucide-react';
+import { fetchFriendsList, FriendUser } from '../api/friends';
+import { X, Clock, Tag, AlertCircle, Sparkles, Shield, Eye, EyeOff } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { useBodyScrollLock } from '../utils/scrollLock';
 
@@ -15,6 +16,8 @@ interface TaskModalProps {
     recurrence: Recurrence;
     scheduledDays?: number[];
     dueTime?: string;
+    hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
   }) => Promise<void>;
   editingTask?: Task | null;
 }
@@ -46,8 +49,25 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [scheduleType, setScheduleType] = useState<'EVERY_DAY' | 'CUSTOM'>('EVERY_DAY');
   const [scheduledDays, setScheduledDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
   const [dueTime, setDueTime] = useState('');
+  const [hiddenFrom, setHiddenFrom] = useState<string[]>([]);
+  const [visibleOnlyTo, setVisibleOnlyTo] = useState<string[]>([]);
+  const [hideFromInput, setHideFromInput] = useState('');
+  const [showOnlyToInput, setShowOnlyToInput] = useState('');
+  const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchFriendsList()
+        .then((res) => {
+          if (res.success && res.friends) {
+            setFriendsList(res.friends);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (editingTask) {
@@ -60,6 +80,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setScheduledDays(days);
       setScheduleType(days.length === 7 ? 'EVERY_DAY' : 'CUSTOM');
       setDueTime(editingTask.dueTime || '');
+      setHiddenFrom(editingTask.hiddenFrom || []);
+      setVisibleOnlyTo(editingTask.visibleOnlyTo || []);
     } else {
       setTitle('');
       setDescription('');
@@ -69,7 +91,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setScheduleType('EVERY_DAY');
       setScheduledDays([0, 1, 2, 3, 4, 5, 6]);
       setDueTime('');
+      setHiddenFrom([]);
+      setVisibleOnlyTo([]);
     }
+    setHideFromInput('');
+    setShowOnlyToInput('');
     setError('');
   }, [editingTask, isOpen]);
 
@@ -97,6 +123,32 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     }
   };
 
+  const addHideFrom = (name: string) => {
+    const clean = name.trim().toLowerCase().replace(/^@/, '');
+    if (!clean) return;
+    if (!hiddenFrom.includes(clean)) {
+      setHiddenFrom([...hiddenFrom, clean]);
+    }
+    setHideFromInput('');
+  };
+
+  const removeHideFrom = (name: string) => {
+    setHiddenFrom(hiddenFrom.filter((h) => h !== name));
+  };
+
+  const addVisibleOnlyTo = (name: string) => {
+    const clean = name.trim().toLowerCase().replace(/^@/, '');
+    if (!clean) return;
+    if (!visibleOnlyTo.includes(clean)) {
+      setVisibleOnlyTo([...visibleOnlyTo, clean]);
+    }
+    setShowOnlyToInput('');
+  };
+
+  const removeVisibleOnlyTo = (name: string) => {
+    setVisibleOnlyTo(visibleOnlyTo.filter((v) => v !== name));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -121,6 +173,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         recurrence,
         scheduledDays: recurrence === 'DAILY' ? scheduledDays : undefined,
         dueTime: dueTime || undefined,
+        hiddenFrom,
+        visibleOnlyTo,
       });
       onClose();
     } catch (err: any) {
@@ -375,6 +429,180 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 className="w-full px-3.5 py-2 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 focus:outline-none focus:border-flame-500/80 font-mono"
               />
               <p className="text-[10px] text-dark-muted mt-1.5">Optional target time for completing this task.</p>
+            </div>
+          </div>
+
+          {/* Privacy & Visibility Controls */}
+          <div className="p-4 rounded-2xl bg-dark-surface/60 border border-dark-border space-y-3.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-zinc-200">
+              <Shield className="w-4 h-4 text-emerald-400" />
+              <span>Privacy & Sharing Controls</span>
+            </div>
+            <p className="text-[11px] text-dark-muted leading-relaxed">
+              Control who can view this task, streak, and study notes in friend feeds and leaderboards.
+            </p>
+
+            {/* Hide From Field */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <EyeOff className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Hide From</span>
+                </label>
+                <span className="text-[10px] text-dark-muted font-mono">
+                  Type username or <strong className="text-amber-400 font-bold">"all"</strong> to hide from everyone
+                </span>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. all, or username"
+                  value={hideFromInput}
+                  onChange={(e) => setHideFromInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addHideFrom(hideFromInput);
+                    }
+                  }}
+                  className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-rose-500/60"
+                />
+                <button
+                  type="button"
+                  onClick={() => addHideFrom(hideFromInput)}
+                  className="px-3 py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Quick Suggestions */}
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span className="text-[10px] text-zinc-500">Quick add:</span>
+                <button
+                  type="button"
+                  onClick={() => addHideFrom('all')}
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-md border transition-all cursor-pointer ${
+                    hiddenFrom.includes('all')
+                      ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 font-bold'
+                      : 'bg-dark-surface text-amber-400 border-amber-500/30 hover:bg-amber-500/10'
+                  }`}
+                >
+                  Hide from "all"
+                </button>
+                {friendsList.slice(0, 4).map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => addHideFrom(f.username)}
+                    disabled={hiddenFrom.includes(f.username.toLowerCase())}
+                    className="text-[10px] px-2 py-0.5 rounded-md border border-dark-border bg-dark-surface text-zinc-400 hover:text-zinc-200 disabled:opacity-40 transition-colors cursor-pointer"
+                  >
+                    @{f.username}
+                  </button>
+                ))}
+              </div>
+
+              {/* Active Hidden Tags */}
+              {hiddenFrom.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {hiddenFrom.map((name) => (
+                    <span
+                      key={name}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-medium border ${
+                        name === 'all'
+                          ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 font-bold'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                      }`}
+                    >
+                      <span>{name === 'all' ? '🛡️ Everyone ("all")' : `@${name}`}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeHideFrom(name)}
+                        className="hover:text-white p-0.5 text-zinc-400 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Show Only To Field */}
+            <div className="pt-2 border-t border-dark-border/60">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Show Only To</span>
+                </label>
+                <span className="text-[10px] text-dark-muted font-mono">
+                  Optional exclusive whitelist
+                </span>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. friend_username"
+                  value={showOnlyToInput}
+                  onChange={(e) => setShowOnlyToInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addVisibleOnlyTo(showOnlyToInput);
+                    }
+                  }}
+                  className="flex-1 px-3 py-1.5 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/60"
+                />
+                <button
+                  type="button"
+                  onClick={() => addVisibleOnlyTo(showOnlyToInput)}
+                  className="px-3 py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Suggested Friends */}
+              {friendsList.length > 0 && (
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10px] text-zinc-500">Friends:</span>
+                  {friendsList.slice(0, 5).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => addVisibleOnlyTo(f.username)}
+                      disabled={visibleOnlyTo.includes(f.username.toLowerCase())}
+                      className="text-[10px] px-2 py-0.5 rounded-md border border-dark-border bg-dark-surface text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/30 disabled:opacity-40 transition-colors cursor-pointer"
+                    >
+                      +{f.username}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Active Visible Tags */}
+              {visibleOnlyTo.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                  {visibleOnlyTo.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                    >
+                      <span>@{name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeVisibleOnlyTo(name)}
+                        className="hover:text-white p-0.5 text-emerald-400 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

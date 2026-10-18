@@ -157,7 +157,10 @@ export const TasksPage: React.FC = () => {
     category?: string;
     priority: Priority;
     recurrence: Recurrence;
+    scheduledDays?: number[];
     dueTime?: string;
+    hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
   }) => {
     try {
       if (editingTask) {

@@ -9,6 +9,7 @@ import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
 import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '../services/notificationService';
 import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
 import { FreezeScope } from '@prisma/client';
+import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -19,6 +20,8 @@ const createTaskSchema = z.object({
   recurrence: z.enum(['DAILY', 'ONE_TIME']).optional().default('DAILY'),
   scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional().default([0, 1, 2, 3, 4, 5, 6]),
   dueTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Due time must be in HH:MM format').optional().nullable(),
+  hiddenFrom: z.array(z.string()).optional().default([]),
+  visibleOnlyTo: z.array(z.string()).optional().default([]),
 });
 
 const updateTaskSchema = z.object({
@@ -30,6 +33,8 @@ const updateTaskSchema = z.object({
   scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
   dueTime: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).optional().nullable(),
   status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+  hiddenFrom: z.array(z.string()).optional(),
+  visibleOnlyTo: z.array(z.string()).optional(),
 });
 
 /**
@@ -144,6 +149,8 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
         dueTime: data.dueTime || null,
         status: 'ACTIVE',
         isCompleted: false,
+        hiddenFrom: data.hiddenFrom || [],
+        visibleOnlyTo: data.visibleOnlyTo || [],
       }
     });
 
@@ -256,7 +263,15 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    await prisma.task.delete({ where: { id } });
+    if (existingTask.isGroupTask && existingTask.groupId) {
+      // Group task deleted from dashboard: archive it so membership and group streaks remain intact!
+      await prisma.task.update({
+        where: { id },
+        data: { status: 'ARCHIVED' },
+      });
+    } else {
+      await prisma.task.delete({ where: { id } });
+    }
 
     // Recalculate streaks in case completed tasks were deleted
     const streakResult = await recalculateUserStreaks(prisma, userId);
@@ -592,6 +607,20 @@ export async function getTaskDetails(req: AuthenticatedRequest, res: Response) {
         success: false,
         error: 'Forbidden. You must be an accepted friend to view this task details.'
       });
+    }
+
+    // Check visibility permissions
+    if (!isOwner) {
+      const viewerUser = await prisma.user.findUnique({
+        where: { id: requesterId },
+        select: { username: true }
+      });
+      if (!isTaskVisibleToUser(task, { id: requesterId, username: viewerUser?.username })) {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden. This task is not visible to you.'
+        });
+      }
     }
 
     const timezone = task.user.timezone || 'Asia/Kolkata';

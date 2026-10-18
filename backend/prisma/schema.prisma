@@ -127,6 +127,8 @@ model User {
   ownedGroups             Group[]          @relation("OwnedGroups")
   groupMemberships        GroupMember[]
   groupJoinRequests       GroupJoinRequest[]
+  sentGroupInvitations    GroupInvitation[] @relation("SentGroupInvitations")
+  receivedGroupInvitations GroupInvitation[] @relation("ReceivedGroupInvitations")
   noteReactions           StudyNoteReaction[]
 
   @@index([normalizedUsername])
@@ -153,6 +155,8 @@ model Task {
   freezeBalance        Int              @default(0)
   freezeRechargeDays   Int              @default(0)
   lastFreezeUsedAt     DateTime?
+  hiddenFrom           String[]         @default([]) // "all" or list of usernames/IDs to hide from
+  visibleOnlyTo        String[]         @default([]) // if non-empty, only visible to these usernames/IDs
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
@@ -424,6 +428,7 @@ model Group {
   members       GroupMember[]
   joinRequests  GroupJoinRequest[]
   tasks         Task[]
+  invitations   GroupInvitation[]
 
   @@index([joinCode])
   @@index([ownerId])
@@ -456,6 +461,23 @@ model GroupJoinRequest {
   @@unique([groupId, userId])
   @@index([groupId, status])
   @@index([userId, status])
+}
+
+model GroupInvitation {
+  id        String            @id @default(uuid())
+  groupId   String
+  group     Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inviterId String
+  inviter   User              @relation("SentGroupInvitations", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeId String
+  invitee   User              @relation("ReceivedGroupInvitations", fields: [inviteeId], references: [id], onDelete: Cascade)
+  status    JoinRequestStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@unique([groupId, inviteeId])
+  @@index([inviteeId, status])
+  @@index([groupId, status])
 }
 
 

@@ -16,6 +16,8 @@ export interface Task {
   scheduledDays?: number[]; // 0=Sun, 1=Mon, ..., 6=Sat
   dueTime: string | null;
   status: TaskStatus;
+  hiddenFrom?: string[];
+  visibleOnlyTo?: string[];
   completedToday: boolean;
   todayStudyNote?: string | null;
   currentStreak?: number;
@@ -173,6 +175,8 @@ export async function createTask(data: {
   recurrence?: Recurrence;
   scheduledDays?: number[];
   dueTime?: string;
+  hiddenFrom?: string[];
+  visibleOnlyTo?: string[];
 }) {
   const res = await apiClient.post<{ success: boolean; task: Task }>('/tasks', data);
   return res.data;
@@ -189,6 +193,8 @@ export async function updateTask(
     scheduledDays: number[];
     dueTime: string | null;
     status: TaskStatus;
+    hiddenFrom: string[];
+    visibleOnlyTo: string[];
   }>
 ) {
   const res = await apiClient.put<{ success: boolean; task: Task }>(`/tasks/${id}`, data);

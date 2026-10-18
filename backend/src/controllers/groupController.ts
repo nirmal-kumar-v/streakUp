@@ -4,11 +4,23 @@ import { DateTime } from 'luxon';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { DEFAULT_TIMEZONE, isValidTimezone, getLocalDateString } from '../services/timezoneService';
+import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
   description: z.string().trim().max(300).optional().nullable(),
   scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional().default([0, 1, 2, 3, 4, 5, 6]),
+});
+
+const updateGroupSchema = z.object({
+  name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50).optional(),
+  description: z.string().trim().max(300).optional().nullable(),
+  scheduledDays: z.array(z.number().int().min(0).max(6)).min(1, 'Please select at least one day').optional(),
+});
+
+const inviteToGroupSchema = z.object({
+  inviteeUserId: z.string().optional(),
+  inviteeUsername: z.string().optional(),
 });
 
 /**
@@ -674,6 +686,7 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
         isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
         memberCount: members.length,
         pendingRequestsCount,
+        hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
         createdAt: group.createdAt,
         userTask: userTask
           ? {
@@ -685,6 +698,9 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
               longestStreak: userTask.longestStreak,
               freezeBalance: userTask.freezeBalance,
               freezeRechargeDays: userTask.freezeRechargeDays,
+              status: userTask.status,
+              hiddenFrom: userTask.hiddenFrom || [],
+              visibleOnlyTo: userTask.visibleOnlyTo || [],
               completedToday,
               todayStudyNote,
             }
@@ -851,6 +867,13 @@ export async function getGroupNotes(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    // Fetch viewer profile
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true },
+    });
+    const viewer = { id: userId, username: currentUser?.username };
+
     // Fetch completions of any task with groupId = id where studyNote is present
     const completions = await prisma.taskCompletion.findMany({
       where: {
@@ -866,6 +889,14 @@ export async function getGroupNotes(req: AuthenticatedRequest, res: Response) {
             profileImage: true,
           },
         },
+        task: {
+          select: {
+            id: true,
+            userId: true,
+            hiddenFrom: true,
+            visibleOnlyTo: true,
+          },
+        },
         reactions: true,
       },
       orderBy: [
@@ -875,7 +906,12 @@ export async function getGroupNotes(req: AuthenticatedRequest, res: Response) {
       take: 50,
     });
 
-    const formattedNotes = completions.map((c) => {
+    const visibleCompletions = completions.filter((c) => {
+      if (!c.task) return true;
+      return isTaskVisibleToUser(c.task, viewer);
+    });
+
+    const formattedNotes = visibleCompletions.map((c) => {
       // Aggregate reactions
       const counts: Record<string, number> = { FIRE: 0, STRONG: 0, CLAP: 0, CELEBRATE: 0, LIKE: 0 };
       const userReactions: string[] = [];
@@ -1090,5 +1126,523 @@ export async function leaveGroup(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     console.error('leaveGroup error:', err);
     return res.status(500).json({ success: false, error: 'Failed to leave group.' });
+  }
+}
+
+/**
+ * Update group details (Owner only)
+ * Updates name, description, and scheduledDays, and synchronizes all active tasks associated with this group.
+ */
+export async function updateGroup(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+    });
+
+    if (!membership || membership.role !== 'OWNER') {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden. Only the Group Owner can edit group details.',
+      });
+    }
+
+    const parseResult = updateGroupSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: parseResult.error.errors[0]?.message || 'Invalid group update data',
+      });
+    }
+
+    const { name, description, scheduledDays } = parseResult.data;
+
+    const updatedGroup = await prisma.$transaction(async (tx) => {
+      const dataToUpdate: any = {};
+      if (name !== undefined) dataToUpdate.name = name;
+      if (description !== undefined) dataToUpdate.description = description;
+      if (scheduledDays !== undefined) dataToUpdate.scheduledDays = scheduledDays;
+
+      const group = await tx.group.update({
+        where: { id },
+        data: dataToUpdate,
+      });
+
+      // Synchronize all tasks associated with this group
+      const taskUpdateData: any = {};
+      if (name !== undefined) taskUpdateData.title = name;
+      if (description !== undefined) taskUpdateData.description = description;
+      if (scheduledDays !== undefined) taskUpdateData.scheduledDays = scheduledDays;
+
+      if (Object.keys(taskUpdateData).length > 0) {
+        await tx.task.updateMany({
+          where: { groupId: id },
+          data: taskUpdateData,
+        });
+      }
+
+      return group;
+    });
+
+    return res.json({
+      success: true,
+      message: 'Group updated successfully.',
+      group: updatedGroup,
+    });
+  } catch (err: any) {
+    console.error('updateGroup error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update group.' });
+  }
+}
+
+/**
+ * Get all pending join requests across all groups where caller is OWNER or ADMIN
+ */
+export async function getAllOwnerJoinRequests(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+
+    // Find all groups where caller is OWNER or ADMIN
+    const managedMemberships = await prisma.groupMember.findMany({
+      where: {
+        userId,
+        role: { in: ['OWNER', 'ADMIN'] },
+      },
+      select: { groupId: true },
+    });
+
+    const managedGroupIds = managedMemberships.map((m) => m.groupId);
+
+    if (managedGroupIds.length === 0) {
+      return res.json({ success: true, requests: [] });
+    }
+
+    const requests = await prisma.groupJoinRequest.findMany({
+      where: {
+        groupId: { in: managedGroupIds },
+        status: 'PENDING',
+      },
+      include: {
+        group: {
+          select: {
+            id: true,
+            name: true,
+            joinCode: true,
+            scheduledDays: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImage: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({
+      success: true,
+      requests: requests.map((r) => ({
+        id: r.id,
+        groupId: r.groupId,
+        groupName: r.group.name,
+        joinCode: r.group.joinCode,
+        scheduledDays: r.group.scheduledDays,
+        userId: r.userId,
+        user: r.user,
+        status: r.status,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (err: any) {
+    console.error('getAllOwnerJoinRequests error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve owner join requests.' });
+  }
+}
+
+/**
+ * Invite any user or friend to a group
+ * Any accepted member of the group can invite others.
+ */
+export async function inviteToGroup(req: AuthenticatedRequest, res: Response) {
+  try {
+    const inviterId = req.user!.userId;
+    const { id } = req.params; // groupId
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId: inviterId } },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ success: false, error: 'Forbidden. You must be a member of this group to invite others.' });
+    }
+
+    const parseResult = inviteToGroupSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      return res.status(400).json({ success: false, error: 'Target user ID or username is required.' });
+    }
+
+    const { inviteeUserId, inviteeUsername } = parseResult.data;
+    if (!inviteeUserId && !inviteeUsername) {
+      return res.status(400).json({ success: false, error: 'Please specify a user ID or username to invite.' });
+    }
+
+    let targetUser = null;
+    if (inviteeUserId) {
+      targetUser = await prisma.user.findUnique({
+        where: { id: inviteeUserId },
+        select: { id: true, name: true, username: true },
+      });
+    } else if (inviteeUsername) {
+      const cleanUsername = inviteeUsername.trim().toLowerCase().replace(/^@/, '');
+      targetUser = await prisma.user.findFirst({
+        where: { normalizedUsername: cleanUsername },
+        select: { id: true, name: true, username: true },
+      });
+    }
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    if (targetUser.id === inviterId) {
+      return res.status(400).json({ success: false, error: 'You cannot invite yourself to a group.' });
+    }
+
+    // Check if already a member
+    const existingMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId: targetUser.id } },
+    });
+    if (existingMember) {
+      return res.status(400).json({ success: false, error: `${targetUser.name || targetUser.username} is already a member of this group.` });
+    }
+
+    // Check group existence
+    const group = await prisma.group.findUnique({
+      where: { id },
+      select: { id: true, name: true },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    // Check existing invitation
+    const existingInvite = await prisma.groupInvitation.findUnique({
+      where: { groupId_inviteeId: { groupId: id, inviteeId: targetUser.id } },
+    });
+
+    if (existingInvite && existingInvite.status === 'PENDING') {
+      return res.status(400).json({ success: false, error: 'An invitation is already pending for this user.' });
+    }
+
+    // Create or update invitation to PENDING
+    const invitation = await prisma.groupInvitation.upsert({
+      where: { groupId_inviteeId: { groupId: id, inviteeId: targetUser.id } },
+      create: {
+        groupId: id,
+        inviterId,
+        inviteeId: targetUser.id,
+        status: 'PENDING',
+      },
+      update: {
+        inviterId,
+        status: 'PENDING',
+        updatedAt: new Date(),
+      },
+    });
+
+    // Send notification to invitee
+    const inviterUser = await prisma.user.findUnique({
+      where: { id: inviterId },
+      select: { name: true, username: true },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId: targetUser.id,
+        category: 'SYSTEM',
+        title: 'Group Invitation',
+        message: `${inviterUser?.name || inviterUser?.username || 'A friend'} invited you to join "${group.name}".`,
+        actionUrl: '/groups',
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `Invitation sent to ${targetUser.name || targetUser.username}!`,
+      invitation,
+    });
+  } catch (err: any) {
+    console.error('inviteToGroup error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to send group invitation.' });
+  }
+}
+
+/**
+ * Get all pending invitations received by current user
+ */
+export async function getUserGroupInvitations(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+
+    const invitations = await prisma.groupInvitation.findMany({
+      where: {
+        inviteeId: userId,
+        status: 'PENDING',
+      },
+      include: {
+        group: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            joinCode: true,
+            scheduledDays: true,
+            _count: { select: { members: true } },
+          },
+        },
+        inviter: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            profileImage: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({
+      success: true,
+      invitations: invitations.map((inv) => ({
+        id: inv.id,
+        groupId: inv.groupId,
+        groupName: inv.group.name,
+        groupDescription: inv.group.description,
+        joinCode: inv.group.joinCode,
+        scheduledDays: inv.group.scheduledDays,
+        memberCount: inv.group._count.members,
+        inviter: inv.inviter,
+        createdAt: inv.createdAt,
+      })),
+    });
+  } catch (err: any) {
+    console.error('getUserGroupInvitations error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve group invitations.' });
+  }
+}
+
+/**
+ * Respond to an invitation (ACCEPT or REJECT)
+ */
+export async function respondToGroupInvitation(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { invitationId } = req.params;
+    const { action } = req.body; // 'ACCEPT' | 'REJECT'
+
+    if (action !== 'ACCEPT' && action !== 'REJECT') {
+      return res.status(400).json({ success: false, error: 'Action must be ACCEPT or REJECT.' });
+    }
+
+    const invitation = await prisma.groupInvitation.findUnique({
+      where: { id: invitationId },
+      include: { group: true },
+    });
+
+    if (!invitation || invitation.inviteeId !== userId) {
+      return res.status(404).json({ success: false, error: 'Invitation not found.' });
+    }
+
+    if (invitation.status !== 'PENDING') {
+      return res.status(400).json({ success: false, error: `This invitation has already been ${invitation.status.toLowerCase()}.` });
+    }
+
+    if (action === 'REJECT') {
+      await prisma.groupInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'REJECTED' },
+      });
+
+      return res.json({
+        success: true,
+        message: 'Group invitation declined.',
+      });
+    }
+
+    // ACCEPT: Join group & create/activate task
+    const group = invitation.group;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Mark invitation accepted
+      await tx.groupInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'ACCEPTED' },
+      });
+
+      // 2. Add as GroupMember
+      await tx.groupMember.upsert({
+        where: { groupId_userId: { groupId: group.id, userId } },
+        create: {
+          groupId: group.id,
+          userId,
+          role: 'MEMBER',
+        },
+        update: {
+          role: 'MEMBER',
+        },
+      });
+
+      // 3. Create or activate shared group task
+      const existingTask = await tx.task.findFirst({
+        where: {
+          userId,
+          groupId: group.id,
+        },
+      });
+
+      if (!existingTask) {
+        await tx.task.create({
+          data: {
+            userId,
+            groupId: group.id,
+            isGroupTask: true,
+            title: group.name,
+            description: group.description || `Shared group habit for ${group.name}`,
+            scheduledDays: group.scheduledDays,
+            category: 'Group Task',
+            recurrence: 'DAILY',
+            status: 'ACTIVE',
+            currentStreak: 0,
+            longestStreak: 0,
+            freezeBalance: 0,
+            freezeRechargeDays: 0,
+          },
+        });
+      } else if (existingTask.status === 'ARCHIVED') {
+        await tx.task.update({
+          where: { id: existingTask.id },
+          data: {
+            status: 'ACTIVE',
+            title: group.name,
+            description: group.description || existingTask.description,
+            scheduledDays: group.scheduledDays,
+          },
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `You joined "${group.name}"! The shared group task is now active on your dashboard.`,
+      groupId: group.id,
+    });
+  } catch (err: any) {
+    console.error('respondToGroupInvitation error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to process group invitation.' });
+  }
+}
+
+/**
+ * Add / Re-activate group as a dashboard task
+ */
+export async function makeGroupTask(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params;
+
+    const membership = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId: id, userId } },
+      include: { group: true },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ success: false, error: 'Forbidden. You must be an accepted member of this group.' });
+    }
+
+    const group = membership.group;
+
+    // Check existing task for this group & user
+    const existingTask = await prisma.task.findFirst({
+      where: { userId, groupId: id },
+    });
+
+    let task;
+    if (existingTask) {
+      task = await prisma.task.update({
+        where: { id: existingTask.id },
+        data: {
+          status: 'ACTIVE',
+          title: group.name,
+          description: group.description || existingTask.description,
+          scheduledDays: group.scheduledDays,
+        },
+      });
+    } else {
+      task = await prisma.task.create({
+        data: {
+          userId,
+          groupId: group.id,
+          isGroupTask: true,
+          title: group.name,
+          description: group.description || `Shared group habit for ${group.name}`,
+          scheduledDays: group.scheduledDays,
+          category: 'Group Task',
+          recurrence: 'DAILY',
+          status: 'ACTIVE',
+          currentStreak: 0,
+          longestStreak: 0,
+          freezeBalance: 0,
+          freezeRechargeDays: 0,
+        },
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `"${group.name}" has been added to your dashboard tasks.`,
+      task,
+    });
+  } catch (err: any) {
+    console.error('makeGroupTask error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to make group task.' });
+  }
+}
+
+/**
+ * Remove group task from dashboard without leaving the group
+ */
+export async function removeGroupTask(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user!.userId;
+    const { id } = req.params;
+
+    const existingTask = await prisma.task.findFirst({
+      where: { userId, groupId: id, status: 'ACTIVE' },
+    });
+
+    if (!existingTask) {
+      return res.status(404).json({ success: false, error: 'No active task found for this group.' });
+    }
+
+    await prisma.task.update({
+      where: { id: existingTask.id },
+      data: { status: 'ARCHIVED' },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Group task removed from your dashboard. Your membership and group streak remain preserved.',
+    });
+  } catch (err: any) {
+    console.error('removeGroupTask error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to remove group task.' });
   }
 }

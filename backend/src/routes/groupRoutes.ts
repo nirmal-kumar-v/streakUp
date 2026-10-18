@@ -1,11 +1,18 @@
 import { Router } from 'express';
 import {
   createGroup,
+  updateGroup,
   searchGroups,
   requestToJoinGroup,
   cancelJoinRequest,
   getGroupJoinRequests,
+  getAllOwnerJoinRequests,
   respondToJoinRequest,
+  inviteToGroup,
+  getUserGroupInvitations,
+  respondToGroupInvitation,
+  makeGroupTask,
+  removeGroupTask,
   getUserGroups,
   getGroupDetails,
   getGroupLeaderboards,
@@ -24,13 +31,23 @@ router.post('/', createGroup);
 router.get('/', getUserGroups);
 router.get('/search', searchGroups);
 
+// Global group requests and invitations across user's groups
+router.get('/all-requests', getAllOwnerJoinRequests);
+router.get('/invitations', getUserGroupInvitations);
+router.post('/invitations/:invitationId/respond', respondToGroupInvitation);
+
+// Group-specific actions
+router.get('/:id', getGroupDetails);
+router.put('/:id', updateGroup);
 router.post('/:id/join-request', requestToJoinGroup);
 router.delete('/:id/join-request', cancelJoinRequest);
 
 router.get('/:id/requests', getGroupJoinRequests);
 router.post('/:id/requests/:requestId/respond', respondToJoinRequest);
+router.post('/:id/invite', inviteToGroup);
+router.post('/:id/make-task', makeGroupTask);
+router.delete('/:id/task', removeGroupTask);
 
-router.get('/:id', getGroupDetails);
 router.get('/:id/leaderboard', getGroupLeaderboards);
 router.get('/:id/notes', getGroupNotes);
 

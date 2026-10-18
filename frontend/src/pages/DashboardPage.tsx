@@ -170,6 +170,8 @@ export const DashboardPage: React.FC = () => {
     recurrence: Recurrence;
     scheduledDays?: number[];
     dueTime?: string;
+    hiddenFrom?: string[];
+    visibleOnlyTo?: string[];
   }) => {
     try {
       if (editingTask) {

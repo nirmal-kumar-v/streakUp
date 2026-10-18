@@ -6,8 +6,14 @@ import {
   searchGroups,
   requestToJoinGroup,
   cancelJoinRequest,
+  fetchAllOwnerJoinRequests,
+  fetchUserGroupInvitations,
+  respondToGroupInvitation,
+  respondToJoinRequest,
   GroupItem,
   GroupSearchResult,
+  OwnerJoinRequestItem,
+  GroupInvitationItem,
 } from '../api/groups';
 import {
   Users,
@@ -26,20 +32,30 @@ import {
   Flame,
   Send,
   XCircle,
+  Inbox,
+  Mail,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { useBodyScrollLock } from '../utils/scrollLock';
+import { InitialsAvatar } from '../components/InitialsAvatar';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const GroupsPage: React.FC = () => {
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'my' | 'discover'>('my');
+  const [activeTab, setActiveTab] = useState<'my' | 'discover' | 'requests'>('my');
 
   // My Groups State
   const [groups, setGroups] = useState<GroupItem[]>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+
+  // Group Requests & Invitations State
+  const [ownerRequests, setOwnerRequests] = useState<OwnerJoinRequestItem[]>([]);
+  const [invitations, setInvitations] = useState<GroupInvitationItem[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [actionReqId, setActionReqId] = useState<string | null>(null);
+  const [actionInvId, setActionInvId] = useState<string | null>(null);
 
   // Discover & Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,16 +122,69 @@ export const GroupsPage: React.FC = () => {
     }
   };
 
+  const loadRequestsAndInvitations = async () => {
+    setIsLoadingRequests(true);
+    try {
+      const [reqRes, invRes] = await Promise.all([
+        fetchAllOwnerJoinRequests().catch(() => ({ success: true, requests: [] })),
+        fetchUserGroupInvitations().catch(() => ({ success: true, invitations: [] })),
+      ]);
+      if (reqRes.success) setOwnerRequests(reqRes.requests || []);
+      if (invRes.success) setInvitations(invRes.invitations || []);
+    } catch (err: any) {
+      // silent catch
+    } finally {
+      setIsLoadingRequests(false);
+    }
+  };
+
   useEffect(() => {
     loadMyGroups();
+    loadRequestsAndInvitations();
   }, []);
 
-  // When switching to Discover tab, auto-load popular/recent groups
+  // When switching to Discover or Requests tab
   useEffect(() => {
     if (activeTab === 'discover' && !hasSearched) {
       handleSearch('');
+    } else if (activeTab === 'requests') {
+      loadRequestsAndInvitations();
     }
   }, [activeTab]);
+
+  const handleRespondOwnerRequest = async (groupId: string, requestId: string, action: 'ACCEPT' | 'REJECT') => {
+    setActionReqId(requestId);
+    try {
+      const res = await respondToJoinRequest(groupId, requestId, action);
+      if (res.success) {
+        showFeedback(action === 'ACCEPT' ? 'Applicant accepted!' : 'Request rejected.');
+        setOwnerRequests((prev) => prev.filter((r) => r.id !== requestId));
+        loadMyGroups();
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to process request.'), 'error');
+    } finally {
+      setActionReqId(null);
+    }
+  };
+
+  const handleRespondInvitation = async (invitationId: string, action: 'ACCEPT' | 'REJECT') => {
+    setActionInvId(invitationId);
+    try {
+      const res = await respondToGroupInvitation(invitationId, action);
+      if (res.success) {
+        showFeedback(res.message || (action === 'ACCEPT' ? 'Joined group!' : 'Invitation declined.'));
+        setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+        if (action === 'ACCEPT') {
+          loadMyGroups();
+        }
+      }
+    } catch (err: any) {
+      showFeedback(extractErrorMessage(err, 'Failed to respond to invitation.'), 'error');
+    } finally {
+      setActionInvId(null);
+    }
+  };
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -270,10 +339,10 @@ export const GroupsPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-dark-border pb-3">
+      <div className="flex items-center gap-2 border-b border-dark-border pb-3 overflow-x-auto">
         <button
           onClick={() => setActiveTab('my')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === 'my'
               ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
@@ -290,7 +359,7 @@ export const GroupsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('discover')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
             activeTab === 'discover'
               ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
@@ -298,6 +367,23 @@ export const GroupsPage: React.FC = () => {
         >
           <Search className="w-3.5 h-3.5" />
           <span>Discover & Search</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+            activeTab === 'requests'
+              ? 'bg-dark-card text-amber-400 border border-dark-border shadow-sm'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+          }`}
+        >
+          <Inbox className="w-3.5 h-3.5" />
+          <span>Group Requests</span>
+          {(ownerRequests.length + invitations.length) > 0 && (
+            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-zinc-950 text-[10px] font-bold">
+              {ownerRequests.length + invitations.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -602,6 +688,199 @@ export const GroupsPage: React.FC = () => {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 3: GROUP REQUESTS & INVITATIONS */}
+      {activeTab === 'requests' && (
+        <div className="space-y-8 animate-in fade-in duration-150">
+          {/* Sub-Section 1: Group Join Requests (For Groups You Own / Manage) */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <span>Join Requests (For Your Groups)</span>
+                  {ownerRequests.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono font-bold">
+                      {ownerRequests.length}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-dark-muted mt-0.5">
+                  Review and accept requests to join groups you created or administer.
+                </p>
+              </div>
+            </div>
+
+            {isLoadingRequests ? (
+              <div className="py-12 text-center text-xs text-dark-muted">
+                <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin inline-block mr-2" />
+                Loading requests...
+              </div>
+            ) : ownerRequests.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-dark-card border border-dark-border text-center max-w-lg mx-auto">
+                <Inbox className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+                <p className="text-xs text-zinc-400 font-medium">No pending join requests across your groups.</p>
+                <p className="text-[11px] text-dark-muted mt-1">When users request to join via search or code, they will appear here.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {ownerRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="p-4 rounded-2xl bg-dark-card border border-dark-border flex flex-col justify-between gap-3 shadow-panel"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <Link
+                          to={`/groups/${req.groupId}`}
+                          className="text-xs font-bold text-flame-400 hover:text-flame-300 transition-colors flex items-center gap-1"
+                        >
+                          <span>{req.groupName}</span>
+                          <span className="text-[10px] font-mono text-zinc-500">({req.joinCode})</span>
+                        </Link>
+                        <span className="text-[10px] font-mono text-dark-muted">
+                          {new Date(req.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 p-2.5 rounded-xl bg-dark-surface/70 border border-dark-border">
+                        <InitialsAvatar name={req.user.name || req.user.username} size="md" />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-bold text-zinc-100 block truncate">
+                            {req.user.name}
+                          </span>
+                          <span className="text-xs font-mono text-zinc-400">
+                            @{req.user.username}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-dark-border">
+                      <button
+                        type="button"
+                        onClick={() => handleRespondOwnerRequest(req.groupId, req.id, 'ACCEPT')}
+                        disabled={actionReqId === req.id}
+                        className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all cursor-pointer text-center"
+                      >
+                        {actionReqId === req.id ? 'Accepting...' : 'Accept & Add'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRespondOwnerRequest(req.groupId, req.id, 'REJECT')}
+                        disabled={actionReqId === req.id}
+                        className="py-1.5 px-3 bg-dark-surface hover:bg-rose-500/10 text-zinc-400 hover:text-rose-400 border border-dark-border hover:border-rose-500/30 font-semibold text-xs rounded-xl transition-all cursor-pointer"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sub-Section 2: Group Invitations Received */}
+          <div className="space-y-4 pt-4 border-t border-dark-border">
+            <div>
+              <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+                <Mail className="w-4 h-4 text-indigo-400" />
+                <span>Group Invitations Received</span>
+                {invitations.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono font-bold">
+                    {invitations.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-dark-muted mt-0.5">
+                Invitations sent to you by friends to join their study habits.
+              </p>
+            </div>
+
+            {isLoadingRequests ? (
+              <div className="py-8 text-center text-xs text-dark-muted">
+                <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin inline-block mr-2" />
+                Loading invitations...
+              </div>
+            ) : invitations.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-dark-card border border-dark-border text-center max-w-lg mx-auto">
+                <Mail className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
+                <p className="text-xs text-zinc-400 font-medium">No pending group invitations.</p>
+                <p className="text-[11px] text-dark-muted mt-1">When friends invite you to join a habit group, they will show up here.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {invitations.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="p-5 rounded-2xl bg-dark-card border border-dark-border flex flex-col justify-between gap-4 shadow-panel"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <h3 className="text-base font-bold text-zinc-100 line-clamp-1">
+                          {inv.groupName}
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 font-bold">
+                          {inv.joinCode}
+                        </span>
+                      </div>
+
+                      {inv.groupDescription ? (
+                        <p className="text-xs text-dark-muted line-clamp-2 mb-3">
+                          {inv.groupDescription}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-dark-muted/60 italic mb-3">
+                          Shared habit group.
+                        </p>
+                      )}
+
+                      <div className="p-2.5 rounded-xl bg-dark-surface/70 border border-dark-border flex items-center justify-between text-xs text-dark-muted mb-3">
+                        <span className="flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-zinc-400" />
+                          <span>{inv.memberCount} members</span>
+                        </span>
+                        <span className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-300">
+                          <Calendar className="w-3.5 h-3.5 text-flame-400" />
+                          <span>{formatSchedule(inv.scheduledDays)}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-dark-muted">
+                        <span>Invited by:</span>
+                        <div className="flex items-center gap-1.5 font-medium text-zinc-200">
+                          <InitialsAvatar name={inv.inviter.name || inv.inviter.username} size="xs" />
+                          <span>{inv.inviter.name}</span>
+                          <span className="text-[10px] text-zinc-500 font-mono">(@{inv.inviter.username})</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-3 border-t border-dark-border">
+                      <button
+                        type="button"
+                        onClick={() => handleRespondInvitation(inv.id, 'ACCEPT')}
+                        disabled={actionInvId === inv.id}
+                        className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer text-center"
+                      >
+                        {actionInvId === inv.id ? 'Joining...' : 'Accept & Join Group'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRespondInvitation(inv.id, 'REJECT')}
+                        disabled={actionInvId === inv.id}
+                        className="py-2 px-3 bg-dark-surface hover:bg-rose-500/10 text-zinc-400 hover:text-rose-400 border border-dark-border hover:border-rose-500/30 font-semibold text-xs rounded-xl transition-all cursor-pointer"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

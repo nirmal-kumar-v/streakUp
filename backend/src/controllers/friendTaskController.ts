@@ -3,6 +3,7 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString } from '../services/timezoneService';
 import { compareTaskTitles } from '../services/fuzzyMatchService';
+import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 
 /**
  * Helper to get all accepted friend IDs for a user
@@ -47,6 +48,12 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
       });
     }
 
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true }
+    });
+    const viewer = { id: userId, username: currentUser?.username };
+
     const friends = await prisma.user.findMany({
       where: { id: { in: friendIds } },
       select: {
@@ -62,6 +69,7 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
           orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
           select: {
             id: true,
+            userId: true,
             title: true,
             description: true,
             category: true,
@@ -72,6 +80,8 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
             longestStreak: true,
             freezeBalance: true,
             freezeRechargeDays: true,
+            hiddenFrom: true,
+            visibleOnlyTo: true,
             completions: {
               orderBy: { completionDate: 'desc' },
               take: 5,
@@ -90,7 +100,10 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
     const friendsTasks = friends.map(friend => {
       const todayDateStr = getLocalDateString(friend.timezone || 'Asia/Kolkata');
 
-      const tasksWithStatus = friend.tasks.map(task => {
+      // Filter tasks by privacy rules (hiddenFrom & visibleOnlyTo)
+      const visibleTasks = friend.tasks.filter(task => isTaskVisibleToUser(task, viewer));
+
+      const tasksWithStatus = visibleTasks.map(task => {
         const completedToday = task.completions.some(c => c.completionDate === todayDateStr);
         const todayCompletion = task.completions.find(c => c.completionDate === todayDateStr);
 
@@ -178,10 +191,13 @@ export async function getFriendsStudyActivity(req: AuthenticatedRequest, res: Re
         task: {
           select: {
             id: true,
+            userId: true,
             title: true,
             category: true,
             currentStreak: true,
-            recurrence: true
+            recurrence: true,
+            hiddenFrom: true,
+            visibleOnlyTo: true
           }
         },
         reactions: {
@@ -194,7 +210,18 @@ export async function getFriendsStudyActivity(req: AuthenticatedRequest, res: Re
       }
     });
 
-    const activity = completions.map(c => {
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true }
+    });
+    const viewer = { id: userId, username: currentUser?.username };
+
+    const visibleCompletions = completions.filter(c => {
+      if (!c.task) return true;
+      return isTaskVisibleToUser(c.task, viewer);
+    });
+
+    const activity = visibleCompletions.map(c => {
       const counts: Record<string, number> = { FIRE: 0, STRONG: 0, CLAP: 0, CELEBRATE: 0 };
       const userReactions: string[] = [];
       for (const r of c.reactions) {
@@ -273,6 +300,19 @@ export async function getTaskFriendsLeaderboard(req: AuthenticatedRequest, res: 
       });
     }
 
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true }
+    });
+    const viewer = { id: userId, username: currentUser?.username };
+
+    if (!isOwner && !isTaskVisibleToUser(baseTask, viewer)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden. This task is not visible to you.'
+      });
+    }
+
     // Cohort for comparison: task owner + their accepted friends
     const targetUserId = baseTask.userId;
     const friendIds = await getAcceptedFriendUserIds(targetUserId);
@@ -298,7 +338,7 @@ export async function getTaskFriendsLeaderboard(req: AuthenticatedRequest, res: 
     }
 
     // Fetch active recurring tasks of friends
-    const friendTasks = await prisma.task.findMany({
+    const rawFriendTasks = await prisma.task.findMany({
       where: {
         userId: { in: friendIds },
         status: 'ACTIVE',
@@ -316,6 +356,8 @@ export async function getTaskFriendsLeaderboard(req: AuthenticatedRequest, res: 
         }
       }
     });
+
+    const friendTasks = rawFriendTasks.filter(t => isTaskVisibleToUser(t, viewer));
 
     const matchingTasks: Array<{
       task: any;
