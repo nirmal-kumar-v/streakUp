@@ -44,7 +44,7 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
       where.isRead = true;
     }
 
-    const [notifications, totalCount, unreadCount] = await Promise.all([
+    const [notifications, totalCount, unreadCount, allCount] = await Promise.all([
       prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -75,6 +75,12 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
           isRead: false,
         },
       }),
+      prisma.notification.count({
+        where: {
+          userId,
+          isDismissed: false,
+        },
+      }),
     ]);
 
     return res.json({
@@ -82,6 +88,7 @@ export async function getNotifications(req: AuthenticatedRequest, res: Response)
       notifications,
       unreadCount,
       totalCount,
+      allCount,
       page: pageNum,
       totalPages: Math.ceil(totalCount / limitNum) || 1,
     });

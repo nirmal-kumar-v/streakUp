@@ -38,10 +38,12 @@ import {
   Shield,
   ChevronRight,
   HelpCircle,
+  Crop,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { useAppLock } from '../context/AppLockContext';
 import { DEFAULT_SECURITY_QUESTIONS } from '../utils/pinSecurity';
+import { ImageCropModal } from '../components/ImageCropModal';
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -206,6 +208,8 @@ export const SettingsPage: React.FC = () => {
   // Image Upload state
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [confirmRemoveImage, setConfirmRemoveImage] = useState(false);
   const [imageSuccess, setImageSuccess] = useState('');
@@ -417,15 +421,32 @@ export const SettingsPage: React.FC = () => {
       return;
     }
 
-    // Read as Base64 Data URI for preview and persistent cloud storage
+    // Read as Base64 Data URI and open the Crop modal
     const reader = new FileReader();
     reader.onload = () => {
-      setImagePreview(reader.result as string);
+      const dataUrl = reader.result as string;
+      setRawImageForCrop(dataUrl);
+      setIsCropModalOpen(true);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     };
     reader.onerror = () => {
       setImageError('Failed to read image file.');
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCropComplete = (croppedBase64: string) => {
+    setImagePreview(croppedBase64);
+    setIsCropModalOpen(false);
+  };
+
+  const handleSkipCrop = () => {
+    if (rawImageForCrop) {
+      setImagePreview(rawImageForCrop);
+    }
+    setIsCropModalOpen(false);
   };
 
   const handleUploadImage = async () => {
@@ -440,6 +461,7 @@ export const SettingsPage: React.FC = () => {
         updateUser({ profileImage: res.profileImage });
         setImageSuccess('Profile image updated successfully!');
         setImagePreview(null);
+        setRawImageForCrop(null);
       }
     } catch (err: any) {
       setImageError(extractErrorMessage(err, 'Failed to upload profile image.'));
@@ -459,6 +481,7 @@ export const SettingsPage: React.FC = () => {
       if (res.success) {
         updateUser({ profileImage: null });
         setImagePreview(null);
+        setRawImageForCrop(null);
         setImageSuccess('Profile image removed.');
       }
     } catch (err: any) {
@@ -622,19 +645,31 @@ export const SettingsPage: React.FC = () => {
               </button>
 
               {imagePreview && (
-                <button
-                  type="button"
-                  onClick={handleUploadImage}
-                  disabled={isUploadingImage}
-                  className="px-4 py-2 bg-flame-500 hover:bg-flame-600 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-flame-500/20 flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {isUploadingImage ? (
-                    <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Save className="w-3.5 h-3.5" />
-                  )}
-                  <span>Save Picture</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={handleUploadImage}
+                    disabled={isUploadingImage}
+                    className="px-4 py-2 bg-flame-500 hover:bg-flame-600 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-flame-500/20 flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isUploadingImage ? (
+                      <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>Save Picture</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCropModalOpen(true)}
+                    disabled={isUploadingImage}
+                    className="px-3.5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-200 hover:text-zinc-100 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                  >
+                    <Crop className="w-3.5 h-3.5 text-flame-400" />
+                    <span>Adjust Crop</span>
+                  </button>
+                </>
               )}
 
               {user?.profileImage && !imagePreview && (
@@ -673,7 +708,10 @@ export const SettingsPage: React.FC = () => {
               {imagePreview && (
                 <button
                   type="button"
-                  onClick={() => setImagePreview(null)}
+                  onClick={() => {
+                    setImagePreview(null);
+                    setRawImageForCrop(null);
+                  }}
                   className="px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200"
                 >
                   Cancel
@@ -686,6 +724,15 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Image Crop Modal */}
+        <ImageCropModal
+          isOpen={isCropModalOpen}
+          imageSrc={rawImageForCrop || imagePreview || ''}
+          onCropComplete={handleCropComplete}
+          onSkipCrop={handleSkipCrop}
+          onClose={() => setIsCropModalOpen(false)}
+        />
       </div>
 
       {/* SECTION 2: DISPLAY NAME & TIMEZONE */}

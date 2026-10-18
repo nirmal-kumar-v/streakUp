@@ -31,7 +31,7 @@ export const NotificationsPage: React.FC = () => {
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [totalCount, setTotalCount] = useState<number>(0);
+  const [allCount, setAllCount] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
 
@@ -79,7 +79,11 @@ export const NotificationsPage: React.FC = () => {
 
         setNotifications(filteredList);
         setUnreadCount(res.unreadCount);
-        setTotalCount(res.totalCount);
+        if (typeof res.allCount === 'number') {
+          setAllCount(res.allCount);
+        } else if (filter === 'all') {
+          setAllCount(res.totalCount);
+        }
         setPage(res.page);
         setTotalPages(res.totalPages);
         setUnreadNotificationsCount(res.unreadCount);
@@ -146,9 +150,11 @@ export const NotificationsPage: React.FC = () => {
 
     const previousNotifications = [...notifications];
     const previousUnread = unreadCount;
+    const previousAllCount = allCount;
 
     // Optimistic remove
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setAllCount((c) => Math.max(0, c - 1));
     if (!target.isRead) {
       setUnreadCount((c) => Math.max(0, c - 1));
       decrementNotifications();
@@ -161,6 +167,7 @@ export const NotificationsPage: React.FC = () => {
       // Rollback
       setNotifications(previousNotifications);
       setUnreadCount(previousUnread);
+      setAllCount(previousAllCount);
       toast.error(extractErrorMessage(err, 'Failed to dismiss notification'));
     }
   };
@@ -257,7 +264,7 @@ export const NotificationsPage: React.FC = () => {
               : 'text-zinc-400 hover:text-zinc-200'
           }`}
         >
-          All ({totalCount})
+          All ({allCount})
         </button>
 
         <button

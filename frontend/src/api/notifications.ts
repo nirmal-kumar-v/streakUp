@@ -78,6 +78,7 @@ export async function fetchNotifications(params?: {
     notifications: NotificationItem[];
     unreadCount: number;
     totalCount: number;
+    allCount?: number;
     page: number;
     totalPages: number;
   };

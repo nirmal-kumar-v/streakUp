@@ -200,15 +200,31 @@ describe('Notification and Milestone Engine Tests', () => {
       expect(userANotifs.find((n) => n.userId === 'user-B')).toBeUndefined();
     });
 
-    it('supports independent toggles for in-app and email delivery channels', () => {
-      const pref1 = { inAppNotificationsEnabled: true, emailNotificationsEnabled: false };
-      const pref2 = { inAppNotificationsEnabled: false, emailNotificationsEnabled: true };
+    it('preserves allCount total notification count independently of unread filter state', () => {
+      const userNotifications = [
+        { id: 'n-1', userId: 'user-A', isDismissed: false, isRead: true },
+        { id: 'n-2', userId: 'user-A', isDismissed: false, isRead: false },
+        { id: 'n-3', userId: 'user-A', isDismissed: true, isRead: true },
+      ];
 
-      expect(pref1.inAppNotificationsEnabled).toBe(true);
-      expect(pref1.emailNotificationsEnabled).toBe(false);
+      const calculateCounts = (status: 'all' | 'unread') => {
+        const active = userNotifications.filter((n) => !n.isDismissed);
+        const filtered = status === 'unread' ? active.filter((n) => !n.isRead) : active;
+        const unreadCount = active.filter((n) => !n.isRead).length;
+        const allCount = active.length;
+        return { totalCount: filtered.length, unreadCount, allCount };
+      };
 
-      expect(pref2.inAppNotificationsEnabled).toBe(false);
-      expect(pref2.emailNotificationsEnabled).toBe(true);
+      const whenAll = calculateCounts('all');
+      expect(whenAll.allCount).toBe(2);
+      expect(whenAll.totalCount).toBe(2);
+      expect(whenAll.unreadCount).toBe(1);
+
+      // When switching to unread tab, allCount remains 2 even if totalCount of unread is 1 (or 0)
+      const whenUnread = calculateCounts('unread');
+      expect(whenUnread.allCount).toBe(2);
+      expect(whenUnread.totalCount).toBe(1);
+      expect(whenUnread.unreadCount).toBe(1);
     });
   });
 });
