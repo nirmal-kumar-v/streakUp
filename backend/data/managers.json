@@ -1,14 +1,14 @@
 [
   {
-    "id": "f73cb416-751a-423b-bb3b-955cbdd78394",
+    "id": "2aa70e43-253e-46f6-9d7d-184a3d6ac5ee",
     "userId": "test-mgr-user-2",
     "username": "mgrcandidate",
     "name": "Manager Candidate",
     "email": "mgrcandidate@example.com",
     "emailNotificationsEnabled": true,
     "grantedBy": "admin",
-    "createdAt": "2026-10-19T21:09:32.941Z",
-    "updatedAt": "2026-10-19T21:09:32.941Z"
+    "createdAt": "2026-10-19T22:11:05.064Z",
+    "updatedAt": "2026-10-19T22:11:05.064Z"
   },
   {
     "id": "1b4d6699-a025-4b18-b35f-b9b021d96014",

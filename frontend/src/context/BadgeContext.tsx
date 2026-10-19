@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 export interface BadgeContextType {
   pendingRequestsCount: number;
   unreadNotificationsCount: number;
+  hasNewNotification: boolean;
   refreshBadges: () => Promise<void>;
   decrementFriendRequests: () => void;
   incrementFriendRequests: () => void;
@@ -13,11 +14,13 @@ export interface BadgeContextType {
   decrementNotifications: (amount?: number) => void;
   setUnreadNotificationsCount: React.Dispatch<React.SetStateAction<number>>;
   clearNotifications: () => void;
+  markNotificationsAsSeen: () => void;
 }
 
 const defaultBadgeContext: BadgeContextType = {
   pendingRequestsCount: 0,
   unreadNotificationsCount: 0,
+  hasNewNotification: false,
   refreshBadges: async () => {},
   decrementFriendRequests: () => {},
   incrementFriendRequests: () => {},
@@ -25,6 +28,7 @@ const defaultBadgeContext: BadgeContextType = {
   decrementNotifications: () => {},
   setUnreadNotificationsCount: () => {},
   clearNotifications: () => {},
+  markNotificationsAsSeen: () => {},
 };
 
 declare global {
@@ -44,23 +48,49 @@ if (typeof window !== 'undefined') {
 
 const BADGE_STORAGE_KEY = 'streakup_badges_state';
 
+const getNotifsOpenedKey = (userId?: string) => `streakup_notifs_last_opened_${userId || 'guest'}`;
+
+const getLastOpenedTimestamp = (userId?: string): number => {
+  if (typeof window === 'undefined') return 0;
+  try {
+    const val = localStorage.getItem(getNotifsOpenedKey(userId));
+    return val ? parseInt(val, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const setLastOpenedTimestamp = (userId?: string, ts: number = Date.now()): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(getNotifsOpenedKey(userId), ts.toString());
+  } catch {}
+};
+
 export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [pendingRequestsCount, setPendingRequestsCountState] = useState<number>(0);
   const [unreadNotificationsCount, setUnreadNotificationsCountState] = useState<number>(0);
+  const [hasNewNotification, setHasNewNotificationState] = useState<boolean>(false);
   const isFetchingRef = useRef(false);
 
   // Sync state to localStorage for cross-tab synchronization
-  const broadcastBadgeChange = useCallback((pending: number, unread: number) => {
+  const broadcastBadgeChange = useCallback((pending: number, unread: number, hasNew?: boolean) => {
     try {
       localStorage.setItem(
         BADGE_STORAGE_KEY,
-        JSON.stringify({ pending, unread, timestamp: Date.now() })
+        JSON.stringify({ pending, unread, hasNew, timestamp: Date.now() })
       );
     } catch {
       // Storage unavailable or disabled
     }
   }, []);
+
+  const markNotificationsAsSeen = useCallback(() => {
+    setLastOpenedTimestamp(user?.id, Date.now());
+    setHasNewNotificationState(false);
+    broadcastBadgeChange(pendingRequestsCount, unreadNotificationsCount, false);
+  }, [user?.id, pendingRequestsCount, unreadNotificationsCount, broadcastBadgeChange]);
 
   const setPendingRequestsCount: React.Dispatch<React.SetStateAction<number>> = useCallback(
     (action) => {
@@ -68,7 +98,10 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const next = typeof action === 'function' ? action(prev) : action;
         const normalized = Math.max(0, next);
         setUnreadNotificationsCountState((currentUnread) => {
-          broadcastBadgeChange(normalized, currentUnread);
+          setHasNewNotificationState((currentHasNew) => {
+            broadcastBadgeChange(normalized, currentUnread, currentHasNew);
+            return currentHasNew;
+          });
           return currentUnread;
         });
         return normalized;
@@ -82,8 +115,14 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setUnreadNotificationsCountState((prev) => {
         const next = typeof action === 'function' ? action(prev) : action;
         const normalized = Math.max(0, next);
+        if (normalized === 0) {
+          setHasNewNotificationState(false);
+        }
         setPendingRequestsCountState((currentPending) => {
-          broadcastBadgeChange(currentPending, normalized);
+          setHasNewNotificationState((currentHasNew) => {
+            broadcastBadgeChange(currentPending, normalized, normalized === 0 ? false : currentHasNew);
+            return normalized === 0 ? false : currentHasNew;
+          });
           return currentPending;
         });
         return normalized;
@@ -109,7 +148,9 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const clearNotifications = useCallback(() => {
     setUnreadNotificationsCount(0);
-  }, [setUnreadNotificationsCount]);
+    setHasNewNotificationState(false);
+    setLastOpenedTimestamp(user?.id, Date.now());
+  }, [setUnreadNotificationsCount, user?.id]);
 
   // Load live counts from backend
   const refreshBadges = useCallback(async () => {
@@ -124,6 +165,7 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       let nextPending: number | null = null;
       let nextUnread: number | null = null;
+      let nextHasNew: boolean | null = null;
 
       if (friendsRes && friendsRes.success) {
         nextPending = typeof friendsRes.pendingCount === 'number' ? friendsRes.pendingCount : 0;
@@ -132,14 +174,34 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (notifsRes && notifsRes.success) {
         nextUnread = typeof notifsRes.unreadCount === 'number' ? notifsRes.unreadCount : 0;
         setUnreadNotificationsCountState(nextUnread);
+
+        if (nextUnread === 0) {
+          nextHasNew = false;
+        } else {
+          const lastOpened = getLastOpenedTimestamp(user?.id);
+          const latestItem = notifsRes.notifications && notifsRes.notifications[0];
+          if (latestItem && latestItem.createdAt) {
+            const latestTime = new Date(latestItem.createdAt).getTime();
+            // If user never opened notifications before, show the dot
+            // Otherwise, show the dot ONLY if a new notification arrived after user last opened
+            nextHasNew = lastOpened === 0 ? true : latestTime > lastOpened;
+          } else {
+            nextHasNew = lastOpened === 0;
+          }
+        }
+        setHasNewNotificationState(nextHasNew);
       }
 
       setPendingRequestsCountState((currPending) => {
         setUnreadNotificationsCountState((currUnread) => {
-          broadcastBadgeChange(
-            nextPending !== null ? nextPending : currPending,
-            nextUnread !== null ? nextUnread : currUnread
-          );
+          setHasNewNotificationState((currHasNew) => {
+            broadcastBadgeChange(
+              nextPending !== null ? nextPending : currPending,
+              nextUnread !== null ? nextUnread : currUnread,
+              nextHasNew !== null ? nextHasNew : currHasNew
+            );
+            return currHasNew;
+          });
           return currUnread;
         });
         return currPending;
@@ -149,13 +211,14 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } finally {
       isFetchingRef.current = false;
     }
-  }, [isAuthenticated, broadcastBadgeChange]);
+  }, [isAuthenticated, user?.id, broadcastBadgeChange]);
 
   // Initial load and periodic refresh
   useEffect(() => {
     if (!isAuthenticated) {
       setPendingRequestsCountState(0);
       setUnreadNotificationsCountState(0);
+      setHasNewNotificationState(false);
       return;
     }
 
@@ -171,6 +234,7 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const parsed = JSON.parse(e.newValue);
           if (typeof parsed.pending === 'number') setPendingRequestsCountState(parsed.pending);
           if (typeof parsed.unread === 'number') setUnreadNotificationsCountState(parsed.unread);
+          if (typeof parsed.hasNew === 'boolean') setHasNewNotificationState(parsed.hasNew);
         } catch {}
       }
     };
@@ -198,6 +262,7 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       value={{
         pendingRequestsCount,
         unreadNotificationsCount,
+        hasNewNotification,
         refreshBadges,
         decrementFriendRequests,
         incrementFriendRequests,
@@ -205,6 +270,7 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         decrementNotifications,
         setUnreadNotificationsCount,
         clearNotifications,
+        markNotificationsAsSeen,
       }}
     >
       {children}

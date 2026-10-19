@@ -18,18 +18,21 @@ import { InitialsAvatar } from './InitialsAvatar';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
-  const { pendingRequestsCount, unreadNotificationsCount, clearNotifications } = useBadges();
+  const { pendingRequestsCount, hasNewNotification, markNotificationsAsSeen } = useBadges();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Auto-clear notification indicator when visiting /notifications
+  // Auto-mark notification indicator as seen when visiting /notifications
   useEffect(() => {
-    if (location.pathname === '/notifications' && unreadNotificationsCount > 0) {
-      clearNotifications();
+    if (location.pathname === '/notifications' || location.pathname.startsWith('/notifications/')) {
+      markNotificationsAsSeen();
+      return () => {
+        markNotificationsAsSeen();
+      };
     }
-  }, [location.pathname, unreadNotificationsCount, clearNotifications]);
+  }, [location.pathname, markNotificationsAsSeen]);
 
   // Auto-close mobile menu on route change
   useEffect(() => {
@@ -218,6 +221,7 @@ export const Navbar: React.FC = () => {
                 {/* Notifications - Icon-Only */}
                 <Link
                   to="/notifications"
+                  onClick={markNotificationsAsSeen}
                   aria-label="Notifications"
                   title="Notifications"
                   className={`p-2 rounded-xl transition-colors relative flex items-center justify-center ${
@@ -227,7 +231,7 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadNotificationsCount > 0 && !isActive('/notifications') && (
+                  {hasNewNotification && !isActive('/notifications') && (
                     <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-flame-400 opacity-75" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-flame-500 ring-2 ring-dark-bg" />
@@ -320,6 +324,7 @@ export const Navbar: React.FC = () => {
                 {/* Mobile Notifications Bell */}
                 <Link
                   to="/notifications"
+                  onClick={markNotificationsAsSeen}
                   aria-label="Notifications"
                   title="Notifications"
                   className={`p-2 rounded-lg relative flex items-center justify-center transition-colors ${
@@ -329,7 +334,7 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadNotificationsCount > 0 && !isActive('/notifications') && (
+                  {hasNewNotification && !isActive('/notifications') && (
                     <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-flame-400 opacity-75" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-flame-500 ring-2 ring-dark-bg" />

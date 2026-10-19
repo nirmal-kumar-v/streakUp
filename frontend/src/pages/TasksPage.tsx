@@ -142,8 +142,26 @@ export const TasksPage: React.FC = () => {
       }
     } else {
       // If LinkedIn task, complete immediately without requesting a study note
-      const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
+      const isLinkedIn = Boolean(
+        task.isLinkedIn ||
+        ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
+        isLinkedInName(task.title)
+      );
       if (isLinkedIn) {
+        const prevTasks = [...tasks];
+        const nextStreak = (task.currentStreak || 0) + 1;
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === task.id
+              ? { ...t, completedToday: true, currentStreak: nextStreak }
+              : t
+          )
+        );
+        triggerStreakCelebration({
+          newStreak: nextStreak,
+        });
+        toast.success('Done! 🔥');
+
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');
           if (res.success) {
@@ -160,13 +178,10 @@ export const TasksPage: React.FC = () => {
                 longestStreak: res.streak.longestStreak,
               });
             }
-            triggerStreakCelebration({
-              newStreak: res.streak?.currentStreak,
-            });
             await loadTasks();
-            toast.success('Committed LinkedIn games completed!');
           }
         } catch (err: any) {
+          setTasks(prevTasks);
           toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
         }
         return;
@@ -178,41 +193,47 @@ export const TasksPage: React.FC = () => {
 
   const handleCompleteSubmit = async (studyNote: string) => {
     if (!completingTask || !studyNote) return;
+    const taskToComplete = completingTask;
+    const prevTasks = [...tasks];
+    const nextStreak = (taskToComplete.currentStreak || 0) + 1;
+
+    // Immediately close modal and optimistically update habit list for 0ms lag
+    setCompletingTask(null);
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskToComplete.id
+          ? { ...t, completedToday: true, todayStudyNote: studyNote || null, currentStreak: nextStreak }
+          : t
+      )
+    );
+
+    // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
+    triggerStreakCelebration({
+      newStreak: nextStreak,
+    });
+
+    // 2. Compact, clean friend accountability nudge reminder
+    triggerPostCompletionNudge({
+      taskId: taskToComplete.id,
+      taskTitle: taskToComplete.title,
+    });
+
     try {
-      const res = await completeTask(completingTask.id, studyNote);
+      const res = await completeTask(taskToComplete.id, studyNote);
       if (res.success) {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === completingTask.id
-              ? { ...t, completedToday: true, todayStudyNote: studyNote || null }
-              : t
-          )
-        );
         if (res.streak) {
           updateUser({
             currentStreak: res.streak.currentStreak,
             longestStreak: res.streak.longestStreak,
           });
         }
-
-        // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
-        triggerStreakCelebration({
-          newStreak: res.streak?.currentStreak,
-        });
-
-        // 2. Compact, clean friend accountability nudge reminder
-        triggerPostCompletionNudge({
-          taskId: completingTask.id,
-          taskTitle: completingTask.title,
-        });
-
-        await loadTasks();
+        loadTasks();
       }
     } catch (err: any) {
+      setTasks(prevTasks);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
     }
   };
-
 
   const handleCreateOrUpdateTask = async (taskData: {
     title: string;
@@ -225,17 +246,58 @@ export const TasksPage: React.FC = () => {
     hiddenFrom?: string[];
     visibleOnlyTo?: string[];
   }) => {
-    try {
-      if (editingTask) {
+    const prevTasks = [...tasks];
+    if (editingTask) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === editingTask.id ? { ...t, ...taskData } : t))
+      );
+      toast.info('Habit updated');
+      try {
         await updateTask(editingTask.id, taskData);
-        toast.info('Habit updated');
-      } else {
-        await createTask(taskData);
-        toast.info('Habit created');
+        loadTasks();
+      } catch (err: any) {
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to save habit.'));
       }
-      await loadTasks();
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to save habit.'));
+    } else {
+      const tempId = `temp-${Date.now()}`;
+      const optimisticTask: Task = {
+        id: tempId,
+        title: taskData.title,
+        description: taskData.description || null,
+        category: taskData.category || 'General',
+        priority: taskData.priority,
+        recurrence: taskData.recurrence,
+        scheduledDays: taskData.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+        dueTime: taskData.dueTime || null,
+        status: 'ACTIVE',
+        currentStreak: 0,
+        longestStreak: 0,
+        freezeBalance: 0,
+        freezeRechargeDays: 0,
+        completedToday: false,
+        todayStudyNote: null,
+        hiddenFrom: taskData.hiddenFrom || [],
+        visibleOnlyTo: taskData.visibleOnlyTo || [],
+        userId: user?.id || 'me',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      if (statusFilter === 'ACTIVE') {
+        setTasks((prev) => [optimisticTask, ...prev]);
+        setCounts((prev) => ({ ...prev, active: prev.active + 1 }));
+      }
+      toast.info('Habit created');
+      try {
+        const res = await createTask(taskData);
+        if (res.success && res.task) {
+          setTasks((prev) => prev.map((t) => (t.id === tempId ? res.task : t)));
+        }
+        loadTasks();
+      } catch (err: any) {
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to create habit.'));
+      }
     }
   };
 

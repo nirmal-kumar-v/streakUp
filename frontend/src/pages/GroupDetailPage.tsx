@@ -93,7 +93,6 @@ export const GroupDetailPage: React.FC = () => {
   const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Edit Group Modal State
   const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
@@ -733,52 +732,72 @@ export const GroupDetailPage: React.FC = () => {
 
   const handleRespondRequest = async (requestId: string, action: 'ACCEPT' | 'REJECT') => {
     if (!groupId) return;
-    setActionLoadingId(requestId);
+    const prevRequests = [...joinRequests];
+    // 0ms optimistic removal
+    setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
+    toast.info(action === 'ACCEPT' ? 'Applicant accepted into group!' : 'Request rejected.');
+
     try {
       const res = await respondToJoinRequest(groupId, requestId, action);
-      if (res.success) {
-        toast.info(res.message);
-        setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
-        loadGroupDetails();
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to respond to request.');
+      loadGroupDetails();
     } catch (err: any) {
+      setJoinRequests(prevRequests);
       toast.error(extractErrorMessage(err, 'Failed to respond to request.'));
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
   const executePromoteToAdmin = async (targetUserId: string) => {
-    if (!groupId) return;
-    setActionLoadingId(targetUserId);
+    if (!groupId || !group) return;
     setConfirmPromoteUserId(null);
+    const prevGroup = { ...group };
+
+    // 0ms optimistic role update
+    setGroup((prev) =>
+      prev
+        ? {
+            ...prev,
+            members: prev.members.map((m) =>
+              m.id === targetUserId ? { ...m, role: 'ADMIN' } : m
+            ),
+          }
+        : prev
+    );
+    toast.info('Member promoted to Admin.');
+
     try {
       const res = await promoteMemberToAdmin(groupId, targetUserId);
-      if (res.success) {
-        toast.info(res.message || 'Member promoted to Admin.');
-        loadGroupDetails();
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to promote member.');
+      loadGroupDetails();
     } catch (err: any) {
+      setGroup(prevGroup);
       toast.error(extractErrorMessage(err, 'Failed to promote member.'));
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
   const executeRemoveMember = async (targetUserId: string) => {
-    if (!groupId) return;
-    setActionLoadingId(targetUserId);
+    if (!groupId || !group) return;
     setConfirmRemoveUserId(null);
+    const prevGroup = { ...group };
+
+    // 0ms optimistic removal
+    setGroup((prev) =>
+      prev
+        ? {
+            ...prev,
+            members: prev.members.filter((m) => m.id !== targetUserId),
+          }
+        : prev
+    );
+    toast.info('Member removed from group.');
+
     try {
       const res = await removeMemberFromGroup(groupId, targetUserId);
-      if (res.success) {
-        toast.info(res.message || 'Member removed from group.');
-        loadGroupDetails();
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to remove member.');
+      loadGroupDetails();
     } catch (err: any) {
+      setGroup(prevGroup);
       toast.error(extractErrorMessage(err, 'Failed to remove member.'));
-    } finally {
-      setActionLoadingId(null);
     }
   };
 
@@ -1377,7 +1396,7 @@ export const GroupDetailPage: React.FC = () => {
                         ? 'text-amber-600 bg-amber-600/10 border-amber-600/30'
                         : 'text-zinc-500';
 
-                    const isFriendLoading = actionLoadingId === entry.userId;
+                    const isFriendLoading = false;
 
                     return (
                       <tr
@@ -1626,14 +1645,12 @@ export const GroupDetailPage: React.FC = () => {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => handleRespondRequest(req.id, 'REJECT')}
-                        disabled={actionLoadingId === req.id}
                         className="px-3 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl border border-rose-500/20"
                       >
                         Reject
                       </button>
                       <button
                         onClick={() => handleRespondRequest(req.id, 'ACCEPT')}
-                        disabled={actionLoadingId === req.id}
                         className="px-3.5 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-zinc-950 rounded-xl shadow-sm"
                       >
                         Accept Member
@@ -1697,10 +1714,9 @@ export const GroupDetailPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => executePromoteToAdmin(member.id)}
-                              disabled={actionLoadingId === member.id}
                               className="px-2 py-0.5 bg-purple-500 hover:bg-purple-400 text-zinc-950 font-bold rounded-lg text-xs"
                             >
-                              {actionLoadingId === member.id ? '...' : 'Yes'}
+                              Yes
                             </button>
                             <button
                               type="button"
@@ -1714,7 +1730,6 @@ export const GroupDetailPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => setConfirmPromoteUserId(member.id)}
-                            disabled={actionLoadingId === member.id}
                             className="px-3 py-1 bg-dark-surface hover:bg-dark-hover border border-dark-border text-xs text-zinc-300 hover:text-white rounded-xl"
                           >
                             Promote to Admin
@@ -1730,10 +1745,9 @@ export const GroupDetailPage: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => executeRemoveMember(member.id)}
-                              disabled={actionLoadingId === member.id}
                               className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-lg text-xs"
                             >
-                              {actionLoadingId === member.id ? '...' : 'Yes'}
+                              Yes
                             </button>
                             <button
                               type="button"
@@ -1747,7 +1761,6 @@ export const GroupDetailPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => setConfirmRemoveUserId(member.id)}
-                            disabled={actionLoadingId === member.id}
                             className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold rounded-xl"
                           >
                             Remove

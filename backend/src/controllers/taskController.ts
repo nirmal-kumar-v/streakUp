@@ -113,9 +113,9 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
 
         if (isLinkedIn && task.groupId) {
           const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
-          currentStreak = li.currentStreak;
+          currentStreak = Math.max(currentStreak, li.currentStreak);
           longestStreak = Math.max(task.longestStreak, li.longestStreak);
-          completedToday = li.completedToday;
+          completedToday = Boolean(task.completions.length > 0 || li.completedToday);
         }
 
         const todayStudyNote =
@@ -342,8 +342,12 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    // LinkedIn group tasks: complete all currently committed games on the current qualifying date
-    if (task.isGroupTask && isLinkedInName(task.title)) {
+    // LinkedIn tasks: complete all currently committed games on the current qualifying date
+    const isLinkedIn = Boolean(
+      (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
+    );
+
+    if (isLinkedIn) {
       const timezone = task.user?.timezone || 'Asia/Kolkata';
       const todayDateStr = getLocalDateString(timezone);
 
@@ -352,12 +356,14 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         ? await completeCommittedGamesForDashboard(task.groupId, userId, timezone, todayDateStr)
         : { highestStreak: 0, longestStreak: 0, completedGamesCount: 0, alreadyCompletedCount: 0, totalCommittedCount: 0 };
 
-      // Update parent task streak in database to match highest streak among committed games
+      // Update parent task streak in database to match highest streak among committed games or increment current streak
+      const nextTaskStreak = Math.max(liResult.highestStreak, (task.currentStreak || 0) + 1);
+      const nextLongestStreak = Math.max(task.longestStreak, liResult.longestStreak, nextTaskStreak);
       await prisma.task.update({
         where: { id },
         data: {
-          currentStreak: liResult.highestStreak,
-          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+          currentStreak: nextTaskStreak,
+          longestStreak: nextLongestStreak,
         },
       });
 
@@ -418,13 +424,13 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         completedToday: true,
         studyNote: null,
         taskStreak: {
-          currentStreak: liResult.highestStreak,
-          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+          currentStreak: nextTaskStreak,
+          longestStreak: nextLongestStreak,
         },
         overallStreak,
         streak: {
-          currentStreak: liResult.highestStreak,
-          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+          currentStreak: nextTaskStreak,
+          longestStreak: nextLongestStreak,
         },
         pointsAwarded: 0,
         totalPoints: newTotalPoints,
@@ -575,7 +581,11 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    if (task.isGroupTask && isLinkedInName(task.title)) {
+    const isLinkedIn = Boolean(
+      (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
+    );
+
+    if (isLinkedIn) {
       const timezone = task.user?.timezone || 'Asia/Kolkata';
       const todayDateStr = getLocalDateString(timezone);
 
@@ -592,10 +602,11 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       });
 
       // Update parent task streak
+      const newCurrentStreak = Math.max(0, liResult.highestStreak > 0 ? liResult.highestStreak : (task.currentStreak || 1) - 1);
       await prisma.task.update({
         where: { id },
         data: {
-          currentStreak: liResult.highestStreak,
+          currentStreak: newCurrentStreak,
         },
       });
 
@@ -608,12 +619,12 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
         message: 'LinkedIn games marked as incomplete for today.',
         completedToday: false,
         taskStreak: {
-          currentStreak: liResult.highestStreak,
+          currentStreak: newCurrentStreak,
           longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
         },
         overallStreak,
         streak: {
-          currentStreak: liResult.highestStreak,
+          currentStreak: newCurrentStreak,
           longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
         },
         totalPoints: u?.points || 0,
@@ -939,9 +950,9 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
 
         if (isLinkedIn && task.groupId) {
           const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
-          currentStreak = li.currentStreak;
+          currentStreak = Math.max(currentStreak, li.currentStreak);
           longestStreak = Math.max(task.longestStreak, li.longestStreak);
-          completedToday = li.completedToday;
+          completedToday = Boolean(task.completions.length > 0 || li.completedToday);
         }
 
         const todayStudyNote =

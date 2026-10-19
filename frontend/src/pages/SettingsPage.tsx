@@ -242,7 +242,6 @@ export const SettingsPage: React.FC = () => {
   const [name, setName] = useState(user?.name || '');
   const [timezone, setTimezone] = useState(user?.timezone || 'Asia/Kolkata');
   const [timezones, setTimezones] = useState<TimezoneOption[]>([]);
-  const [isSubmittingProfile, setIsSubmittingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
 
@@ -251,7 +250,6 @@ export const SettingsPage: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [confirmRemoveImage, setConfirmRemoveImage] = useState(false);
   const [imageSuccess, setImageSuccess] = useState('');
   const [imageError, setImageError] = useState('');
@@ -442,13 +440,18 @@ export const SettingsPage: React.FC = () => {
   // Profile info & Timezone submit
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmittingProfile(true);
-    setProfileSuccess('');
+    const prevName = user?.name;
+    const prevTimezone = user?.timezone;
+    const trimmedName = name.trim();
+
+    // 0ms immediate optimistic update
+    updateUser({ name: trimmedName, timezone });
+    setProfileSuccess('Profile settings updated successfully!');
     setProfileError('');
 
     try {
       const res = await updateProfileSettings({
-        name: name.trim(),
+        name: trimmedName,
         timezone,
       });
 
@@ -457,12 +460,13 @@ export const SettingsPage: React.FC = () => {
           name: res.user.name,
           timezone: res.user.timezone,
         });
-        setProfileSuccess('Profile settings updated successfully!');
       }
     } catch (err: any) {
+      if (prevName) {
+        updateUser({ name: prevName, timezone: prevTimezone });
+      }
+      setProfileSuccess('');
       setProfileError(extractErrorMessage(err, 'Failed to update profile.'));
-    } finally {
-      setIsSubmittingProfile(false);
     }
   };
 
@@ -520,43 +524,45 @@ export const SettingsPage: React.FC = () => {
 
   const handleUploadImage = async () => {
     if (!imagePreview) return;
-    setIsUploadingImage(true);
+    const prevImage = user?.profileImage;
+    const newImage = imagePreview;
+
+    // 0ms immediate optimistic update
+    updateUser({ profileImage: newImage });
+    setImageSuccess('Profile image updated successfully!');
+    setImagePreview(null);
+    setRawImageForCrop(null);
     setImageError('');
-    setImageSuccess('');
 
     try {
-      const res = await uploadProfileImage(imagePreview);
-      if (res.success) {
+      const res = await uploadProfileImage(newImage);
+      if (res.success && res.profileImage) {
         updateUser({ profileImage: res.profileImage });
-        setImageSuccess('Profile image updated successfully!');
-        setImagePreview(null);
-        setRawImageForCrop(null);
       }
     } catch (err: any) {
+      updateUser({ profileImage: prevImage });
+      setImageSuccess('');
       setImageError(extractErrorMessage(err, 'Failed to upload profile image.'));
-    } finally {
-      setIsUploadingImage(false);
     }
   };
 
   const handleRemoveImage = async () => {
     setConfirmRemoveImage(false);
-    setIsUploadingImage(true);
+    const prevImage = user?.profileImage;
+
+    // 0ms immediate optimistic removal
+    updateUser({ profileImage: null });
+    setImagePreview(null);
+    setRawImageForCrop(null);
+    setImageSuccess('Profile image removed.');
     setImageError('');
-    setImageSuccess('');
 
     try {
-      const res = await removeProfileImage();
-      if (res.success) {
-        updateUser({ profileImage: null });
-        setImagePreview(null);
-        setRawImageForCrop(null);
-        setImageSuccess('Profile image removed.');
-      }
+      await removeProfileImage();
     } catch (err: any) {
+      updateUser({ profileImage: prevImage });
+      setImageSuccess('');
       setImageError(extractErrorMessage(err, 'Failed to remove image.'));
-    } finally {
-      setIsUploadingImage(false);
     }
   };
 
@@ -730,21 +736,15 @@ export const SettingsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleUploadImage}
-                    disabled={isUploadingImage}
-                    className="px-4 py-2 bg-flame-500 hover:bg-flame-600 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-flame-500/20 flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-4 py-2 bg-flame-500 hover:bg-flame-600 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-flame-500/20 flex items-center gap-1.5"
                   >
-                    {isUploadingImage ? (
-                      <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
-                    )}
+                    <Save className="w-3.5 h-3.5" />
                     <span>Save Picture</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setIsCropModalOpen(true)}
-                    disabled={isUploadingImage}
                     className="px-3.5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-200 hover:text-zinc-100 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                   >
                     <Crop className="w-3.5 h-3.5 text-flame-400" />
@@ -760,10 +760,9 @@ export const SettingsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleRemoveImage}
-                      disabled={isUploadingImage}
                       className="px-2 py-0.5 bg-rose-500 hover:bg-rose-400 text-white font-bold rounded-lg text-xs"
                     >
-                      {isUploadingImage ? '...' : 'Yes'}
+                      Yes
                     </button>
                     <button
                       type="button"
@@ -777,7 +776,6 @@ export const SettingsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setConfirmRemoveImage(true)}
-                    disabled={isUploadingImage}
                     className="px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors flex items-center gap-1.5"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -886,11 +884,10 @@ export const SettingsPage: React.FC = () => {
         <div className="pt-2 border-t border-dark-border flex justify-end">
           <button
             type="submit"
-            disabled={isSubmittingProfile}
-            className="px-6 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20 flex items-center gap-2 disabled:opacity-50"
+            className="px-6 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-sm rounded-xl transition-all shadow-md shadow-flame-500/20 flex items-center gap-2"
           >
             <Save className="w-4 h-4" />
-            <span>{isSubmittingProfile ? 'Saving...' : 'Save Profile'}</span>
+            <span>Save Profile</span>
           </button>
         </div>
       </form>

@@ -1,5 +1,31 @@
 [
   {
+    "id": "8a21c796-16f0-4c9a-95e8-cde731f45041",
+    "userId": "test-del-user-1792447850487",
+    "username": "deleteduser_test",
+    "name": "deleteduser_test",
+    "email": "deleteduser@streakup.test",
+    "deletedAt": "2026-10-19T22:10:52.134Z",
+    "expiresAt": "2026-10-29T22:10:52.134Z",
+    "deletedBy": "USER",
+    "reason": "Deleted by user in settings",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-10-19T22:10:52.303Z"
+  },
+  {
+    "id": "019d9e56-e063-4b1c-b651-9e31060b2c71",
+    "userId": "test-del-user-1792445784166",
+    "username": "deleteduser_test",
+    "name": "deleteduser_test",
+    "email": "deleteduser@streakup.test",
+    "deletedAt": "2026-10-19T21:36:25.173Z",
+    "expiresAt": "2026-10-29T21:36:25.173Z",
+    "deletedBy": "USER",
+    "reason": "Deleted by user in settings",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-10-19T21:36:25.346Z"
+  },
+  {
     "id": "35a7e2fb-f01a-4c6a-960f-884f0005043f",
     "userId": "test-del-user-1792444158274",
     "username": "deleteduser_test",

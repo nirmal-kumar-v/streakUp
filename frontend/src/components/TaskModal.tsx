@@ -3,7 +3,6 @@ import { Task, Priority, Recurrence } from '../api/tasks';
 import { fetchFriendsList, FriendUser } from '../api/friends';
 import { X, Clock, Tag, AlertCircle, Sparkles, Shield, Eye, EyeOff } from 'lucide-react';
 import { InitialsAvatar } from './InitialsAvatar';
-import { extractErrorMessage } from '../utils/error';
 import { useBodyScrollLock } from '../utils/scrollLock';
 
 interface TaskModalProps {
@@ -58,7 +57,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [showSuggestionsOpen, setShowSuggestionsOpen] = useState(false);
   const [friendsList, setFriendsList] = useState<FriendUser[]>([]);
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -193,27 +191,22 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       return;
     }
 
-    setIsSubmitting(true);
     setError('');
+    onClose();
 
-    try {
-      await onSubmit({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        category: category.trim() || 'General',
-        priority,
-        recurrence,
-        scheduledDays: recurrence === 'DAILY' ? scheduledDays : undefined,
-        dueTime: dueTime || undefined,
-        hiddenFrom,
-        visibleOnlyTo,
-      });
-      onClose();
-    } catch (err: any) {
-      setError(extractErrorMessage(err, 'Failed to save task.'));
-    } finally {
-      setIsSubmitting(false);
-    }
+    onSubmit({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      category: category.trim() || 'General',
+      priority,
+      recurrence,
+      scheduledDays: recurrence === 'DAILY' ? scheduledDays : undefined,
+      dueTime: dueTime || undefined,
+      hiddenFrom,
+      visibleOnlyTo,
+    }).catch((err) => {
+      console.error('Failed to save task:', err);
+    });
   };
 
   if (!isOpen) return null;
@@ -692,17 +685,15 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              disabled={isSubmitting}
               className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors font-medium text-center"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="w-full sm:w-auto px-5 py-2.5 sm:py-2 text-sm bg-flame-500 hover:bg-flame-600 active:scale-95 text-zinc-950 font-bold rounded-xl transition-all shadow-md shadow-flame-500/20 disabled:opacity-50 text-center"
+              className="w-full sm:w-auto px-5 py-2.5 sm:py-2 text-sm bg-flame-500 hover:bg-flame-600 active:scale-95 text-zinc-950 font-bold rounded-xl transition-all shadow-md shadow-flame-500/20 text-center"
             >
-              {isSubmitting ? 'Saving...' : editingTask ? 'Save Changes' : 'Create Task'}
+              {editingTask ? 'Save Changes' : 'Create Task'}
             </button>
           </div>
         </form>

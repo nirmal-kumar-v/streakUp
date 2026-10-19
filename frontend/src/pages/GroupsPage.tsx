@@ -55,8 +55,6 @@ export const GroupsPage: React.FC = () => {
   const [ownerRequests, setOwnerRequests] = useState<OwnerJoinRequestItem[]>([]);
   const [invitations, setInvitations] = useState<GroupInvitationItem[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
-  const [actionReqId, setActionReqId] = useState<string | null>(null);
-  const [actionInvId, setActionInvId] = useState<string | null>(null);
 
   // Discover & Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -160,36 +158,36 @@ export const GroupsPage: React.FC = () => {
   }, [activeTab]);
 
   const handleRespondOwnerRequest = async (groupId: string, requestId: string, action: 'ACCEPT' | 'REJECT') => {
-    setActionReqId(requestId);
+    const prevRequests = [...ownerRequests];
+    // 0ms optimistic removal
+    setOwnerRequests((prev) => prev.filter((r) => r.id !== requestId));
+    showFeedback(action === 'ACCEPT' ? 'Applicant accepted!' : 'Request rejected.');
+
     try {
       const res = await respondToJoinRequest(groupId, requestId, action);
-      if (res.success) {
-        showFeedback(action === 'ACCEPT' ? 'Applicant accepted!' : 'Request rejected.');
-        setOwnerRequests((prev) => prev.filter((r) => r.id !== requestId));
-        loadMyGroups();
-      }
+      if (!res.success) throw new Error(res.message || 'Failed to process request.');
+      loadMyGroups();
     } catch (err: any) {
+      setOwnerRequests(prevRequests);
       showFeedback(extractErrorMessage(err, 'Failed to process request.'), 'error');
-    } finally {
-      setActionReqId(null);
     }
   };
 
   const handleRespondInvitation = async (invitationId: string, action: 'ACCEPT' | 'REJECT') => {
-    setActionInvId(invitationId);
+    const prevInvitations = [...invitations];
+    // 0ms optimistic removal
+    setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+    showFeedback(action === 'ACCEPT' ? 'Joined group!' : 'Invitation declined.');
+
     try {
       const res = await respondToGroupInvitation(invitationId, action);
-      if (res.success) {
-        showFeedback(res.message || (action === 'ACCEPT' ? 'Joined group!' : 'Invitation declined.'));
-        setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
-        if (action === 'ACCEPT') {
-          loadMyGroups();
-        }
+      if (!res.success) throw new Error(res.message || 'Failed to respond to invitation.');
+      if (action === 'ACCEPT') {
+        loadMyGroups();
       }
     } catch (err: any) {
+      setInvitations(prevInvitations);
       showFeedback(extractErrorMessage(err, 'Failed to respond to invitation.'), 'error');
-    } finally {
-      setActionInvId(null);
     }
   };
 
@@ -804,15 +802,13 @@ export const GroupsPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleRespondOwnerRequest(req.groupId, req.id, 'ACCEPT')}
-                        disabled={actionReqId === req.id}
-                        className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all cursor-pointer text-center"
+                        className="flex-1 py-1.5 px-3 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-xl transition-all cursor-pointer text-center"
                       >
-                        {actionReqId === req.id ? 'Accepting...' : 'Accept & Add'}
+                        Accept & Add
                       </button>
                       <button
                         type="button"
                         onClick={() => handleRespondOwnerRequest(req.groupId, req.id, 'REJECT')}
-                        disabled={actionReqId === req.id}
                         className="py-1.5 px-3 bg-dark-surface hover:bg-rose-500/10 text-zinc-400 hover:text-rose-400 border border-dark-border hover:border-rose-500/30 font-semibold text-xs rounded-xl transition-all cursor-pointer"
                       >
                         Decline
@@ -904,15 +900,13 @@ export const GroupsPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleRespondInvitation(inv.id, 'ACCEPT')}
-                        disabled={actionInvId === inv.id}
-                        className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer text-center"
+                        className="flex-1 py-2 px-3 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer text-center"
                       >
-                        {actionInvId === inv.id ? 'Joining...' : 'Accept & Join Group'}
+                        Accept & Join Group
                       </button>
                       <button
                         type="button"
                         onClick={() => handleRespondInvitation(inv.id, 'REJECT')}
-                        disabled={actionInvId === inv.id}
                         className="py-2 px-3 bg-dark-surface hover:bg-rose-500/10 text-zinc-400 hover:text-rose-400 border border-dark-border hover:border-rose-500/30 font-semibold text-xs rounded-xl transition-all cursor-pointer"
                       >
                         Decline

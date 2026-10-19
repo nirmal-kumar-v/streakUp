@@ -73,7 +73,7 @@ export function normalizeGameId(gameId: string): string | null {
 export function isLinkedInName(name?: string | null): boolean {
   if (!name) return false;
   const clean = name.trim().toLowerCase().replace(/[\s\-_]+/g, '');
-  return clean === 'linkedin' || clean === 'linkdin' || clean === 'linked';
+  return clean === 'linkedin' || clean === 'linkdin' || clean === 'linked' || clean.includes('linkedin');
 }
 
 export interface GameCompletionItem {

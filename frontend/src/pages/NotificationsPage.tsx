@@ -31,7 +31,7 @@ import { toggleStarNotification } from '../api/notifications';
 import { checkIfCurrentUserIsManager, replyToUserRequestAsManager } from '../api/userRequests';
 
 export const NotificationsPage: React.FC = () => {
-  const { decrementNotifications, clearNotifications, setUnreadNotificationsCount } = useBadges();
+  const { decrementNotifications, clearNotifications, setUnreadNotificationsCount, markNotificationsAsSeen } = useBadges();
   const toast = useToast();
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -43,6 +43,14 @@ export const NotificationsPage: React.FC = () => {
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'starred' | 'reminders' | 'friends' | 'milestones'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Auto-mark notification indicator as seen when viewing the notifications page
+  useEffect(() => {
+    markNotificationsAsSeen();
+    return () => {
+      markNotificationsAsSeen();
+    };
+  }, [markNotificationsAsSeen]);
 
   // Manager state for request & feedback replies
   const [isManager, setIsManager] = useState<boolean>(false);

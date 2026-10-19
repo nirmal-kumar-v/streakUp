@@ -18,7 +18,6 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
 }) => {
   useBodyScrollLock(isOpen);
   const [studyNote, setStudyNote] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
@@ -26,22 +25,18 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
   const trimmed = studyNote.trim();
   const isValid = trimmed.length >= 3;
 
-  const handleComplete = async () => {
+  const handleComplete = () => {
     if (!isValid) {
       setError('Please provide a meaningful study note (at least 3 characters).');
       return;
     }
     setError('');
-    setIsSubmitting(true);
-    try {
-      await onComplete(trimmed);
-      setStudyNote('');
-      onClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to complete task.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    const noteToSend = trimmed;
+    setStudyNote('');
+    onClose();
+    onComplete(noteToSend).catch((err: any) => {
+      console.error('Failed to complete task:', err);
+    });
   };
 
   const handleCancel = () => {
@@ -74,7 +69,6 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
           </div>
           <button
             onClick={handleCancel}
-            disabled={isSubmitting}
             className="p-1.5 text-zinc-500 hover:text-zinc-300 rounded-lg hover:bg-dark-hover transition-colors"
           >
             <X className="w-4 h-4" />
@@ -128,7 +122,6 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
           <button
             type="button"
             onClick={handleCancel}
-            disabled={isSubmitting}
             className="w-full sm:w-auto px-4 py-2.5 sm:py-2 text-xs font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover rounded-xl transition-colors text-center"
           >
             Cancel
@@ -136,18 +129,14 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
           <button
             type="button"
             onClick={handleComplete}
-            disabled={isSubmitting || !isValid}
+            disabled={!isValid}
             className={`w-full sm:w-auto px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 touch-manipulation select-none leading-snug ${
-              isValid && !isSubmitting
+              isValid
                 ? 'bg-flame-500 hover:bg-flame-600 text-zinc-950 shadow-flame-500/20 active:scale-95 cursor-pointer'
                 : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
             }`}
           >
-            {isSubmitting ? (
-              <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <CheckCircle2 className="w-3.5 h-3.5" />
-            )}
+            <CheckCircle2 className="w-3.5 h-3.5" />
             <span>
               Save Note & Complete {task?.groupId || task?.isGroupTask ? '' : '(+5 pts)'}
             </span>

@@ -158,7 +158,11 @@ export const DashboardPage: React.FC = () => {
       }
     } else {
       // If LinkedIn task, complete immediately without requesting a study note
-      const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
+      const isLinkedIn = Boolean(
+        task.isLinkedIn ||
+        ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
+        isLinkedInName(task.title)
+      );
       if (isLinkedIn) {
         const prevTasks = [...tasks];
         const nextStreak = (task.currentStreak || 0) + 1;
@@ -260,17 +264,55 @@ export const DashboardPage: React.FC = () => {
     hiddenFrom?: string[];
     visibleOnlyTo?: string[];
   }) => {
-    try {
-      if (editingTask) {
+    const prevTasks = [...tasks];
+    if (editingTask) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === editingTask.id ? { ...t, ...taskData } : t))
+      );
+      toast.info('Habit updated');
+      try {
         await updateTask(editingTask.id, taskData);
-        toast.info('Habit updated');
-      } else {
-        await createTask(taskData);
-        toast.info('Habit created');
+        loadDashboard();
+      } catch (err: any) {
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to save habit.'));
       }
-      await loadDashboard();
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to save habit.'));
+    } else {
+      const tempId = `temp-${Date.now()}`;
+      const optimisticTask: Task = {
+        id: tempId,
+        title: taskData.title,
+        description: taskData.description || null,
+        category: taskData.category || 'General',
+        priority: taskData.priority,
+        recurrence: taskData.recurrence,
+        scheduledDays: taskData.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+        dueTime: taskData.dueTime || null,
+        status: 'ACTIVE',
+        currentStreak: 0,
+        longestStreak: 0,
+        freezeBalance: 0,
+        freezeRechargeDays: 0,
+        completedToday: false,
+        todayStudyNote: null,
+        hiddenFrom: taskData.hiddenFrom || [],
+        visibleOnlyTo: taskData.visibleOnlyTo || [],
+        userId: user?.id || 'me',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setTasks((prev) => [optimisticTask, ...prev]);
+      toast.info('Habit created');
+      try {
+        const res = await createTask(taskData);
+        if (res.success && res.task) {
+          setTasks((prev) => prev.map((t) => (t.id === tempId ? res.task : t)));
+        }
+        loadDashboard();
+      } catch (err: any) {
+        setTasks(prevTasks);
+        toast.error(extractErrorMessage(err, 'Failed to create habit.'));
+      }
     }
   };
 
