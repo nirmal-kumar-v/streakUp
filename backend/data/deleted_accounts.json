@@ -1,5 +1,19 @@
 [
   {
+    "id": "5b4fd751-adb4-40b0-bc3e-678f5029383c",
+    "userId": "223ce4aa-045b-418b-87d4-466b321dd780",
+    "username": "test",
+    "name": "test",
+    "email": "nirmal.temp2@gmail.com",
+    "deletedAt": "2026-10-19T18:05:34.760Z",
+    "expiresAt": "2026-10-29T18:05:34.760Z",
+    "deletedBy": "USER",
+    "reason": "Deleted by user in settings",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-10-19T18:08:26.683Z",
+    "recoveredBy": "admin"
+  },
+  {
     "id": "325caa75-005d-49cb-8fdc-847b96684672",
     "userId": "2d8cf819-171a-4139-b974-c9ab6d40ff63",
     "username": "Jaishu",

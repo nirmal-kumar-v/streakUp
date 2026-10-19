@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { isValidTimezone, SUPPORTED_TIMEZONES, DEFAULT_TIMEZONE } from '../services/timezoneService';
@@ -317,7 +318,6 @@ export async function changePassword(req: AuthenticatedRequest, res: Response) {
     }
 
     // Verify current password
-    const bcrypt = await import('bcryptjs');
     const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isValid) {
       return res.status(400).json({
@@ -756,7 +756,6 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response) {
 
     // If password provided, verify it
     if (parseResult.data.password && user.passwordHash) {
-      const bcrypt = await import('bcryptjs');
       const isValid = await bcrypt.compare(parseResult.data.password, user.passwordHash);
       if (!isValid) {
         return res.status(401).json({ success: false, error: 'Incorrect password entered.' });

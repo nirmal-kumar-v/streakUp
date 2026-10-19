@@ -48,6 +48,7 @@ exports.requestChangeEmail = requestChangeEmail;
 exports.verifyChangeEmail = verifyChangeEmail;
 exports.deleteAccount = deleteAccount;
 const zod_1 = require("zod");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const streakService_1 = require("../services/streakService");
@@ -335,8 +336,7 @@ async function changePassword(req, res) {
             return res.status(404).json({ success: false, error: 'User not found.' });
         }
         // Verify current password
-        const bcrypt = await Promise.resolve().then(() => __importStar(require('bcryptjs')));
-        const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+        const isValid = await bcryptjs_1.default.compare(currentPassword, user.passwordHash);
         if (!isValid) {
             return res.status(400).json({
                 success: false,
@@ -344,8 +344,8 @@ async function changePassword(req, res) {
             });
         }
         // Hash new password
-        const salt = await bcrypt.genSalt(10);
-        const newPasswordHash = await bcrypt.hash(newPassword, salt);
+        const salt = await bcryptjs_1.default.genSalt(10);
+        const newPasswordHash = await bcryptjs_1.default.hash(newPassword, salt);
         await prisma_1.default.user.update({
             where: { id: userId },
             data: { passwordHash: newPasswordHash }
@@ -729,8 +729,7 @@ async function deleteAccount(req, res) {
         }
         // If password provided, verify it
         if (parseResult.data.password && user.passwordHash) {
-            const bcrypt = await Promise.resolve().then(() => __importStar(require('bcryptjs')));
-            const isValid = await bcrypt.compare(parseResult.data.password, user.passwordHash);
+            const isValid = await bcryptjs_1.default.compare(parseResult.data.password, user.passwordHash);
             if (!isValid) {
                 return res.status(401).json({ success: false, error: 'Incorrect password entered.' });
             }

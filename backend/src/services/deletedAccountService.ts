@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import prisma from '../config/prisma';
 
 export interface DeletedAccountRecord {

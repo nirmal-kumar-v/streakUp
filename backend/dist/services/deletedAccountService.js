@@ -12,6 +12,7 @@ exports.recoverAccount = recoverAccount;
 exports.getAllActiveDeletedAccounts = getAllActiveDeletedAccounts;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const crypto_1 = __importDefault(require("crypto"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const DATA_DIR = path_1.default.join(__dirname, '../../data');
 const DELETED_ACCOUNTS_FILE = path_1.default.join(DATA_DIR, 'deleted_accounts.json');
@@ -122,7 +123,7 @@ async function recordAccountDeletion(paramsOrUserId, argEmail, argUsername) {
     const expiresAt = new Date(now.getTime() + exports.DELETION_GRACE_PERIOD_MS).toISOString();
     const all = loadAllDeletedAccounts();
     const existingIdx = all.findIndex((r) => r.userId === userId && r.status === 'DELETED');
-    const recordId = existingIdx !== -1 ? all[existingIdx].id : crypto.randomUUID();
+    const recordId = existingIdx !== -1 ? all[existingIdx].id : crypto_1.default.randomUUID();
     const record = {
         id: recordId,
         userId,
