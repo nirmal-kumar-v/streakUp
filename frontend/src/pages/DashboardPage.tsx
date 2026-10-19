@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchDashboardSummary,
@@ -96,6 +95,7 @@ export const DashboardPage: React.FC = () => {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [checklistTab, setChecklistTab] = useState<'today' | 'archived'>('today');
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -327,6 +327,7 @@ export const DashboardPage: React.FC = () => {
   const activeTasks = tasks.filter((t) => t.status === 'ACTIVE');
   const todaysTasks = activeTasks.filter((t) => isScheduledForToday(t));
   const otherScheduledTasks = activeTasks.filter((t) => !isScheduledForToday(t));
+  const archivedTasks = tasks.filter((t) => t.status === 'ARCHIVED');
 
   const completedCount = todaysTasks.filter((t) => t.completedToday).length;
   const totalCount = todaysTasks.length;
@@ -569,75 +570,121 @@ export const DashboardPage: React.FC = () => {
       <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2.5">
-            <ListTodo className="w-5 h-5 text-flame-400" />
-            <h2 className="text-base sm:text-lg font-bold text-zinc-100">Today's Checklist</h2>
+            {checklistTab === 'today' ? (
+              <ListTodo className="w-5 h-5 text-flame-400" />
+            ) : (
+              <Archive className="w-5 h-5 text-amber-400" />
+            )}
+            <h2 className="text-base sm:text-lg font-bold text-zinc-100">
+              {checklistTab === 'today' ? "Today's Checklist" : 'Archived Habits'}
+            </h2>
             <span className="text-xs bg-dark-surface text-dark-muted px-2.5 py-0.5 rounded-full border border-dark-border font-mono">
-              {completedCount}/{totalCount}
+              {checklistTab === 'today' ? `${completedCount}/${totalCount}` : `${archivedTasks.length}`}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              to="/tasks?status=ARCHIVED"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-400 hover:text-amber-400 bg-dark-surface hover:bg-amber-500/10 border border-dark-border hover:border-amber-500/30 transition-all duration-200"
-              title="View your archived habits and past tasks"
+          <div className="flex items-center bg-dark-surface p-1 rounded-xl border border-dark-border">
+            <button
+              type="button"
+              onClick={() => setChecklistTab('today')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                checklistTab === 'today'
+                  ? 'bg-zinc-800 text-white shadow-sm'
+                  : 'text-dark-muted hover:text-zinc-200'
+              }`}
+            >
+              Today ({todaysTasks.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setChecklistTab('archived')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-150 ${
+                checklistTab === 'archived'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  : 'text-dark-muted hover:text-amber-400'
+              }`}
             >
               <Archive className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Archived Habits</span>
-            </Link>
-            <Link
-              to="/tasks"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-dark-surface hover:bg-dark-border/50 border border-dark-border transition-all duration-200"
-            >
-              Manage Habits &rarr;
-            </Link>
+              <span>Archived ({archivedTasks.length})</span>
+            </button>
           </div>
         </div>
 
-        {isLoading ? (
-          <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
-        ) : todaysTasks.length === 0 ? (
-          <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">
-            <ListTodo className="w-10 h-10 text-dark-muted mx-auto mb-3 opacity-60" />
-            <h3 className="text-sm font-semibold text-zinc-200">No active tasks for today</h3>
-            <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
-              {otherScheduledTasks.length > 0
-                ? 'All caught up for today! Habits scheduled for other days can be viewed below.'
-                : 'All caught up for today! Create a new habit to keep your streak blazing.'}
-            </p>
-            <button
-              onClick={() => {
-                setEditingTask(null);
-                setIsModalOpen(true);
-              }}
-              className="mt-4 px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm inline-flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" /> Add New Habit
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {todaysTasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                canTick={true}
-                onToggleComplete={handleToggleComplete}
-                onViewDetails={(t) => setDetailTaskId(t.id)}
-                onEdit={(t) => {
-                  setEditingTask(t);
+        {checklistTab === 'today' ? (
+          isLoading ? (
+            <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
+          ) : todaysTasks.length === 0 ? (
+            <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">
+              <ListTodo className="w-10 h-10 text-dark-muted mx-auto mb-3 opacity-60" />
+              <h3 className="text-sm font-semibold text-zinc-200">No active tasks for today</h3>
+              <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
+                {otherScheduledTasks.length > 0
+                  ? 'All caught up for today! Habits scheduled for other days can be viewed below.'
+                  : 'All caught up for today! Create a new habit to keep your streak blazing.'}
+              </p>
+              <button
+                onClick={() => {
+                  setEditingTask(null);
                   setIsModalOpen(true);
                 }}
-                onArchiveToggle={handleArchiveToggle}
-                onDelete={handleDeleteTask}
-              />
-            ))}
-          </div>
+                className="mt-4 px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm inline-flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" /> Add New Habit
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {todaysTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  canTick={true}
+                  onToggleComplete={handleToggleComplete}
+                  onViewDetails={(t) => setDetailTaskId(t.id)}
+                  onEdit={(t) => {
+                    setEditingTask(t);
+                    setIsModalOpen(true);
+                  }}
+                  onArchiveToggle={handleArchiveToggle}
+                  onDelete={handleDeleteTask}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+          isLoading ? (
+            <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
+          ) : archivedTasks.length === 0 ? (
+            <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">
+              <Archive className="w-10 h-10 text-dark-muted mx-auto mb-3 opacity-60" />
+              <h3 className="text-sm font-semibold text-zinc-200">No archived habits</h3>
+              <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
+                Habits you archive will be stored here with their streaks safely preserved.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {archivedTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  canTick={false}
+                  onViewDetails={(t) => setDetailTaskId(t.id)}
+                  onEdit={(t) => {
+                    setEditingTask(t);
+                    setIsModalOpen(true);
+                  }}
+                  onArchiveToggle={handleArchiveToggle}
+                  onDelete={handleDeleteTask}
+                />
+              ))}
+            </div>
+          )
         )}
       </div>
 
       {/* Other Scheduled Habits (Habits scheduled for other days of the week) */}
-      {otherScheduledTasks.length > 0 && (
+      {checklistTab === 'today' && otherScheduledTasks.length > 0 && (
         <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-4">
           <div className="flex items-center gap-2.5">
             <Calendar className="w-5 h-5 text-zinc-400" />
@@ -656,6 +703,45 @@ export const DashboardPage: React.FC = () => {
 
           <div className="space-y-3">
             {otherScheduledTasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                canTick={false}
+                onViewDetails={(t) => setDetailTaskId(t.id)}
+                onEdit={(t) => {
+                  setEditingTask(t);
+                  setIsModalOpen(true);
+                }}
+                onArchiveToggle={handleArchiveToggle}
+                onDelete={handleDeleteTask}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Archived Habits (Directly visible on Dashboard alongside other habits) */}
+      {checklistTab === 'today' && archivedTasks.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Archive className="w-5 h-5 text-amber-400" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-zinc-100">Archived Habits</h2>
+                  <span className="text-xs bg-amber-500/10 text-amber-400 px-2.5 py-0.5 rounded-full border border-amber-500/25 font-mono">
+                    {archivedTasks.length}
+                  </span>
+                </div>
+                <p className="text-xs text-dark-muted mt-0.5">
+                  Paused habits with streaks preserved. Click restore anytime to return to your checklist.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {archivedTasks.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}

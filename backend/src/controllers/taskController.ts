@@ -902,8 +902,8 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
       console.error('Missed points reconcile error:', e)
     );
 
-    // Concurrently fetch points stats, overall freeze logs, and active tasks
-    const [pointsStats, overallFreezeLogs, activeTasks] = await Promise.all([
+    // Concurrently fetch points stats, overall freeze logs, and all user tasks
+    const [pointsStats, overallFreezeLogs, allUserTasks] = await Promise.all([
       getUserPointsStats(prisma, userId),
       prisma.freezeLog.findMany({
         where: { userId, scope: 'OVERALL' },
@@ -912,7 +912,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         select: { protectedDate: true }
       }),
       prisma.task.findMany({
-        where: { userId, status: 'ACTIVE' },
+        where: { userId },
         orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
         include: {
           completions: {
@@ -925,7 +925,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
 
     // Calculate completed vs pending today
     const tasksWithStatus = await Promise.all(
-      activeTasks.map(async (task) => {
+      allUserTasks.map(async (task) => {
         let completedToday =
           task.recurrence === 'DAILY'
             ? task.completions.length > 0
@@ -970,8 +970,9 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
       })
     );
 
-    const totalActiveTasks = tasksWithStatus.length;
-    const completedTodayCount = tasksWithStatus.filter(t => t.completedToday).length;
+    const activeTasksWithStatus = tasksWithStatus.filter(t => t.status === 'ACTIVE');
+    const totalActiveTasks = activeTasksWithStatus.length;
+    const completedTodayCount = activeTasksWithStatus.filter(t => t.completedToday).length;
     const pendingTodayCount = totalActiveTasks - completedTodayCount;
     const completionPercentage = totalActiveTasks > 0
       ? Math.round((completedTodayCount / totalActiveTasks) * 100)

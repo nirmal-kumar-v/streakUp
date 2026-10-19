@@ -20,6 +20,13 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
+
+  /* Native App Feel: uncopiable text on drag/touch */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Standalone PWA adjustments for iOS / Android notch safe areas */
@@ -40,8 +47,8 @@ input, textarea, [contenteditable="true"], .allow-select, .select-text {
   user-select: text !important;
 }
 
-/* Disable drag ghosts for links, buttons, and images for native app feel */
-img, a, button, svg {
+/* Disable drag ghosts for all elements for native app feel */
+*, *::before, *::after {
   -webkit-user-drag: none;
   user-drag: none;
 }

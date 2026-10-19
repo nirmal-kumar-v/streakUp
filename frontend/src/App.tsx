@@ -162,6 +162,49 @@ export const AppContent: React.FC = () => {
     window.scrollTo(0, 0);
   }, [location.pathname]);
 
+  // Prevent copying and dragging anywhere on the website for native app feel
+  React.useEffect(() => {
+    const handleDragStart = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    const handleCopy = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest('input, textarea, [contenteditable="true"]'))
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+    const handleSelectStart = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest('input, textarea, [contenteditable="true"]'))
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+
+    document.addEventListener('dragstart', handleDragStart);
+    document.addEventListener('copy', handleCopy);
+    document.addEventListener('selectstart', handleSelectStart);
+
+    return () => {
+      document.removeEventListener('dragstart', handleDragStart);
+      document.removeEventListener('copy', handleCopy);
+      document.removeEventListener('selectstart', handleSelectStart);
+    };
+  }, []);
+
   // Periodically trigger serverless reminder check while user is active (every 5 minutes)
   React.useEffect(() => {
     if (!isAuthenticated) return;
