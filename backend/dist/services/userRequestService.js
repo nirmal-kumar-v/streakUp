@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -85,10 +118,10 @@ async function initUserRequestsTable() {
     }
 }
 /**
- * Submit a new request or feedback from an authenticated user
+ * Submit a new request, bug report, or account recovery request (Authenticated or Public)
  */
 async function submitUserRequest(params) {
-    const { userId, category, message } = params;
+    const { userId, category, message, email, name, username } = params;
     if (!message || message.trim().length < 5) {
         throw new Error('Message must be at least 5 characters long.');
     }
@@ -98,6 +131,7 @@ async function submitUserRequest(params) {
     const validCategories = [
         'FEATURE_REQUEST',
         'BUG_REPORT',
+        'ACCOUNT_RECOVERY',
         'ACCOUNT_SUPPORT',
         'GENERAL_FEEDBACK',
         'OTHER',
@@ -105,25 +139,102 @@ async function submitUserRequest(params) {
     if (!validCategories.includes(category)) {
         throw new Error('Invalid request category selected.');
     }
-    const user = await prisma_1.default.user.findUnique({
-        where: { id: userId },
-        select: { id: true, username: true, name: true, email: true },
-    });
-    if (!user) {
-        throw new Error('Authenticated user not found.');
+    let finalUserId = userId || '';
+    let finalUsername = username || '';
+    let finalName = name || '';
+    let finalEmail = (email || '').trim().toLowerCase();
+    // If authenticated user ID provided, look up their details
+    if (finalUserId) {
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: finalUserId },
+            select: { id: true, username: true, name: true, email: true },
+        });
+        if (user) {
+            finalUserId = user.id;
+            finalUsername = user.username;
+            finalName = user.name;
+            finalEmail = user.email;
+        }
+    }
+    // If not authenticated or email provided, try finding matching user (active or deleted)
+    if (!finalUserId && finalEmail) {
+        const cleanUser = (finalUsername || '').trim().toLowerCase();
+        // 1. Check active users
+        const matchedUser = await prisma_1.default.user.findFirst({
+            where: {
+                OR: [
+                    { email: { equals: finalEmail, mode: 'insensitive' } },
+                    ...(cleanUser ? [{ username: { equals: cleanUser, mode: 'insensitive' } }] : []),
+                ],
+            },
+            select: { id: true, username: true, name: true, email: true },
+        });
+        if (matchedUser) {
+            finalUserId = matchedUser.id;
+            finalUsername = matchedUser.username;
+            finalName = matchedUser.name;
+            finalEmail = matchedUser.email;
+        }
+        else {
+            // 2. Check deleted accounts
+            try {
+                const { loadAllDeletedAccounts } = await Promise.resolve().then(() => __importStar(require('./deletedAccountService')));
+                const deletedAccounts = loadAllDeletedAccounts();
+                const matchDeleted = deletedAccounts.find((r) => r.email.toLowerCase() === finalEmail ||
+                    (cleanUser && r.username.toLowerCase() === cleanUser));
+                if (matchDeleted) {
+                    finalUserId = matchDeleted.userId;
+                    finalUsername = matchDeleted.username;
+                    finalName = matchDeleted.name;
+                    finalEmail = matchDeleted.email;
+                }
+            }
+            catch { }
+        }
+    }
+    // Fallbacks if user remains public/guest
+    if (!finalUserId) {
+        finalUserId = 'PUBLIC_GUEST';
+    }
+    if (!finalEmail) {
+        throw new Error('A valid email address is required so administrators can contact you.');
+    }
+    if (!finalUsername) {
+        finalUsername = finalEmail.split('@')[0] || 'guest';
+    }
+    if (!finalName) {
+        finalName = finalUsername;
+    }
+    // Check if this is an account recovery request for an active deleted account
+    let recoveryNote = undefined;
+    if (category === 'ACCOUNT_RECOVERY') {
+        try {
+            const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('./deletedAccountService')));
+            const delInfo = isAccountDeleted(finalUserId);
+            if (delInfo.isDeleted && delInfo.record) {
+                recoveryNote = `[RECOVERY REQUEST: Account is deleted. ${delInfo.daysRemaining ?? 10} days remaining in 10-day recovery window. Can recover: ${delInfo.canRecover ? 'YES' : 'EXPIRED'}]`;
+            }
+            else {
+                recoveryNote = `[RECOVERY REQUEST: Submitted via public recovery portal for ${finalEmail}]`;
+            }
+        }
+        catch {
+            recoveryNote = `[RECOVERY REQUEST: Submitted for ${finalEmail}]`;
+        }
     }
     await initUserRequestsTable();
     const id = crypto_1.default.randomUUID();
     const now = new Date().toISOString();
     const newRecord = {
         id,
-        userId: user.id,
-        username: user.username,
-        name: user.name,
-        email: user.email,
+        userId: finalUserId,
+        username: finalUsername,
+        name: finalName,
+        email: finalEmail,
         category,
         message: message.trim(),
         status: 'PENDING',
+        adminNotes: recoveryNote || null,
         createdAt: now,
         updatedAt: now,
     };
@@ -134,9 +245,9 @@ async function submitUserRequest(params) {
     // 2. Persist to PostgreSQL if available
     try {
         await prisma_1.default.$executeRawUnsafe(`
-      INSERT INTO "user_requests" ("id", "user_id", "username", "name", "email", "category", "message", "status", "created_at", "updated_at")
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-      `, id, user.id, user.username, user.name, user.email, category, message.trim(), 'PENDING');
+      INSERT INTO "user_requests" ("id", "user_id", "username", "name", "email", "category", "message", "status", "admin_notes", "created_at", "updated_at")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      `, id, finalUserId, finalUsername, finalName, finalEmail, category, message.trim(), 'PENDING', recoveryNote || null);
     }
     catch (err) {
         // File store already saved

@@ -173,30 +173,41 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
     return { success: true, deliveryId: existingDelivery.id };
   }
 
-  // Record delivery attempt in DB if userId is available
+  // Record delivery attempt in DB if userId is available and valid in DB
   let deliveryRecord: { id: string } | null = null;
-  if (userId) {
-    deliveryRecord = existingDelivery
-      ? await prisma.emailDelivery.update({
-          where: { id: existingDelivery.id },
-          data: {
-            attemptCount: { increment: 1 },
-            lastAttemptAt: new Date(),
-            status: EmailDeliveryStatus.PENDING,
-          },
-        })
-      : await prisma.emailDelivery.create({
-          data: {
-            userId,
-            recipientEmail,
-            category,
-            subject,
-            idempotencyKey,
-            status: EmailDeliveryStatus.PENDING,
-            attemptCount: 1,
-            lastAttemptAt: new Date(),
-          },
-        });
+  if (userId && userId !== 'PUBLIC_GUEST') {
+    try {
+      const userExists = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+
+      if (userExists) {
+        deliveryRecord = existingDelivery
+          ? await prisma.emailDelivery.update({
+              where: { id: existingDelivery.id },
+              data: {
+                attemptCount: { increment: 1 },
+                lastAttemptAt: new Date(),
+                status: EmailDeliveryStatus.PENDING,
+              },
+            })
+          : await prisma.emailDelivery.create({
+              data: {
+                userId,
+                recipientEmail,
+                category,
+                subject,
+                idempotencyKey,
+                status: EmailDeliveryStatus.PENDING,
+                attemptCount: 1,
+                lastAttemptAt: new Date(),
+              },
+            });
+      }
+    } catch {
+      // If user table operation encounters any edge case, continue sending email
+    }
   }
 
   // 2. If SMTP is not configured, record skipped status without throwing

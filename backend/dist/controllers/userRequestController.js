@@ -13,24 +13,30 @@ const managerService_1 = require("../services/managerService");
 async function submitRequest(req, res) {
     try {
         const userId = req.user?.userId;
-        if (!userId) {
-            return res.status(401).json({ success: false, error: 'Unauthorized user.' });
-        }
-        const { category, message } = req.body;
+        const { category, message, email, name, username } = req.body;
         if (!category || !message) {
             return res.status(400).json({
                 success: false,
                 error: 'Both category and message are required.',
             });
         }
+        if (!userId && !email) {
+            return res.status(400).json({
+                success: false,
+                error: 'An email address is required so administrators can contact you.',
+            });
+        }
         const newRequest = await (0, userRequestService_1.submitUserRequest)({
             userId,
+            email,
+            name,
+            username,
             category: category,
             message,
         });
         return res.status(201).json({
             success: true,
-            message: 'Your request has been submitted successfully.',
+            message: 'Your request has been submitted successfully. Administrators and managers have been notified.',
             request: newRequest,
         });
     }

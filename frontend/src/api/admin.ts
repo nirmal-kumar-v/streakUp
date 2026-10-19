@@ -864,7 +864,7 @@ export interface AdminUserRequest {
   username: string;
   name: string;
   email: string;
-  category: 'FEATURE_REQUEST' | 'BUG_REPORT' | 'ACCOUNT_SUPPORT' | 'GENERAL_FEEDBACK' | 'OTHER';
+  category: 'FEATURE_REQUEST' | 'BUG_REPORT' | 'ACCOUNT_RECOVERY' | 'ACCOUNT_SUPPORT' | 'GENERAL_FEEDBACK' | 'OTHER';
   message: string;
   status: 'PENDING' | 'UNDER_REVIEW' | 'RESOLVED';
   adminNotes?: string | null;

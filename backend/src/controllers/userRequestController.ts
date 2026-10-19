@@ -16,11 +16,8 @@ import { replyToUserRequestAsManager, isUserManager } from '../services/managerS
 export async function submitRequest(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user?.userId;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: 'Unauthorized user.' });
-    }
+    const { category, message, email, name, username } = req.body;
 
-    const { category, message } = req.body;
     if (!category || !message) {
       return res.status(400).json({
         success: false,
@@ -28,15 +25,25 @@ export async function submitRequest(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (!userId && !email) {
+      return res.status(400).json({
+        success: false,
+        error: 'An email address is required so administrators can contact you.',
+      });
+    }
+
     const newRequest = await submitUserRequest({
       userId,
+      email,
+      name,
+      username,
       category: category as UserRequestCategory,
       message,
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Your request has been submitted successfully.',
+      message: 'Your request has been submitted successfully. Administrators and managers have been notified.',
       request: newRequest,
     });
   } catch (err: any) {

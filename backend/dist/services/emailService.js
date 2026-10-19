@@ -164,30 +164,41 @@ async function sendEmail(options) {
     if (existingDelivery && existingDelivery.status === client_1.EmailDeliveryStatus.SENT) {
         return { success: true, deliveryId: existingDelivery.id };
     }
-    // Record delivery attempt in DB if userId is available
+    // Record delivery attempt in DB if userId is available and valid in DB
     let deliveryRecord = null;
-    if (userId) {
-        deliveryRecord = existingDelivery
-            ? await prisma_1.default.emailDelivery.update({
-                where: { id: existingDelivery.id },
-                data: {
-                    attemptCount: { increment: 1 },
-                    lastAttemptAt: new Date(),
-                    status: client_1.EmailDeliveryStatus.PENDING,
-                },
-            })
-            : await prisma_1.default.emailDelivery.create({
-                data: {
-                    userId,
-                    recipientEmail,
-                    category,
-                    subject,
-                    idempotencyKey,
-                    status: client_1.EmailDeliveryStatus.PENDING,
-                    attemptCount: 1,
-                    lastAttemptAt: new Date(),
-                },
+    if (userId && userId !== 'PUBLIC_GUEST') {
+        try {
+            const userExists = await prisma_1.default.user.findUnique({
+                where: { id: userId },
+                select: { id: true },
             });
+            if (userExists) {
+                deliveryRecord = existingDelivery
+                    ? await prisma_1.default.emailDelivery.update({
+                        where: { id: existingDelivery.id },
+                        data: {
+                            attemptCount: { increment: 1 },
+                            lastAttemptAt: new Date(),
+                            status: client_1.EmailDeliveryStatus.PENDING,
+                        },
+                    })
+                    : await prisma_1.default.emailDelivery.create({
+                        data: {
+                            userId,
+                            recipientEmail,
+                            category,
+                            subject,
+                            idempotencyKey,
+                            status: client_1.EmailDeliveryStatus.PENDING,
+                            attemptCount: 1,
+                            lastAttemptAt: new Date(),
+                        },
+                    });
+            }
+        }
+        catch {
+            // If user table operation encounters any edge case, continue sending email
+        }
     }
     // 2. If SMTP is not configured, record skipped status without throwing
     if (!isSmtpConfigured()) {

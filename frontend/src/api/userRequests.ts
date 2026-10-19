@@ -3,6 +3,7 @@ import apiClient from './client';
 export type UserRequestCategory =
   | 'FEATURE_REQUEST'
   | 'BUG_REPORT'
+  | 'ACCOUNT_RECOVERY'
   | 'ACCOUNT_SUPPORT'
   | 'GENERAL_FEEDBACK'
   | 'OTHER';
@@ -10,6 +11,9 @@ export type UserRequestCategory =
 export interface SubmitRequestPayload {
   category: UserRequestCategory;
   message: string;
+  email?: string;
+  name?: string;
+  username?: string;
 }
 
 export interface UserRequestResponse {

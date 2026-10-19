@@ -1,5 +1,44 @@
 [
   {
+    "id": "93f41961-6ffd-4d2d-a2fd-7b510961015f",
+    "userId": "PUBLIC_GUEST",
+    "username": "lostuser",
+    "name": "lostuser",
+    "email": "lostuser@streakup.test",
+    "category": "ACCOUNT_RECOVERY",
+    "message": "Hello admin, I deleted my account by mistake. Please recover it.",
+    "status": "PENDING",
+    "adminNotes": "[RECOVERY REQUEST: Submitted via public recovery portal for lostuser@streakup.test]",
+    "createdAt": "2026-10-19T18:43:14.113Z",
+    "updatedAt": "2026-10-19T18:43:14.113Z"
+  },
+  {
+    "id": "07d2028b-fc50-48b8-bb1e-3ba4b6f3c998",
+    "userId": "PUBLIC_GUEST",
+    "username": "lostuser",
+    "name": "lostuser",
+    "email": "lostuser@streakup.test",
+    "category": "ACCOUNT_RECOVERY",
+    "message": "Hello admin, I deleted my account by mistake. Please recover it.",
+    "status": "PENDING",
+    "adminNotes": "[RECOVERY REQUEST: Submitted via public recovery portal for lostuser@streakup.test]",
+    "createdAt": "2026-10-19T18:42:08.082Z",
+    "updatedAt": "2026-10-19T18:42:08.082Z"
+  },
+  {
+    "id": "74614e44-a360-4dd2-9220-138a5ab7738d",
+    "userId": "PUBLIC_GUEST",
+    "username": "lostuser",
+    "name": "lostuser",
+    "email": "lostuser@streakup.test",
+    "category": "ACCOUNT_RECOVERY",
+    "message": "Hello admin, I deleted my account by mistake. Please recover it.",
+    "status": "PENDING",
+    "adminNotes": "[RECOVERY REQUEST: Submitted via public recovery portal for lostuser@streakup.test]",
+    "createdAt": "2026-10-19T18:40:37.296Z",
+    "updatedAt": "2026-10-19T18:40:37.296Z"
+  },
+  {
     "id": "308f0b4b-c21a-4566-8634-809277947acb",
     "userId": "40216495-029e-471e-93c7-10e28e313a4a",
     "username": "nirmal",

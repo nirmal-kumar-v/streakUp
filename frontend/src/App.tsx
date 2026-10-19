@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { MessageSquare, HelpCircle } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BadgeProvider } from './context/BadgeContext';
 import { ToastProvider } from './context/ToastContext';
@@ -17,6 +18,7 @@ import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
 import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
+import { PublicFeedbackModal } from './components/PublicFeedbackModal';
 
 // Lazy loaded secondary routes for optimal initial bundle size and rapid FCP
 const ForgotPasswordPage = lazy(() =>
@@ -131,6 +133,7 @@ const AdminSecretRoute: React.FC = () => {
 export const AppContent: React.FC = () => {
   useAllDevicesDisableZoom();
   const { isAuthenticated } = useAuth();
+  const [publicFeedbackOpen, setPublicFeedbackOpen] = React.useState(false);
 
   // Periodically trigger serverless reminder check while user is active (every 5 minutes)
   React.useEffect(() => {
@@ -282,11 +285,44 @@ export const AppContent: React.FC = () => {
 
       {/* Footer */}
       <footer className="border-t border-dark-border py-6 text-center text-xs text-dark-muted font-mono">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>StreakUp &copy; {new Date().getFullYear()} — Daily Habits, Streaks & Friendly Competition</div>
-          <div className="text-[11px] text-zinc-500">Dark Titanium & Warm Amber Aesthetic</div>
+          <div className="flex items-center gap-4 text-xs font-sans">
+            <button
+              type="button"
+              onClick={() => setPublicFeedbackOpen(true)}
+              className="text-zinc-400 hover:text-flame-400 transition-colors flex items-center gap-1.5 cursor-pointer font-medium"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-flame-400" />
+              <span>Feedback & Bug Report</span>
+            </button>
+            <span className="text-zinc-700">•</span>
+            <Link to="/terms" className="hover:text-zinc-300 transition-colors">Terms</Link>
+            <span className="text-zinc-700">•</span>
+            <Link to="/privacy" className="hover:text-zinc-300 transition-colors">Privacy</Link>
+          </div>
         </div>
       </footer>
+
+      {/* Floating Request & Support Pill (Shown when user is unauthenticated or on public pages) */}
+      {!isAuthenticated && (
+        <button
+          type="button"
+          onClick={() => setPublicFeedbackOpen(true)}
+          className="fixed bottom-5 right-5 z-40 px-3.5 py-2 bg-dark-card/90 hover:bg-dark-card text-zinc-300 hover:text-zinc-100 border border-dark-border hover:border-flame-500/50 rounded-full shadow-2xl backdrop-blur-md transition-all flex items-center gap-2 text-xs font-semibold group cursor-pointer"
+          title="Send a message, report a bug, or request account recovery"
+        >
+          <div className="w-2 h-2 rounded-full bg-flame-400 group-hover:scale-125 transition-transform" />
+          <MessageSquare className="w-3.5 h-3.5 text-flame-400" />
+          <span>Need Help / Feedback</span>
+        </button>
+      )}
+
+      <PublicFeedbackModal
+        isOpen={publicFeedbackOpen}
+        onClose={() => setPublicFeedbackOpen(false)}
+        defaultCategory="ACCOUNT_RECOVERY"
+      />
     </div>
   );
 };

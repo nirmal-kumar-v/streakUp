@@ -2,8 +2,19 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { loginUser } from '../api/auth';
 import { useAuth } from '../context/AuthContext';
-import { AlertCircle, ArrowRight, Lock, User as UserIcon, CheckCircle2 } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  Lock,
+  User as UserIcon,
+  CheckCircle2,
+  ShieldAlert,
+  Bug,
+  Lightbulb,
+} from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { PublicFeedbackModal } from '../components/PublicFeedbackModal';
+import { UserRequestCategory } from '../api/userRequests';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,7 +25,17 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [isDeletedAccount, setIsDeletedAccount] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Public Feedback / Recovery Modal State
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState<UserRequestCategory>('ACCOUNT_RECOVERY');
+
+  const openFeedbackModal = (cat: UserRequestCategory) => {
+    setFeedbackCategory(cat);
+    setFeedbackModalOpen(true);
+  };
 
   // Read any message passed via location state (e.g. after logout or reset password)
   const infoMessage = (location.state as any)?.message;
@@ -29,6 +50,7 @@ export const LoginPage: React.FC = () => {
     setIsSubmitting(true);
     setError('');
     setUnverifiedEmail(null);
+    setIsDeletedAccount(false);
 
     try {
       const res = await loginUser({
@@ -47,6 +69,9 @@ export const LoginPage: React.FC = () => {
       if (errorData?.requiresVerification && errorData?.email) {
         setUnverifiedEmail(errorData.email);
         setError(errorData.error || 'Please verify your email address to log in.');
+      } else if (errorData?.isDeletedAccount) {
+        setIsDeletedAccount(true);
+        setError(errorData.error || 'This account was deleted. You can request account recovery within 10 days.');
       } else {
         setError(extractErrorMessage(err, 'Login failed. Please check your credentials.'));
       }
@@ -90,6 +115,18 @@ export const LoginPage: React.FC = () => {
                   <span>Enter verification code</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
+              </div>
+            )}
+            {isDeletedAccount && (
+              <div className="mt-1 pl-6 pt-1">
+                <button
+                  type="button"
+                  onClick={() => openFeedbackModal('ACCOUNT_RECOVERY')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 font-bold text-xs transition-all cursor-pointer"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-300" />
+                  <span>Request Account Recovery from Admin</span>
+                </button>
               </div>
             )}
           </div>
@@ -154,15 +191,52 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
 
-        <div className="mt-6 pt-6 border-t border-dark-border text-center">
+        <div className="mt-6 pt-6 border-t border-dark-border flex flex-col items-center gap-3">
           <p className="text-xs text-dark-muted">
             Don't have an account?{' '}
             <Link to="/register" className="text-flame-400 hover:text-flame-300 font-semibold hover:underline">
               Create one now
             </Link>
           </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-zinc-400 pt-1">
+            <button
+              type="button"
+              onClick={() => openFeedbackModal('ACCOUNT_RECOVERY')}
+              className="hover:text-rose-400 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+              <span>Recover Account</span>
+            </button>
+            <span className="text-zinc-600">•</span>
+            <button
+              type="button"
+              onClick={() => openFeedbackModal('BUG_REPORT')}
+              className="hover:text-amber-400 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+            >
+              <Bug className="w-3.5 h-3.5 text-amber-400" />
+              <span>Report a Bug</span>
+            </button>
+            <span className="text-zinc-600">•</span>
+            <button
+              type="button"
+              onClick={() => openFeedbackModal('FEATURE_REQUEST')}
+              className="hover:text-emerald-400 transition-colors flex items-center gap-1 cursor-pointer font-medium"
+            >
+              <Lightbulb className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Feature Request</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      <PublicFeedbackModal
+        isOpen={feedbackModalOpen}
+        onClose={() => setFeedbackModalOpen(false)}
+        defaultCategory={feedbackCategory}
+        initialEmail={identifier.includes('@') ? identifier : ''}
+        initialUsername={!identifier.includes('@') ? identifier : ''}
+      />
     </div>
   );
 };

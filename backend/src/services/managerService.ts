@@ -286,6 +286,7 @@ export async function notifyManagersOfNewRequest(request: UserRequestRecord) {
   const categoryLabels: Record<string, string> = {
     FEATURE_REQUEST: 'Feature Request',
     BUG_REPORT: 'Bug Report',
+    ACCOUNT_RECOVERY: 'Account Recovery Request',
     ACCOUNT_SUPPORT: 'Account Support',
     GENERAL_FEEDBACK: 'General Feedback',
     OTHER: 'Feedback / Request',
@@ -412,21 +413,42 @@ export async function replyToUserRequestAsManager(params: {
   const categoryLabels: Record<string, string> = {
     FEATURE_REQUEST: 'Feature Request',
     BUG_REPORT: 'Bug Report',
+    ACCOUNT_RECOVERY: 'Account Recovery Request',
     ACCOUNT_SUPPORT: 'Account Support',
     GENERAL_FEEDBACK: 'General Feedback',
     OTHER: 'Request & Feedback',
   };
   const catLabel = categoryLabels[targetRequest.category] || 'Request';
 
-  // 4. Dispatch IN-APP ONLY notification to the original user (NO email from manager)
-  await createNotification({
-    userId: targetRequest.userId,
-    category: NotificationCategory.SYSTEM,
-    title: `Manager Reply on your ${catLabel}`,
-    message: `@${manager.username}: "${replyMessage.trim()}"`,
-    eventKey: `REQ_REPLY:${requestId}:${Date.now()}`,
-    actionUrl: '/notifications',
-  });
+  // 4. Dispatch notification to the user
+  if (targetRequest.userId && targetRequest.userId !== 'PUBLIC_GUEST') {
+    try {
+      await createNotification({
+        userId: targetRequest.userId,
+        category: NotificationCategory.SYSTEM,
+        title: `Manager Reply on your ${catLabel}`,
+        message: `@${manager.username}: "${replyMessage.trim()}"`,
+        eventKey: `REQ_REPLY:${requestId}:${Date.now()}`,
+        actionUrl: '/notifications',
+      });
+    } catch {}
+  }
+
+  // 5. Send email notification to the user if email is available
+  if (targetRequest.email && isSmtpConfigured()) {
+    try {
+      await sendEmail({
+        userId: targetRequest.userId !== 'PUBLIC_GUEST' ? targetRequest.userId : undefined,
+        recipientEmail: targetRequest.email,
+        category: NotificationCategory.SYSTEM,
+        subject: `[StreakUp] Response to your ${catLabel}`,
+        text: `Hello ${targetRequest.name},\n\nA StreakUp manager (@${manager.username}) has reviewed and replied to your ${catLabel}:\n\n"${replyMessage.trim()}"\n\nOriginal Request:\n"${targetRequest.message}"\n\nStreakUp Support Team`,
+        idempotencyKey: `EMAIL_USER_REPLY:${requestId}:${Date.now()}`,
+      });
+    } catch (err) {
+      console.warn(`[ManagerService] Could not send reply email to ${targetRequest.email}:`, err);
+    }
+  }
 
   return { success: true, message: 'Reply sent to user.' };
 }

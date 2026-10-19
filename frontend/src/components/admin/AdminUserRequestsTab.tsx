@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   Clock,
   Tag,
+  ShieldAlert,
+  Mail,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -116,6 +118,8 @@ export const AdminUserRequestsTab: React.FC<AdminUserRequestsTabProps> = ({
         return 'Feature Request';
       case 'BUG_REPORT':
         return 'Bug Report';
+      case 'ACCOUNT_RECOVERY':
+        return 'Account Recovery';
       case 'ACCOUNT_SUPPORT':
         return 'Account Support';
       case 'GENERAL_FEEDBACK':
@@ -196,6 +200,7 @@ export const AdminUserRequestsTab: React.FC<AdminUserRequestsTabProps> = ({
               className="px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none focus:border-flame-500"
             >
               <option value="ALL">All Categories</option>
+              <option value="ACCOUNT_RECOVERY">Account Recovery</option>
               <option value="FEATURE_REQUEST">Feature Request</option>
               <option value="BUG_REPORT">Bug Report</option>
               <option value="ACCOUNT_SUPPORT">Account Support</option>
@@ -297,24 +302,49 @@ export const AdminUserRequestsTab: React.FC<AdminUserRequestsTabProps> = ({
                   ))}
                 </div>
 
-                {/* Direct Profile and Super Admin Controls Links */}
+                {/* Direct Profile, Email, and Super Admin Controls Links */}
                 <div className="flex items-center gap-2">
-                  <Link
-                    to={`/profile/${item.username}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 hover:text-zinc-100 transition-colors"
-                  >
-                    <span>View Profile</span>
-                    <ExternalLink className="w-3 h-3 text-zinc-500" />
-                  </Link>
-                  <button
-                    onClick={() => onSelectUserForInspection(item.userId)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-flame-500/10 hover:bg-flame-500/20 border border-flame-500/30 text-flame-400 hover:text-flame-300 rounded-xl text-xs font-semibold transition-colors"
-                  >
-                    <User className="w-3 h-3" />
-                    <span>Inspect in Admin</span>
-                  </button>
+                  {item.userId && item.userId !== 'PUBLIC_GUEST' ? (
+                    <>
+                      <Link
+                        to={`/profile/${item.username}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 hover:text-zinc-100 transition-colors"
+                      >
+                        <span>View Profile</span>
+                        <ExternalLink className="w-3 h-3 text-zinc-500" />
+                      </Link>
+                      <button
+                        onClick={() => onSelectUserForInspection(item.userId)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 border rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                          item.category === 'ACCOUNT_RECOVERY'
+                            ? 'bg-rose-500/15 hover:bg-rose-500/25 border-rose-500/40 text-rose-300'
+                            : 'bg-flame-500/10 hover:bg-flame-500/20 border-flame-500/30 text-flame-400 hover:text-flame-300'
+                        }`}
+                      >
+                        {item.category === 'ACCOUNT_RECOVERY' ? (
+                          <>
+                            <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Inspect & Recover Account</span>
+                          </>
+                        ) : (
+                          <>
+                            <User className="w-3 h-3" />
+                            <span>Inspect in Admin</span>
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <a
+                      href={`mailto:${item.email}?subject=StreakUp Support: Regarding your ${getCategoryLabel(item.category)}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 hover:text-zinc-100 transition-colors"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Email Sender</span>
+                    </a>
+                  )}
                 </div>
               </div>
             </div>
