@@ -1,5 +1,19 @@
 [
   {
+    "id": "6f2efab4-1139-46c2-86f9-4280ca02ff0e",
+    "userId": "del-audit-1792436916285",
+    "username": "auditdeleteduser",
+    "name": "Audit Deleted User",
+    "email": "deleteduser_audit@streakup.test",
+    "deletedAt": "2026-10-19T19:08:36.701Z",
+    "expiresAt": "2026-10-29T19:08:36.701Z",
+    "deletedBy": "USER",
+    "reason": "Testing deletion recovery audit",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-10-19T19:08:37.158Z",
+    "recoveredBy": "AUDIT_TEST"
+  },
+  {
     "id": "5b4fd751-adb4-40b0-bc3e-678f5029383c",
     "userId": "223ce4aa-045b-418b-87d4-466b321dd780",
     "username": "test",

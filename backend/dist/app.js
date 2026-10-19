@@ -27,7 +27,8 @@ app.use((0, cors_1.default)({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '15mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '15mb' }));
 const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
 const adminConfigService_1 = require("./services/adminConfigService");
 // Preload user admin configs from PostgreSQL into in-memory cache

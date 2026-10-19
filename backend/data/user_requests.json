@@ -1,5 +1,44 @@
 [
   {
+    "id": "14d2145a-cda3-469d-94d0-f7355b957be8",
+    "userId": "del-audit-1792436916285",
+    "username": "auditdeleteduser",
+    "name": "Audit Deleted User",
+    "email": "deleteduser_audit@streakup.test",
+    "category": "ACCOUNT_RECOVERY",
+    "message": "Please restore my account, I deleted it by mistake!",
+    "status": "PENDING",
+    "adminNotes": "[RECOVERY REQUEST: Account is deleted. 10 days remaining in 10-day recovery window. Can recover: YES]",
+    "createdAt": "2026-10-19T19:08:40.924Z",
+    "updatedAt": "2026-10-19T19:08:40.924Z"
+  },
+  {
+    "id": "87929656-1000-42d1-a731-8d9e17312011",
+    "userId": "PUBLIC_GUEST",
+    "username": "tester_guest",
+    "name": "Mobile Tester",
+    "email": "tester_guest@streakup.io",
+    "category": "BUG_REPORT",
+    "message": "Found an alignment issue on mobile when opening leaderboard.",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T19:08:40.054Z",
+    "updatedAt": "2026-10-19T19:08:40.054Z"
+  },
+  {
+    "id": "6c53fb0d-c7b3-4644-ad6a-810aa2600aad",
+    "userId": "PUBLIC_GUEST",
+    "username": "tester_guest",
+    "name": "Mobile Tester",
+    "email": "tester_guest@streakup.io",
+    "category": "BUG_REPORT",
+    "message": "Found an alignment issue on mobile when opening leaderboard.",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T19:07:33.224Z",
+    "updatedAt": "2026-10-19T19:07:33.224Z"
+  },
+  {
     "id": "861e49ff-36b1-48e6-a60f-769f7eca54d3",
     "userId": "2f2a100c-e59c-4935-a0b3-89241762a71b",
     "username": "lokgesh",
@@ -10,7 +49,7 @@
     "status": "PENDING",
     "adminNotes": "[RECOVERY REQUEST: Submitted via public recovery portal for nirmal.temp3@gmail.com]",
     "createdAt": "2026-10-19T18:59:49.289Z",
-    "updatedAt": "2026-10-19T19:01:06.395Z"
+    "updatedAt": "2026-10-19T19:01:10.251Z"
   },
   {
     "id": "1c77958b-8de9-403a-afe8-22f74c705461",
