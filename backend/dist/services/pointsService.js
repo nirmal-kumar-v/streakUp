@@ -233,17 +233,19 @@ async function reconcileMissedPointsForUser(prisma, userId, userTimezone) {
  * Retrieves detailed points statistics and audit breakdown for a user.
  */
 async function getUserPointsStats(prisma, userId) {
-    const aggregateTotal = await prisma.pointLedger.aggregate({
-        where: { userId },
-        _sum: { points: true }
-    });
+    const [aggregateTotal, completedCount, missedCount] = await Promise.all([
+        prisma.pointLedger.aggregate({
+            where: { userId },
+            _sum: { points: true }
+        }),
+        prisma.pointLedger.count({
+            where: { userId, points: { gt: 0 } }
+        }),
+        prisma.pointLedger.count({
+            where: { userId, points: { lt: 0 } }
+        })
+    ]);
     const totalPoints = aggregateTotal._sum.points || 0;
-    const completedCount = await prisma.pointLedger.count({
-        where: { userId, points: { gt: 0 } }
-    });
-    const missedCount = await prisma.pointLedger.count({
-        where: { userId, points: { lt: 0 } }
-    });
     return {
         totalPoints,
         completedCount,

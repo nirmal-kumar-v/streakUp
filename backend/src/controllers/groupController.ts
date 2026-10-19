@@ -6,6 +6,7 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { DEFAULT_TIMEZONE, isValidTimezone, getLocalDateString } from '../services/timezoneService';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 import { getUserDiscoverGroupsLimit } from '../services/adminConfigService';
+import { isLinkedInName, getLinkedInDashboardStreak } from '../services/linkedInGameService';
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
@@ -868,26 +869,39 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
       return true;
     });
 
+    const isLinkedIn = isLinkedInName(group.name);
+
     const rankedList = await Promise.all(
       visibleMembers.map(async (m) => {
-        // Individual group task
-        const memberTask = await prisma.task.findFirst({
-          where: { userId: m.user.id, groupId: id },
-          select: { id: true, currentStreak: true, longestStreak: true },
-        });
-
-        // Weekly completions count (within current week)
+        let currentStreak = 0;
+        let longestStreak = 0;
         let weeklyCompletions = 0;
-        if (memberTask) {
-          weeklyCompletions = await prisma.taskCompletion.count({
-            where: {
-              taskId: memberTask.id,
-              completionDate: {
-                gte: startDate,
-                lte: endDate,
-              },
-            },
+
+        if (isLinkedIn) {
+          // LinkedIn group: highest current streak of any of the games/tasks
+          const liStats = await getLinkedInDashboardStreak(id, m.user.id, m.user.timezone || DEFAULT_TIMEZONE);
+          currentStreak = liStats.currentStreak;
+          longestStreak = liStats.longestStreak;
+        } else {
+          // Individual group task
+          const memberTask = await prisma.task.findFirst({
+            where: { userId: m.user.id, groupId: id },
+            select: { id: true, currentStreak: true, longestStreak: true },
           });
+
+          if (memberTask) {
+            currentStreak = memberTask.currentStreak || 0;
+            longestStreak = memberTask.longestStreak || 0;
+            weeklyCompletions = await prisma.taskCompletion.count({
+              where: {
+                taskId: memberTask.id,
+                completionDate: {
+                  gte: startDate,
+                  lte: endDate,
+                },
+              },
+            });
+          }
         }
 
         const friendshipStatus = await getFriendshipStatus(userId, m.user.id);
@@ -898,8 +912,8 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
           username: m.user.username,
           profileImage: m.user.profileImage,
           role: m.role,
-          currentStreak: memberTask?.currentStreak || 0,
-          longestStreak: memberTask?.longestStreak || 0,
+          currentStreak,
+          longestStreak,
           weeklyCompletions,
           isCurrentUser: m.user.id === userId,
           friendshipStatus,

@@ -15,6 +15,7 @@ const notificationRoutes_1 = __importDefault(require("./routes/notificationRoute
 const groupRoutes_1 = __importDefault(require("./routes/groupRoutes"));
 const reactionRoutes_1 = __importDefault(require("./routes/reactionRoutes"));
 const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
+const userRequestRoutes_1 = __importDefault(require("./routes/userRequestRoutes"));
 const timezoneService_1 = require("./services/timezoneService");
 const dbError_1 = require("./utils/dbError");
 dotenv_1.default.config();
@@ -28,6 +29,9 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
+const adminConfigService_1 = require("./services/adminConfigService");
+// Preload user admin configs from PostgreSQL into in-memory cache
+(0, adminConfigService_1.loadUserAdminConfigsFromDb)().catch(() => { });
 // Health & Info endpoint (accessible at both /api/health and /health)
 const handleHealth = (_req, res) => {
     res.json({
@@ -74,6 +78,7 @@ app.use('/api/notifications', notificationRoutes_1.default);
 app.use('/api/groups', groupRoutes_1.default);
 app.use('/api/reactions', reactionRoutes_1.default);
 app.use('/api/admin', adminRoutes_1.default);
+app.use('/api/requests', userRequestRoutes_1.default);
 // Also mount routes without /api prefix (fallback for serverless rewrites)
 app.use('/auth', authRoutes_1.default);
 app.use('/tasks', taskRoutes_1.default);
@@ -84,6 +89,7 @@ app.use('/notifications', notificationRoutes_1.default);
 app.use('/groups', groupRoutes_1.default);
 app.use('/reactions', reactionRoutes_1.default);
 app.use('/admin', adminRoutes_1.default);
+app.use('/requests', userRequestRoutes_1.default);
 // 404 Handler
 app.use((req, res) => {
     res.status(404).json({

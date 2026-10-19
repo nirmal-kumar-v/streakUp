@@ -81,14 +81,12 @@ function calculateStreaks(completionDates, timezone = timezoneService_1.DEFAULT_
  * Recalculates and updates overall streaks and freezes for a given user in the database.
  */
 async function recalculateUserStreaks(prisma, userId, userTimezone) {
-    let tz = userTimezone;
-    if (!tz) {
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { timezone: true }
-        });
-        tz = user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
-    }
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true, overallFreezeCapacity: true }
+    });
+    const tz = userTimezone || user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
+    const maxCapacity = user?.overallFreezeCapacity || 1;
     // Fetch all unique completion dates for this user across all tasks
     const completions = await prisma.taskCompletion.findMany({
         where: { userId },
@@ -102,8 +100,8 @@ async function recalculateUserStreaks(prisma, userId, userTimezone) {
         select: { protectedDate: true }
     });
     const protectedDates = freezeLogs.map((l) => l.protectedDate);
-    // Calculate overall streak and freezes
-    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz);
+    // Calculate overall streak and freezes with approved capacity
+    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz, undefined, undefined, maxCapacity);
     // Save any newly consumed freeze dates
     if (freezeResult.newlyConsumedDates.length > 0) {
         for (const pDate of freezeResult.newlyConsumedDates) {
@@ -153,7 +151,7 @@ async function recalculateUserStreaks(prisma, userId, userTimezone) {
 async function recalculateTaskStreaks(prisma, taskId, userId, userTimezone) {
     const task = await prisma.task.findUnique({
         where: { id: taskId },
-        select: { id: true, recurrence: true, scheduledDays: true }
+        select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true }
     });
     if (!task || task.recurrence === 'ONE_TIME') {
         return {
@@ -161,6 +159,7 @@ async function recalculateTaskStreaks(prisma, taskId, userId, userTimezone) {
             longestStreak: 0,
             freezeBalance: 0,
             freezeRechargeDays: 0,
+            maxCapacity: 1,
             hasCompletedToday: false,
             isTodayProtected: false,
             totalCompletedDays: 0,
@@ -187,7 +186,8 @@ async function recalculateTaskStreaks(prisma, taskId, userId, userTimezone) {
         select: { protectedDate: true }
     });
     const protectedDates = freezeLogs.map((l) => l.protectedDate);
-    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz, undefined, task.scheduledDays || [0, 1, 2, 3, 4, 5, 6]);
+    const taskCapacity = task.freezeCapacity || 1;
+    const freezeResult = (0, freezeService_1.calculateStreakAndFreezes)(completionDates, protectedDates, tz, undefined, task.scheduledDays || [0, 1, 2, 3, 4, 5, 6], taskCapacity);
     if (freezeResult.newlyConsumedDates.length > 0) {
         for (const pDate of freezeResult.newlyConsumedDates) {
             await prisma.freezeLog.upsert({

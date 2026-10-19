@@ -434,9 +434,49 @@ export async function clearAdminAuditLogs(req: AdminAuthenticatedRequest, res: R
 export async function searchUsersForAdmin(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const q = (req.query.q as string || '').trim();
+    const filter = (req.query.filter as string || '').trim().toLowerCase();
+
+    const { getAllActiveDeletedAccounts, isAccountDeleted } = await import('../services/deletedAccountService');
 
     let whereClause: any = {};
-    if (q) {
+    if (filter === 'deleted') {
+      const deletedRecords = getAllActiveDeletedAccounts();
+      const userIds = Array.from(
+        new Set(
+          deletedRecords
+            .map((r) => r.userId)
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        )
+      );
+
+      // If no deleted accounts are in the active recovery window, return empty immediately
+      if (userIds.length === 0) {
+        return res.json({
+          success: true,
+          users: [],
+        });
+      }
+
+      if (q) {
+        const cleanQ = q.toLowerCase().replace(/^@/, '');
+        whereClause = {
+          AND: [
+            { id: { in: userIds } },
+            {
+              OR: [
+                { id: { equals: q } },
+                { username: { contains: cleanQ, mode: 'insensitive' } },
+                { normalizedUsername: { contains: cleanQ } },
+                { name: { contains: q, mode: 'insensitive' } },
+                { email: { contains: cleanQ, mode: 'insensitive' } },
+              ],
+            },
+          ],
+        };
+      } else {
+        whereClause = { id: { in: userIds } };
+      }
+    } else if (q) {
       const cleanQ = q.toLowerCase().replace(/^@/, '');
       whereClause = {
         OR: [
@@ -451,7 +491,7 @@ export async function searchUsersForAdmin(req: AdminAuthenticatedRequest, res: R
 
     const users = await prisma.user.findMany({
       where: whereClause,
-      take: 25,
+      take: filter === 'deleted' ? 100 : 25,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -477,7 +517,6 @@ export async function searchUsersForAdmin(req: AdminAuthenticatedRequest, res: R
       },
     });
 
-    const { isAccountDeleted } = await import('../services/deletedAccountService');
     const enrichedUsers = users.map((u) => {
       const del = isAccountDeleted(u.id);
       return {
@@ -1040,7 +1079,12 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { tasks: { where: taskId ? { id: taskId } : undefined } },
+      include: {
+        tasks: {
+          where: taskId ? { id: taskId } : undefined,
+          include: { group: true },
+        },
+      },
     });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
@@ -1049,6 +1093,13 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
     const targetTask = taskId ? user.tasks.find((t) => t.id === taskId) : null;
     if (taskId && !targetTask) {
       return res.status(404).json({ success: false, error: 'Target task not found for this user.' });
+    }
+
+    if (targetTask && (isLinkedInName(targetTask.title) || (targetTask.groupId && isLinkedInName(targetTask.group?.name || '')))) {
+      return res.status(400).json({
+        success: false,
+        error: 'Streak freeze is disabled for LinkedIn games and LinkedIn groups.',
+      });
     }
 
     const beforeState: any = taskId
@@ -3082,15 +3133,21 @@ export async function adminUpdateOverallReminders(req: AdminAuthenticatedRequest
         });
       }
 
-      // 3. Update notification preferences
+      // 3. Update notification preferences to ensure reminder delivery is active
       await tx.notificationPreference.upsert({
         where: { userId },
         create: {
           userId,
+          emailNotificationsEnabled: true,
+          inAppNotificationsEnabled: true,
           overallStreakRemindersEmail: isEnabled,
+          overallStreakRemindersInApp: isEnabled,
         },
         update: {
+          emailNotificationsEnabled: true,
+          inAppNotificationsEnabled: true,
           overallStreakRemindersEmail: isEnabled,
+          overallStreakRemindersInApp: isEnabled,
         },
       });
     });
@@ -3228,6 +3285,24 @@ export async function adminUpdateTaskReminders(req: AdminAuthenticatedRequest, r
           })),
         });
       }
+
+      // 3. Update notification preferences to ensure reminder delivery is active
+      await tx.notificationPreference.upsert({
+        where: { userId },
+        create: {
+          userId,
+          emailNotificationsEnabled: true,
+          inAppNotificationsEnabled: true,
+          taskRemindersEmail: isEnabled,
+          taskRemindersInApp: isEnabled,
+        },
+        update: {
+          emailNotificationsEnabled: true,
+          inAppNotificationsEnabled: true,
+          taskRemindersEmail: isEnabled,
+          taskRemindersInApp: isEnabled,
+        },
+      });
     });
 
     const changesSummary = `Reminders for task "${task.title}" ${isEnabled ? 'ENABLED' : 'PAUSED'}. Scheduled times (${formattedTimes.length}/2): ${
@@ -3270,6 +3345,99 @@ export async function adminUpdateTaskReminders(req: AdminAuthenticatedRequest, r
   } catch (err: any) {
     console.error('adminUpdateTaskReminders error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update task reminders.' });
+  }
+}
+
+/**
+ * Super Admin sends an instant test reminder to a user via In-App and Email
+ */
+export async function adminSendTestReminder(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { scope = 'OVERALL', taskId, reason = 'Admin dispatched test reminder' } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, username: true, email: true, timezone: true, currentStreak: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const { createNotification } = await import('../services/notificationService');
+    const { buildOverallReminderEmail, buildTaskReminderEmail } = await import('../services/emailService');
+
+    let title = '';
+    let message = '';
+    let category: NotificationCategory;
+    let emailSubject = '';
+    let emailText = '';
+    let actionUrl = '/dashboard';
+
+    if (scope === 'TASK' && taskId) {
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        select: { id: true, title: true, currentStreak: true },
+      });
+      if (!task) {
+        return res.status(404).json({ success: false, error: 'Task not found.' });
+      }
+      category = NotificationCategory.TASK_REMINDER;
+      title = `⚡ Reminder: ${task.title} (Test)`;
+      message = `[Admin Test Reminder] Don't forget to complete your "${task.title}" task today to keep your streak going!`;
+      actionUrl = '/tasks';
+      const emailContent = buildTaskReminderEmail({
+        name: user.name,
+        taskTitle: task.title,
+        currentStreak: task.currentStreak,
+        timeRemaining: 'few hours',
+      });
+      emailSubject = `[Test Reminder] ⚡ ${task.title}`;
+      emailText = emailContent.text;
+    } else {
+      category = NotificationCategory.OVERALL_REMINDER;
+      title = '🔥 StreakUp Streak Waiting (Test)';
+      message = `[Admin Test Reminder] You haven't completed a task today yet. Complete at least one task before your day ends to maintain your ${user.currentStreak}-day streak!`;
+      actionUrl = '/dashboard';
+      const emailContent = buildOverallReminderEmail({
+        name: user.name,
+        currentStreak: user.currentStreak,
+        timeRemaining: 'few hours',
+      });
+      emailSubject = `[Test Reminder] 🔥 StreakUp Streak Waiting`;
+      emailText = emailContent.text;
+    }
+
+    await createNotification({
+      userId: user.id,
+      category,
+      title,
+      message,
+      taskId: taskId || null,
+      actionUrl,
+      eventKey: `ADMIN_TEST_REMINDER:${userId}:${Date.now()}`,
+      emailSubject,
+      emailText,
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SEND_TEST_REMINDER',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: null,
+      afterState: { scope, taskId },
+    });
+
+    return res.json({
+      success: true,
+      message: `Test ${scope === 'TASK' ? 'task' : 'overall'} reminder dispatched to @${user.username} via In-App and Email.`,
+    });
+  } catch (err: any) {
+    console.error('adminSendTestReminder error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to dispatch test reminder.' });
   }
 }
 
@@ -3638,84 +3806,10 @@ export async function adminGrantLinkedInGameDate(req: AdminAuthenticatedRequest,
  * Super Admin applies or removes freeze protection on a calendar date for an individual LinkedIn game
  */
 export async function adminFreezeLinkedInGameDate(req: AdminAuthenticatedRequest, res: Response) {
-  try {
-    const { userId, groupId } = req.params;
-    const {
-      gameId,
-      date,
-      isFrozen = true,
-      reason,
-      sendInApp,
-      sendEmail: shouldSendEmail,
-      includeReason = true,
-      includeChanges = true,
-    } = req.body;
-
-    if (!reason || typeof reason !== 'string') {
-      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
-    }
-    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({ success: false, error: 'A valid calendar date (YYYY-MM-DD) is required.' });
-    }
-
-    const normalizedGameId = normalizeGameId(gameId);
-    if (!normalizedGameId) {
-      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, username: true, name: true, timezone: true },
-    });
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found.' });
-    }
-
-    const group = await prisma.group.findUnique({
-      where: { id: groupId },
-      select: { id: true, name: true },
-    });
-    if (!group || !isLinkedInName(group.name)) {
-      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
-    }
-
-    const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
-
-    const updatedGame = await adminFreezeGameDate(groupId, userId, normalizedGameId, date, Boolean(isFrozen));
-
-    const changesSummary = `LinkedIn game "${updatedGame.name}" freeze ${isFrozen ? 'applied' : 'removed'} for date ${date}.`;
-
-    await recordAuditLog({
-      adminUsername: req.admin!.username,
-      action: 'LINKEDIN_GAME_FREEZE_DATE',
-      targetUserId: userId,
-      targetUser: `@${user.username}`,
-      reason,
-      beforeState,
-      afterState: updatedGame,
-    });
-
-    await dispatchAdminNotification({
-      userId,
-      adminUsername: req.admin!.username,
-      actionTitle: `LinkedIn ${updatedGame.name} Freeze ${isFrozen ? 'Applied' : 'Removed'}`,
-      reason,
-      changesSummary,
-      sendInApp,
-      sendEmail: shouldSendEmail,
-      includeReason,
-      includeChanges,
-    });
-
-    return res.json({
-      success: true,
-      message: `Freeze ${isFrozen ? 'applied' : 'removed'} for ${updatedGame.name} on ${date}.`,
-      game: updatedGame,
-    });
-  } catch (err: any) {
-    console.error('adminFreezeLinkedInGameDate error:', err);
-    return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game freeze.' });
-  }
+  return res.status(400).json({
+    success: false,
+    error: 'Streak freeze is disabled for LinkedIn games and LinkedIn groups.',
+  });
 }
 
 /**

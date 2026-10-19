@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 
 import { useBodyScrollLock } from '../utils/scrollLock';
+import { isLinkedInName } from '../utils/linkedin';
 
 interface TaskDetailModalProps {
   taskId: string;
@@ -286,66 +287,68 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Task Freeze Card */}
-                  <div className="p-4 bg-gradient-to-br from-cyan-950/20 to-dark-bg border border-cyan-500/20 rounded-xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Shield className="w-5 h-5 text-cyan-400" />
-                        <div>
-                          <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
-                            Independent Task Freeze
-                          </h4>
-                          <p className="text-[11px] text-zinc-400">
-                            Protects 1 missed day without breaking this task's streak.
-                          </p>
+                  {/* Task Freeze Card - Disabled for LinkedIn */}
+                  {!isLinkedInName(details.task.title) && (
+                    <div className="p-4 bg-gradient-to-br from-cyan-950/20 to-dark-bg border border-cyan-500/20 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-cyan-400" />
+                          <div>
+                            <h4 className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+                              Independent Task Freeze
+                            </h4>
+                            <p className="text-[11px] text-zinc-400">
+                              Protects 1 missed day without breaking this task's streak.
+                            </p>
+                          </div>
+                        </div>
+                        <div
+                          className={`px-3 py-1 rounded-full text-xs font-bold font-mono border ${
+                            (details.task.freezeBalance || 0) > 0
+                              ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
+                              : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+                          }`}
+                        >
+                          {(details.task.freezeBalance || 0) > 0 ? '🧊 1 Available' : '0 Available'}
                         </div>
                       </div>
-                      <div
-                        className={`px-3 py-1 rounded-full text-xs font-bold font-mono border ${
-                          (details.task.freezeBalance || 0) > 0
-                            ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300'
-                            : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                        }`}
-                      >
-                        {(details.task.freezeBalance || 0) > 0 ? '🧊 1 Available' : '0 Available'}
-                      </div>
-                    </div>
 
-                    {/* Recharge progress bar */}
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
-                        <span className="flex items-center gap-1">
-                          <Zap className="w-3 h-3 text-cyan-400" />
-                          <span>Recharge Progress</span>
-                        </span>
-                        <span>
-                          {details.task.freezeBalance === 1
-                            ? 'Fully Charged (1/1)'
-                            : `${details.task.freezeRechargeDays || 0} of 7 qualifying days`}
-                        </span>
+                      {/* Recharge progress bar */}
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
+                          <span className="flex items-center gap-1">
+                            <Zap className="w-3 h-3 text-cyan-400" />
+                            <span>Recharge Progress</span>
+                          </span>
+                          <span>
+                            {details.task.freezeBalance === 1
+                              ? 'Fully Charged (1/1)'
+                              : `${details.task.freezeRechargeDays || 0} of 7 qualifying days`}
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+                          <div
+                            className="h-full bg-cyan-500 transition-all duration-500"
+                            style={{
+                              width: `${
+                                details.task.freezeBalance === 1
+                                  ? 100
+                                  : Math.min(100, ((details.task.freezeRechargeDays || 0) / 7) * 100)
+                              }%`,
+                            }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
-                        <div
-                          className="h-full bg-cyan-500 transition-all duration-500"
-                          style={{
-                            width: `${
-                              details.task.freezeBalance === 1
-                                ? 100
-                                : Math.min(100, ((details.task.freezeRechargeDays || 0) / 7) * 100)
-                            }%`,
-                          }}
-                        />
-                      </div>
-                    </div>
 
-                    {/* Protected dates notice */}
-                    {details.freezeLogs.length > 0 && (
-                      <div className="text-[11px] text-cyan-400/90 pt-1 border-t border-cyan-500/10">
-                        🛡️ Protected missed dates:{' '}
-                        {details.freezeLogs.map((l) => l.protectedDate).join(', ')}
-                      </div>
-                    )}
-                  </div>
+                      {/* Protected dates notice */}
+                      {details.freezeLogs.length > 0 && (
+                        <div className="text-[11px] text-cyan-400/90 pt-1 border-t border-cyan-500/10">
+                          🛡️ Protected missed dates:{' '}
+                          {details.freezeLogs.map((l) => l.protectedDate).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -38,13 +38,21 @@ async function getOrCreateNotificationPreferences(userId) {
                 emailNotificationsEnabled: true,
                 inAppNotificationsEnabled: true,
                 overallStreakRemindersEmail: true,
+                overallStreakRemindersInApp: true,
                 taskRemindersEmail: true,
+                taskRemindersInApp: true,
                 friendOverallActivityAlerts: true,
+                friendOverallActivityInApp: true,
                 friendTaskActivityAlerts: true,
+                friendTaskActivityInApp: true,
                 friendOverallMilestones: true,
+                friendOverallMilestonesInApp: true,
                 friendTaskMilestones: true,
+                friendTaskMilestonesInApp: true,
                 myMilestonesEmail: true,
+                myMilestonesInApp: true,
                 freezeStatusNotifications: true,
+                freezeStatusInApp: true,
             },
         });
     }
@@ -67,9 +75,33 @@ async function createNotification(params) {
             where: { userId, eventKey },
         });
     }
-    // 3. Create In-App Notification (if in-app channel enabled and not already recorded)
+    // 3. Create In-App Notification (if in-app channel enabled and category permitted)
+    const isInAppCategoryEnabled = () => {
+        if (!pref.inAppNotificationsEnabled)
+            return false;
+        switch (category) {
+            case client_1.NotificationCategory.OVERALL_REMINDER:
+                return pref.overallStreakRemindersInApp ?? true;
+            case client_1.NotificationCategory.TASK_REMINDER:
+                return pref.taskRemindersInApp ?? true;
+            case client_1.NotificationCategory.FRIEND_OVERALL_ACTIVITY:
+                return pref.friendOverallActivityInApp ?? true;
+            case client_1.NotificationCategory.FRIEND_TASK_ACTIVITY:
+                return pref.friendTaskActivityInApp ?? true;
+            case client_1.NotificationCategory.FRIEND_OVERALL_MILESTONE:
+                return pref.friendOverallMilestonesInApp ?? true;
+            case client_1.NotificationCategory.FRIEND_TASK_MILESTONE:
+                return pref.friendTaskMilestonesInApp ?? true;
+            case client_1.NotificationCategory.MY_MILESTONE:
+                return pref.myMilestonesInApp ?? true;
+            case client_1.NotificationCategory.SYSTEM:
+                return true;
+            default:
+                return pref.freezeStatusInApp ?? true;
+        }
+    };
     let notification = existingNotification;
-    if (!existingNotification && pref.inAppNotificationsEnabled) {
+    if (!existingNotification && isInAppCategoryEnabled()) {
         notification = await prisma_1.default.notification.create({
             data: {
                 userId,
@@ -109,10 +141,18 @@ async function createNotification(params) {
         }
     };
     if (isEmailCategoryEnabled() && emailSubject && emailText) {
-        // Determine destination email (custom verified email or user registered email)
-        const destinationEmail = pref.customNotificationEmail && pref.isCustomEmailVerified
-            ? pref.customNotificationEmail
-            : user.email;
+        // Determine destination email (custom verified email or active registered user email)
+        let destinationEmail = user.email;
+        if (pref.customNotificationEmail && pref.isCustomEmailVerified) {
+            // If the user's primary login email was changed AFTER the custom notification email was set,
+            // route seamlessly to the new registered email!
+            const customIsStale = Boolean(user.emailLastChangedAt &&
+                pref.updatedAt &&
+                new Date(pref.updatedAt) < new Date(user.emailLastChangedAt));
+            if (!customIsStale) {
+                destinationEmail = pref.customNotificationEmail.trim().toLowerCase();
+            }
+        }
         const emailIdempotencyKey = eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`;
         await (0, emailService_1.sendEmail)({
             userId,

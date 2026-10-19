@@ -21,9 +21,11 @@ const luxon_1 = require("luxon");
 const streakService_1 = require("../services/streakService");
 const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
 const notificationService_1 = require("../services/notificationService");
+const emailService_1 = require("../services/emailService");
 const pointsService_1 = require("../services/pointsService");
 const client_1 = require("@prisma/client");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
+const linkedInGameService_1 = require("../services/linkedInGameService");
 // Task validation schemas
 const createTaskSchema = zod_1.z.object({
     title: zod_1.z.string().min(1, 'Task title is required').max(100),
@@ -98,18 +100,30 @@ async function getTasks(req, res) {
             }
         });
         // Transform tasks to attach completedToday flag and todayStudyNote
-        const formattedTasks = tasks.map(task => {
-            const completedToday = task.recurrence === 'DAILY'
+        const formattedTasks = await Promise.all(tasks.map(async (task) => {
+            let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
+            let currentStreak = task.currentStreak;
+            let longestStreak = task.longestStreak;
+            const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
+            if (isLinkedIn && task.groupId) {
+                const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
+                currentStreak = li.currentStreak;
+                longestStreak = Math.max(task.longestStreak, li.longestStreak);
+                completedToday = li.completedToday;
+            }
             const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
             return {
                 ...task,
+                currentStreak,
+                longestStreak,
                 completedToday,
                 todayStudyNote,
-                completions: undefined // hide raw completions array
+                isLinkedIn,
+                completions: undefined, // hide raw completions array
             };
-        });
+        }));
         return res.json({
             success: true,
             tasks: formattedTasks,
@@ -292,7 +306,101 @@ async function completeTask(req, res) {
         if (task.userId !== userId) {
             return res.status(403).json({ success: false, error: 'Unauthorized.' });
         }
-        // Study note is strictly mandatory (Requirement 13)
+        // LinkedIn group tasks: complete all currently committed games on the current qualifying date
+        if (task.isGroupTask && (0, linkedInGameService_1.isLinkedInName)(task.title)) {
+            const timezone = task.user?.timezone || 'Asia/Kolkata';
+            const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);
+            // Complete all currently committed games for that user on the current qualifying date
+            const liResult = task.groupId
+                ? await (0, linkedInGameService_1.completeCommittedGamesForDashboard)(task.groupId, userId, timezone, todayDateStr)
+                : { highestStreak: 0, longestStreak: 0, completedGamesCount: 0, alreadyCompletedCount: 0, totalCommittedCount: 0 };
+            // Update parent task streak in database to match highest streak among committed games
+            await prisma_1.default.task.update({
+                where: { id },
+                data: {
+                    currentStreak: liResult.highestStreak,
+                    longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+                },
+            });
+            // Upsert completion record for the parent task on today's date (no study note requested for LinkedIn dashboard completion)
+            await prisma_1.default.taskCompletion.upsert({
+                where: {
+                    taskId_completionDate: {
+                        taskId: id,
+                        completionDate: todayDateStr,
+                    },
+                },
+                update: {
+                    completedAt: new Date(),
+                    studyNote: null,
+                },
+                create: {
+                    taskId: id,
+                    userId,
+                    completionDate: todayDateStr,
+                    studyNote: null,
+                },
+            });
+            // Recalculate overall streak
+            const overallStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone);
+            const u = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { points: true } });
+            const newTotalPoints = u?.points || 0;
+            // Trigger milestone checks and friend activity alerts (non-blocking)
+            (0, notificationService_1.checkAndTriggerMilestones)({
+                userId,
+                scope: client_1.FreezeScope.OVERALL,
+                scopeId: 'OVERALL',
+                currentStreak: overallStreak.currentStreak,
+            }).catch((err) => console.error('[completeTask:LinkedIn] Milestone check error:', err));
+            (0, notificationService_1.checkAndTriggerFriendActivityAlerts)({
+                completedUserId: userId,
+                completedTaskId: task.id,
+                completedTaskTitle: task.title,
+                studyNote: 'LinkedIn games completed',
+            }).catch((err) => console.error('[completeTask:LinkedIn] Friend activity alert error:', err));
+            // Dispatch habit completion notification & email directly to the completing user
+            prisma_1.default.user.findUnique({
+                where: { id: userId },
+                select: { name: true },
+            }).then((userRecord) => {
+                const liEmail = (0, emailService_1.buildTaskCompletionEmail)({
+                    userName: userRecord?.name || 'Habit Builder',
+                    taskTitle: task.title,
+                    currentStreak: liResult.highestStreak,
+                    pointsAwarded: 0,
+                    totalPoints: newTotalPoints,
+                    studyNote: 'Committed LinkedIn games completed',
+                });
+                (0, notificationService_1.createNotification)({
+                    userId,
+                    category: client_1.NotificationCategory.TASK_REMINDER,
+                    title: `Habit Completed: ${task.title}`,
+                    message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}.`,
+                    actionUrl: `/dashboard`,
+                    eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+                    emailSubject: liEmail.subject,
+                    emailText: liEmail.text,
+                }).catch((err) => console.error('[completeTask:LinkedIn] User completion notification error:', err));
+            }).catch((err) => console.error('[completeTask:LinkedIn] Fetch user error:', err));
+            return res.json({
+                success: true,
+                message: 'Committed LinkedIn games completed!',
+                completedToday: true,
+                studyNote: null,
+                taskStreak: {
+                    currentStreak: liResult.highestStreak,
+                    longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+                },
+                overallStreak,
+                streak: {
+                    currentStreak: liResult.highestStreak,
+                    longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+                },
+                pointsAwarded: 0,
+                totalPoints: newTotalPoints,
+            });
+        }
+        // Study note is strictly mandatory for all other tasks (Requirement 13)
         if (!studyNote || typeof studyNote !== 'string' || studyNote.trim().length < 3) {
             return res.status(400).json({
                 success: false,
@@ -372,6 +480,30 @@ async function completeTask(req, res) {
                 studyNote: completion.studyNote,
             }).catch((err) => console.error('[completeTask] Friend activity alert error:', err));
         }
+        // Dispatch habit completion notification & email directly to the completing user
+        prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { name: true },
+        }).then((userRecord) => {
+            const completionEmail = (0, emailService_1.buildTaskCompletionEmail)({
+                userName: userRecord?.name || 'Habit Builder',
+                taskTitle: task.title,
+                currentStreak: taskStreak.currentStreak,
+                pointsAwarded,
+                totalPoints: newTotalPoints,
+                studyNote: completion.studyNote,
+            });
+            (0, notificationService_1.createNotification)({
+                userId,
+                category: client_1.NotificationCategory.TASK_REMINDER,
+                title: `Habit Completed: ${task.title}`,
+                message: `You completed "${task.title}" today! Streak: ${taskStreak.currentStreak} day${taskStreak.currentStreak === 1 ? '' : 's'}${pointsAwarded > 0 ? ` (+${pointsAwarded} pts)` : ''}.`,
+                actionUrl: `/dashboard`,
+                eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+                emailSubject: completionEmail.subject,
+                emailText: completionEmail.text,
+            }).catch((err) => console.error('[completeTask] User completion notification error:', err));
+        }).catch((err) => console.error('[completeTask] Fetch user error:', err));
         return res.json({
             success: true,
             message: 'Task marked as completed.',
@@ -405,6 +537,45 @@ async function uncompleteTask(req, res) {
         }
         if (task.userId !== userId) {
             return res.status(403).json({ success: false, error: 'Unauthorized.' });
+        }
+        if (task.isGroupTask && (0, linkedInGameService_1.isLinkedInName)(task.title)) {
+            const timezone = task.user?.timezone || 'Asia/Kolkata';
+            const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);
+            const liResult = task.groupId
+                ? await (0, linkedInGameService_1.uncompleteCommittedGamesForDashboard)(task.groupId, userId, timezone, todayDateStr)
+                : { highestStreak: 0, longestStreak: 0 };
+            // Delete today's completion record if it exists
+            await prisma_1.default.taskCompletion.deleteMany({
+                where: {
+                    taskId: id,
+                    completionDate: todayDateStr,
+                },
+            });
+            // Update parent task streak
+            await prisma_1.default.task.update({
+                where: { id },
+                data: {
+                    currentStreak: liResult.highestStreak,
+                },
+            });
+            // Recalculate overall streak
+            const overallStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone);
+            const u = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { points: true } });
+            return res.json({
+                success: true,
+                message: 'LinkedIn games marked as incomplete for today.',
+                completedToday: false,
+                taskStreak: {
+                    currentStreak: liResult.highestStreak,
+                    longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+                },
+                overallStreak,
+                streak: {
+                    currentStreak: liResult.highestStreak,
+                    longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+                },
+                totalPoints: u?.points || 0,
+            });
         }
         const timezone = task.user?.timezone || 'Asia/Kolkata';
         const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);
@@ -652,33 +823,42 @@ async function getDashboardSummary(req, res) {
         const timezone = user.timezone || 'Asia/Kolkata';
         const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);
         const clockInfo = (0, timezoneService_1.getLocalTimeInfo)(timezone);
-        // Reconcile missed points for user asynchronously to keep points accurate
-        await (0, pointsService_1.reconcileMissedPointsForUser)(prisma_1.default, userId, timezone).catch((e) => console.error('Missed points reconcile error:', e));
-        // Fetch points summary stats
-        const pointsStats = await (0, pointsService_1.getUserPointsStats)(prisma_1.default, userId);
-        // Fetch overall freeze logs for recent protected dates
-        const overallFreezeLogs = await prisma_1.default.freezeLog.findMany({
-            where: { userId, scope: 'OVERALL' },
-            orderBy: { protectedDate: 'desc' },
-            take: 10,
-            select: { protectedDate: true }
-        });
-        // Fetch active tasks
-        const activeTasks = await prisma_1.default.task.findMany({
-            where: { userId, status: 'ACTIVE' },
-            orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
-            include: {
-                completions: {
-                    where: { completionDate: todayDateStr },
-                    select: { id: true, studyNote: true }
+        // Reconcile missed points for user asynchronously in background to keep dashboard loads instant
+        (0, pointsService_1.reconcileMissedPointsForUser)(prisma_1.default, userId, timezone).catch((e) => console.error('Missed points reconcile error:', e));
+        // Concurrently fetch points stats, overall freeze logs, and active tasks
+        const [pointsStats, overallFreezeLogs, activeTasks] = await Promise.all([
+            (0, pointsService_1.getUserPointsStats)(prisma_1.default, userId),
+            prisma_1.default.freezeLog.findMany({
+                where: { userId, scope: 'OVERALL' },
+                orderBy: { protectedDate: 'desc' },
+                take: 10,
+                select: { protectedDate: true }
+            }),
+            prisma_1.default.task.findMany({
+                where: { userId, status: 'ACTIVE' },
+                orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+                include: {
+                    completions: {
+                        where: { completionDate: todayDateStr },
+                        select: { id: true, studyNote: true }
+                    }
                 }
-            }
-        });
+            })
+        ]);
         // Calculate completed vs pending today
-        const tasksWithStatus = activeTasks.map(task => {
-            const completedToday = task.recurrence === 'DAILY'
+        const tasksWithStatus = await Promise.all(activeTasks.map(async (task) => {
+            let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
+            let currentStreak = task.currentStreak;
+            let longestStreak = task.longestStreak;
+            const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
+            if (isLinkedIn && task.groupId) {
+                const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
+                currentStreak = li.currentStreak;
+                longestStreak = Math.max(task.longestStreak, li.longestStreak);
+                completedToday = li.completedToday;
+            }
             const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
             return {
                 id: task.id,
@@ -690,16 +870,17 @@ async function getDashboardSummary(req, res) {
                 scheduledDays: task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
                 dueTime: task.dueTime,
                 status: task.status,
-                currentStreak: task.currentStreak,
-                longestStreak: task.longestStreak,
+                currentStreak,
+                longestStreak,
                 freezeBalance: task.freezeBalance,
                 freezeRechargeDays: task.freezeRechargeDays,
                 completedToday,
                 todayStudyNote,
                 groupId: task.groupId,
-                isGroupTask: task.isGroupTask || !!task.groupId
+                isGroupTask: task.isGroupTask || !!task.groupId,
+                isLinkedIn,
             };
-        });
+        }));
         const totalActiveTasks = tasksWithStatus.length;
         const completedTodayCount = tasksWithStatus.filter(t => t.completedToday).length;
         const pendingTodayCount = totalActiveTasks - completedTodayCount;

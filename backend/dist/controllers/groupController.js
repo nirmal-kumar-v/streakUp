@@ -29,6 +29,8 @@ const luxon_1 = require("luxon");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
+const adminConfigService_1 = require("../services/adminConfigService");
+const linkedInGameService_1 = require("../services/linkedInGameService");
 const createGroupSchema = zod_1.z.object({
     name: zod_1.z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
     description: zod_1.z.string().trim().max(300).optional().nullable(),
@@ -194,13 +196,19 @@ async function searchGroups(req, res) {
                 ],
             };
         }
+        else {
+            // Discover recommendations feed: only include groups marked Discoverable
+            whereClause = {
+                isDiscoverable: true,
+            };
+        }
         const currentUser = await prisma_1.default.user.findUnique({
             where: { id: currentUserId },
             select: { username: true },
         });
         const cUsername = (currentUser?.username || '').toLowerCase().replace(/^@/, '');
         const cId = currentUserId.toLowerCase();
-        // If no search query, order by member count descending to show top 5 featured groups
+        // If no search query, order by member count descending to show top featured discoverable groups
         const groups = await prisma_1.default.group.findMany({
             where: whereClause,
             take: rawQuery ? 50 : 25,
@@ -214,6 +222,7 @@ async function searchGroups(req, res) {
                 joinCode: true,
                 scheduledDays: true,
                 ownerId: true,
+                isDiscoverable: true,
                 hiddenFrom: true,
                 visibleOnlyTo: true,
                 createdAt: true,
@@ -237,8 +246,9 @@ async function searchGroups(req, res) {
             }
             return true;
         });
-        // In Discover mode without search query: show ONLY top 5 groups. Others must be searched.
-        const finalGroups = rawQuery ? visibleGroups : visibleGroups.slice(0, 5);
+        // In Discover mode without search query: show ONLY top N groups based on user's discover limit
+        const discoverLimit = (0, adminConfigService_1.getUserDiscoverGroupsLimit)(currentUserId);
+        const finalGroups = rawQuery ? visibleGroups : visibleGroups.slice(0, discoverLimit);
         // Check membership and join request status for current user for each visible group
         const groupsWithStatus = await Promise.all(finalGroups.map(async (g) => {
             const membership = await prisma_1.default.groupMember.findUnique({
@@ -263,11 +273,13 @@ async function searchGroups(req, res) {
                 isMember: !!membership,
                 userRole: membership?.role || null,
                 myRequestStatus: requestStatus,
+                isDiscoverable: g.isDiscoverable !== false,
             };
         }));
         return res.json({
             success: true,
             isTopFive: !rawQuery,
+            discoverLimit,
             groups: groupsWithStatus,
         });
     }
@@ -793,24 +805,36 @@ async function getGroupLeaderboards(req, res) {
             }
             return true;
         });
+        const isLinkedIn = (0, linkedInGameService_1.isLinkedInName)(group.name);
         const rankedList = await Promise.all(visibleMembers.map(async (m) => {
-            // Individual group task
-            const memberTask = await prisma_1.default.task.findFirst({
-                where: { userId: m.user.id, groupId: id },
-                select: { id: true, currentStreak: true, longestStreak: true },
-            });
-            // Weekly completions count (within current week)
+            let currentStreak = 0;
+            let longestStreak = 0;
             let weeklyCompletions = 0;
-            if (memberTask) {
-                weeklyCompletions = await prisma_1.default.taskCompletion.count({
-                    where: {
-                        taskId: memberTask.id,
-                        completionDate: {
-                            gte: startDate,
-                            lte: endDate,
-                        },
-                    },
+            if (isLinkedIn) {
+                // LinkedIn group: highest current streak of any of the games/tasks
+                const liStats = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(id, m.user.id, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                currentStreak = liStats.currentStreak;
+                longestStreak = liStats.longestStreak;
+            }
+            else {
+                // Individual group task
+                const memberTask = await prisma_1.default.task.findFirst({
+                    where: { userId: m.user.id, groupId: id },
+                    select: { id: true, currentStreak: true, longestStreak: true },
                 });
+                if (memberTask) {
+                    currentStreak = memberTask.currentStreak || 0;
+                    longestStreak = memberTask.longestStreak || 0;
+                    weeklyCompletions = await prisma_1.default.taskCompletion.count({
+                        where: {
+                            taskId: memberTask.id,
+                            completionDate: {
+                                gte: startDate,
+                                lte: endDate,
+                            },
+                        },
+                    });
+                }
             }
             const friendshipStatus = await getFriendshipStatus(userId, m.user.id);
             return {
@@ -819,8 +843,8 @@ async function getGroupLeaderboards(req, res) {
                 username: m.user.username,
                 profileImage: m.user.profileImage,
                 role: m.role,
-                currentStreak: memberTask?.currentStreak || 0,
-                longestStreak: memberTask?.longestStreak || 0,
+                currentStreak,
+                longestStreak,
                 weeklyCompletions,
                 isCurrentUser: m.user.id === userId,
                 friendshipStatus,

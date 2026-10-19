@@ -24,6 +24,7 @@ const client_1 = require("@prisma/client");
 const notificationService_1 = require("../services/notificationService");
 const emailService_1 = require("../services/emailService");
 const reminderSchedulerService_1 = require("../services/reminderSchedulerService");
+const adminConfigService_1 = require("../services/adminConfigService");
 const otpService_1 = require("../services/otpService");
 /**
  * GET /api/notifications
@@ -267,13 +268,18 @@ async function getPreferences(req, res) {
         const preferences = await (0, notificationService_1.getOrCreateNotificationPreferences)(userId);
         const user = await prisma_1.default.user.findUnique({
             where: { id: userId },
-            select: { email: true, timezone: true },
+            select: { email: true, timezone: true, isEmailVerified: true },
         });
+        const reminderLimit = (0, adminConfigService_1.getUserReminderLimit)(userId);
+        const taskReminderLimit = (0, adminConfigService_1.getUserTaskReminderLimit)(userId);
         return res.json({
             success: true,
             preferences,
             defaultEmail: user?.email,
             timezone: user?.timezone,
+            isEmailVerified: user?.isEmailVerified !== false,
+            reminderLimit,
+            taskReminderLimit,
             isSmtpConfigured: (0, emailService_1.isSmtpConfigured)(),
         });
     }
@@ -286,13 +292,26 @@ const updatePreferencesSchema = zod_1.z.object({
     emailNotificationsEnabled: zod_1.z.boolean().optional(),
     inAppNotificationsEnabled: zod_1.z.boolean().optional(),
     overallStreakRemindersEmail: zod_1.z.boolean().optional(),
+    overallStreakRemindersInApp: zod_1.z.boolean().optional(),
     taskRemindersEmail: zod_1.z.boolean().optional(),
+    taskRemindersInApp: zod_1.z.boolean().optional(),
     friendOverallActivityAlerts: zod_1.z.boolean().optional(),
+    friendOverallActivityEmail: zod_1.z.boolean().optional(),
+    friendOverallActivityInApp: zod_1.z.boolean().optional(),
     friendTaskActivityAlerts: zod_1.z.boolean().optional(),
+    friendTaskActivityEmail: zod_1.z.boolean().optional(),
+    friendTaskActivityInApp: zod_1.z.boolean().optional(),
     friendOverallMilestones: zod_1.z.boolean().optional(),
+    friendOverallMilestonesEmail: zod_1.z.boolean().optional(),
+    friendOverallMilestonesInApp: zod_1.z.boolean().optional(),
     friendTaskMilestones: zod_1.z.boolean().optional(),
+    friendTaskMilestonesEmail: zod_1.z.boolean().optional(),
+    friendTaskMilestonesInApp: zod_1.z.boolean().optional(),
     myMilestonesEmail: zod_1.z.boolean().optional(),
+    myMilestonesInApp: zod_1.z.boolean().optional(),
     freezeStatusNotifications: zod_1.z.boolean().optional(),
+    freezeStatusEmail: zod_1.z.boolean().optional(),
+    freezeStatusInApp: zod_1.z.boolean().optional(),
     customNotificationEmail: zod_1.z.string().email('Invalid email address format').optional().nullable(),
 });
 /**
@@ -329,19 +348,32 @@ async function updatePreferences(req, res) {
                 };
             }
         }
+        const friendOverallEmailVal = data.friendOverallActivityEmail !== undefined ? data.friendOverallActivityEmail : data.friendOverallActivityAlerts;
+        const friendTaskEmailVal = data.friendTaskActivityEmail !== undefined ? data.friendTaskActivityEmail : data.friendTaskActivityAlerts;
+        const friendOverallMilestonesVal = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
+        const friendTaskMilestonesVal = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
+        const freezeStatusEmailVal = data.freezeStatusEmail !== undefined ? data.freezeStatusEmail : data.freezeStatusNotifications;
         const updated = await prisma_1.default.notificationPreference.update({
             where: { userId },
             data: {
                 ...(data.emailNotificationsEnabled !== undefined ? { emailNotificationsEnabled: data.emailNotificationsEnabled } : {}),
                 ...(data.inAppNotificationsEnabled !== undefined ? { inAppNotificationsEnabled: data.inAppNotificationsEnabled } : {}),
                 ...(data.overallStreakRemindersEmail !== undefined ? { overallStreakRemindersEmail: data.overallStreakRemindersEmail } : {}),
+                ...(data.overallStreakRemindersInApp !== undefined ? { overallStreakRemindersInApp: data.overallStreakRemindersInApp } : {}),
                 ...(data.taskRemindersEmail !== undefined ? { taskRemindersEmail: data.taskRemindersEmail } : {}),
-                ...(data.friendOverallActivityAlerts !== undefined ? { friendOverallActivityAlerts: data.friendOverallActivityAlerts } : {}),
-                ...(data.friendTaskActivityAlerts !== undefined ? { friendTaskActivityAlerts: data.friendTaskActivityAlerts } : {}),
-                ...(data.friendOverallMilestones !== undefined ? { friendOverallMilestones: data.friendOverallMilestones } : {}),
-                ...(data.friendTaskMilestones !== undefined ? { friendTaskMilestones: data.friendTaskMilestones } : {}),
+                ...(data.taskRemindersInApp !== undefined ? { taskRemindersInApp: data.taskRemindersInApp } : {}),
+                ...(friendOverallEmailVal !== undefined ? { friendOverallActivityAlerts: friendOverallEmailVal } : {}),
+                ...(data.friendOverallActivityInApp !== undefined ? { friendOverallActivityInApp: data.friendOverallActivityInApp } : {}),
+                ...(friendTaskEmailVal !== undefined ? { friendTaskActivityAlerts: friendTaskEmailVal } : {}),
+                ...(data.friendTaskActivityInApp !== undefined ? { friendTaskActivityInApp: data.friendTaskActivityInApp } : {}),
+                ...(friendOverallMilestonesVal !== undefined ? { friendOverallMilestones: friendOverallMilestonesVal } : {}),
+                ...(data.friendOverallMilestonesInApp !== undefined ? { friendOverallMilestonesInApp: data.friendOverallMilestonesInApp } : {}),
+                ...(friendTaskMilestonesVal !== undefined ? { friendTaskMilestones: friendTaskMilestonesVal } : {}),
+                ...(data.friendTaskMilestonesInApp !== undefined ? { friendTaskMilestonesInApp: data.friendTaskMilestonesInApp } : {}),
                 ...(data.myMilestonesEmail !== undefined ? { myMilestonesEmail: data.myMilestonesEmail } : {}),
-                ...(data.freezeStatusNotifications !== undefined ? { freezeStatusNotifications: data.freezeStatusNotifications } : {}),
+                ...(data.myMilestonesInApp !== undefined ? { myMilestonesInApp: data.myMilestonesInApp } : {}),
+                ...(freezeStatusEmailVal !== undefined ? { freezeStatusNotifications: freezeStatusEmailVal } : {}),
+                ...(data.freezeStatusInApp !== undefined ? { freezeStatusInApp: data.freezeStatusInApp } : {}),
                 ...customEmailUpdate,
             },
         });
@@ -376,9 +408,13 @@ async function getReminderSchedules(req, res) {
             },
             orderBy: [{ scope: 'asc' }, { time: 'asc' }],
         });
+        const maxAllowed = (0, adminConfigService_1.getUserReminderLimit)(userId);
+        const taskMaxAllowed = (0, adminConfigService_1.getUserTaskReminderLimit)(userId);
         return res.json({
             success: true,
             schedules,
+            maxAllowed,
+            taskMaxAllowed,
         });
     }
     catch (err) {
@@ -426,7 +462,7 @@ async function createReminderSchedule(req, res) {
         if (!countCheck.valid) {
             return res.status(400).json({
                 success: false,
-                error: `Maximum 3 reminder times allowed for ${scope === 'OVERALL' ? 'the overall streak' : 'this specific task'}.`,
+                error: `Maximum ${countCheck.maxAllowed} reminder times allowed for ${scope === 'OVERALL' ? 'the overall streak' : 'this specific task'}.`,
             });
         }
         // Format time cleanly to HH:mm

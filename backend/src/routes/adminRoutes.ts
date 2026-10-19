@@ -39,6 +39,7 @@ import {
   getUserReminderSettings,
   adminUpdateOverallReminders,
   adminUpdateTaskReminders,
+  adminSendTestReminder,
   adminTriggerManualReminderCheck,
   adminUpdateUserPreferences,
   getMemberLinkedInGamesAdmin,
@@ -98,6 +99,7 @@ router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserD
 router.get('/users/:userId/reminders', getUserReminderSettings);
 router.post('/users/:userId/reminders/overall', requireSensitiveAuth, adminUpdateOverallReminders);
 router.post('/users/:userId/reminders/tasks/:taskId', requireSensitiveAuth, adminUpdateTaskReminders);
+router.post('/users/:userId/reminders/send-test', requireSensitiveAuth, adminSendTestReminder);
 router.delete('/reminders/:reminderId', adminDeleteReminderSchedule);
 router.post('/reminders/run-check', requireSensitiveAuth, adminTriggerManualReminderCheck);
 router.put('/users/:userId/preferences', requireSensitiveAuth, adminUpdateUserPreferences);

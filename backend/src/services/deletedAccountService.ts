@@ -34,7 +34,13 @@ export function loadAllDeletedAccounts(): DeletedAccountRecord[] {
   try {
     if (fs.existsSync(DELETED_ACCOUNTS_FILE)) {
       const data = fs.readFileSync(DELETED_ACCOUNTS_FILE, 'utf-8');
-      return JSON.parse(data) || [];
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (r: any) => r && typeof r.userId === 'string' && r.userId.trim().length > 0
+        );
+      }
+      return [];
     }
   } catch (err) {
     console.error('[deletedAccountService] Failed to read deleted_accounts.json:', err);
@@ -126,6 +132,10 @@ export async function recordAccountDeletion(
     username = argUsername || 'user';
     name = username;
     deletedBy = 'USER';
+  }
+
+  if (!userId || typeof userId !== 'string' || !userId.trim()) {
+    throw new Error('Valid userId is required to record account deletion');
   }
 
   await initDeletedAccountsTable();

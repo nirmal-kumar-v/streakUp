@@ -8,6 +8,7 @@ exports.getFriendsLeaderboard = getFriendsLeaderboard;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const dbError_1 = require("../utils/dbError");
+const adminConfigService_1 = require("../services/adminConfigService");
 /**
  * Global Leaderboard (Public access, optional authentication)
  * Supports type: 'streak' (default) or 'points' (Requirement 11)
@@ -15,9 +16,10 @@ const dbError_1 = require("../utils/dbError");
 async function getGlobalLeaderboard(req, res) {
     try {
         const currentUserId = req.user?.userId;
+        const userLimit = currentUserId ? (0, adminConfigService_1.getUserLeaderboardLimit)(currentUserId) : 10;
         const type = req.query.type === 'points' ? 'points' : 'streak';
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || userLimit));
         const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
         const skip = (page - 1) * limit;
         const where = {};
@@ -199,7 +201,8 @@ async function getGlobalLeaderboard(req, res) {
                 totalUsers,
                 totalPages: Math.ceil(totalUsers / limit)
             },
-            currentUserRankInfo
+            currentUserRankInfo,
+            userLeaderboardLimit: userLimit
         });
     }
     catch (err) {

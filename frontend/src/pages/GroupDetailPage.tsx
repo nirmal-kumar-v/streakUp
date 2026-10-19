@@ -522,7 +522,7 @@ export const GroupDetailPage: React.FC = () => {
         setGroup(res.group);
         if (isLinkedInName(res.group.name)) {
           const tabParam = new URLSearchParams(window.location.search).get('tab');
-          if (tabParam === 'games' || !tabParam) {
+          if (tabParam === 'games' || !tabParam || tabParam === 'task') {
             setActiveMainTab('games');
           }
         }
@@ -951,17 +951,19 @@ export const GroupDetailPage: React.FC = () => {
           </button>
         )}
 
-        <button
-          onClick={() => setActiveMainTab('task')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
-            activeMainTab === 'task'
-              ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
-              : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
-          }`}
-        >
-          <CheckSquare className="w-3.5 h-3.5" />
-          <span>Habit</span>
-        </button>
+        {!isLinkedIn && (
+          <button
+            onClick={() => setActiveMainTab('task')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeMainTab === 'task'
+                ? 'bg-dark-card text-flame-400 border border-dark-border shadow-sm'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+            }`}
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span>Habit</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveMainTab('leaderboard')}
@@ -1037,7 +1039,7 @@ export const GroupDetailPage: React.FC = () => {
       )}
 
       {/* TAB 1: SHARED TASK VIEW */}
-      {activeMainTab === 'task' && (
+      {activeMainTab === 'task' && !isLinkedIn && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Shared Task Card */}
           <div className="lg:col-span-2 space-y-4">

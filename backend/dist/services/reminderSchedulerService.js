@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.calculateNextOccurrence = calculateNextOccurrence;
 exports.validateReminderCount = validateReminderCount;
 exports.runReminderCheck = runReminderCheck;
 exports.startReminderScheduler = startReminderScheduler;
@@ -12,12 +13,93 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const client_1 = require("@prisma/client");
 const notificationService_1 = require("./notificationService");
 const emailService_1 = require("./emailService");
-const MAX_REMINDERS_PER_SCOPE = 3;
+const adminController_1 = require("../controllers/adminController");
+const adminConfigService_1 = require("./adminConfigService");
 /**
- * Validates that adding a reminder time does not exceed the maximum of 3 times per scope.
+ * Validates that adding a reminder time does not exceed the allowed quota per scope.
+ */
+/**
+ * Calculates the exact next occurrence for a reminder schedule based on user's timezone and task active days
+ */
+function calculateNextOccurrence(timeStr, timezone = 'Asia/Kolkata', scheduledDays, // Array of 0..6
+isEnabled = true) {
+    if (!isEnabled) {
+        return {
+            nextIso: null,
+            nextDisplay: 'Schedule is paused/disabled',
+            relativeDisplay: 'Disabled',
+            isToday: false,
+        };
+    }
+    const zone = timezone || 'Asia/Kolkata';
+    const now = luxon_1.DateTime.now().setZone(zone);
+    const parts = timeStr.split(':').map(Number);
+    const hour = parts[0] || 0;
+    const minute = parts[1] || 0;
+    const validDays = scheduledDays && scheduledDays.length > 0 ? scheduledDays : [0, 1, 2, 3, 4, 5, 6];
+    // Try checking from today up to 7 days ahead
+    for (let offset = 0; offset <= 7; offset++) {
+        const candidateDate = now.plus({ days: offset }).set({ hour, minute, second: 0, millisecond: 0 });
+        const candidateDayOfWeek = candidateDate.weekday % 7;
+        if (!validDays.includes(candidateDayOfWeek)) {
+            continue;
+        }
+        if (offset === 0 && candidateDate <= now) {
+            // Time has already passed today
+            continue;
+        }
+        // Found next occurrence!
+        const isToday = offset === 0;
+        const isTomorrow = offset === 1;
+        let relative = '';
+        const diff = candidateDate.diff(now, ['hours', 'minutes']);
+        const diffHours = Math.floor(diff.hours);
+        const diffMins = Math.floor(diff.minutes);
+        if (isToday) {
+            relative = `Today in ${diffHours > 0 ? `${diffHours}h ` : ''}${diffMins}m`;
+        }
+        else if (isTomorrow) {
+            relative = `Tomorrow at ${candidateDate.toFormat('hh:mm a')}`;
+        }
+        else {
+            relative = `${candidateDate.toFormat('cccc')} at ${candidateDate.toFormat('hh:mm a')}`;
+        }
+        return {
+            nextIso: candidateDate.toISO(),
+            nextDisplay: candidateDate.toFormat('EEE, d MMM yyyy, hh:mm a (ZZZZ)'),
+            relativeDisplay: relative,
+            isToday,
+        };
+    }
+    return {
+        nextIso: null,
+        nextDisplay: 'No upcoming scheduled active days',
+        relativeDisplay: 'Inactive',
+        isToday: false,
+    };
+}
+/**
+ * Validates that adding a reminder time does not exceed the allowed quota per scope.
  */
 async function validateReminderCount(params) {
     const { userId, scope, taskId } = params;
+    // Personal and group tasks are permitted up to taskReminderLimit (default: 1)
+    if (scope === client_1.ReminderScope.TASK) {
+        const maxAllowed = (0, adminConfigService_1.getUserTaskReminderLimit)(userId);
+        const currentCount = await prisma_1.default.reminderSchedule.count({
+            where: {
+                userId,
+                scope: client_1.ReminderScope.TASK,
+                taskId: taskId || null,
+            },
+        });
+        return {
+            valid: currentCount < maxAllowed,
+            currentCount,
+            maxAllowed,
+        };
+    }
+    const maxAllowed = (0, adminConfigService_1.getUserReminderLimit)(userId);
     const currentCount = await prisma_1.default.reminderSchedule.count({
         where: {
             userId,
@@ -26,8 +108,9 @@ async function validateReminderCount(params) {
         },
     });
     return {
-        valid: currentCount < MAX_REMINDERS_PER_SCOPE,
+        valid: currentCount < maxAllowed,
         currentCount,
+        maxAllowed,
     };
 }
 /**
@@ -38,7 +121,11 @@ async function runReminderCheck() {
     const activeSchedules = await prisma_1.default.reminderSchedule.findMany({
         where: { isEnabled: true },
         include: {
-            user: true,
+            user: {
+                include: {
+                    notificationPreference: true,
+                },
+            },
             task: true,
         },
     });
@@ -118,6 +205,13 @@ async function runReminderCheck() {
                 skipped++;
                 continue;
             }
+            // Check if today is an active scheduled day for this task
+            const dayOfWeek = userLocalTime.weekday % 7; // 0=Sunday..6=Saturday
+            const scheduledDays = task.scheduledDays || [0, 1, 2, 3, 4, 5, 6];
+            if (scheduledDays.length > 0 && !scheduledDays.includes(dayOfWeek)) {
+                skipped++;
+                continue;
+            }
             // Check if this specific task has already been completed today
             const taskCompletion = await prisma_1.default.taskCompletion.findFirst({
                 where: {
@@ -151,6 +245,13 @@ async function runReminderCheck() {
             if (notif)
                 sent++;
         }
+    }
+    // Automatically purge admin audit logs older than 15 days
+    try {
+        await (0, adminController_1.cleanupOldAuditLogs)();
+    }
+    catch (err) {
+        // Non-blocking cleanup
     }
     return { processed, sent, skipped };
 }

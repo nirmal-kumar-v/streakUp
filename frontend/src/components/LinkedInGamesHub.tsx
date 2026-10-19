@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   Calendar,
   Sparkles,
-  Snowflake,
   RefreshCw,
   Crown,
   HelpCircle,
@@ -538,8 +537,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
               </div>
             )}
 
-            {/* 4 Stat Badges for Selected Game */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-dark-border">
+            {/* 3 Stat Badges for Selected Game */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 pt-6 border-t border-dark-border">
               <div className="bg-dark-surface rounded-xl p-3 border border-dark-border/80 text-center">
                 <div className="flex items-center justify-center gap-1.5 text-[11px] text-dark-muted uppercase font-semibold">
                   <Flame className="w-3.5 h-3.5 text-flame-400" />
@@ -569,17 +568,6 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 </div>
                 <div className="text-2xl font-black font-mono text-emerald-400 mt-1">
                   {activeGameData.totalCompletions}
-                </div>
-              </div>
-
-              <div className="bg-dark-surface rounded-xl p-3 border border-dark-border/80 text-center">
-                <div className="flex items-center justify-center gap-1.5 text-[11px] text-dark-muted uppercase font-semibold">
-                  <Snowflake className="w-3.5 h-3.5 text-sky-400" />
-                  <span>Freezes</span>
-                </div>
-                <div className="text-2xl font-black font-mono text-sky-400 mt-1">
-                  {activeGameData.freezeBalance}
-                  <span className="text-xs font-normal text-dark-muted ml-1">shield</span>
                 </div>
               </div>
             </div>

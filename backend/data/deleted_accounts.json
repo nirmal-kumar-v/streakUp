@@ -1,5 +1,19 @@
 [
   {
+    "id": "325caa75-005d-49cb-8fdc-847b96684672",
+    "userId": "2d8cf819-171a-4139-b974-c9ab6d40ff63",
+    "username": "Jaishu",
+    "name": "Jaishu",
+    "email": "j@test.com",
+    "deletedAt": "2026-10-19T17:53:44.256Z",
+    "expiresAt": "2026-10-29T17:53:44.256Z",
+    "deletedBy": "USER",
+    "reason": "Testing recovery",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-10-19T17:53:44.716Z",
+    "recoveredBy": "SuperAdmin"
+  },
+  {
     "id": "2103289e-3c7a-4c65-9045-acfe1e6554a7",
     "userId": "test-del-user-1792421762256",
     "username": "deleteduser_test",
@@ -37,12 +51,5 @@
     "reason": "Deleted by user in settings",
     "status": "RECOVERED",
     "recoveredAt": "2026-10-19T14:54:20.743Z"
-  },
-  {
-    "id": "2c650085-780c-4de8-9ba5-c953036e9120",
-    "deletedAt": "2026-10-19T14:53:31.304Z",
-    "expiresAt": "2026-10-29T14:53:31.304Z",
-    "reason": "Deleted by user in settings",
-    "status": "DELETED"
   }
 ]

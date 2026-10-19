@@ -78,12 +78,12 @@ import {
   getUserReminderSettings,
   adminUpdateOverallReminders,
   adminUpdateTaskReminders,
+  adminSendTestReminder,
   adminTriggerManualReminderCheck,
   adminUpdateUserPreferences,
   getMemberLinkedInGamesAdmin,
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
-  adminFreezeLinkedInGameDate,
   adminSetLinkedInGameCommitment,
   AdminUser,
   AdminAuditLogItem,
@@ -121,6 +121,7 @@ export const AdminControlPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AdminUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [userFilterTab, setUserFilterTab] = useState<'all' | 'deleted'>('all');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserDetails, setSelectedUserDetails] = useState<any | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -224,6 +225,7 @@ export const AdminControlPage: React.FC = () => {
   const [isRunningManualCheck, setIsRunningManualCheck] = useState(false);
   const [adminNotificationPreferences, setAdminNotificationPreferences] = useState<NotificationPreference | null>(null);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
+  const [isSendingTestReminder, setIsSendingTestReminder] = useState(false);
 
   // Points
   const [pointsDelta, setPointsDelta] = useState<number>(0);
@@ -338,11 +340,6 @@ export const AdminControlPage: React.FC = () => {
   const [adminGameGrantReason, setAdminGameGrantReason] = useState<string>('');
   const [isSubmittingAdminGameGrant, setIsSubmittingAdminGameGrant] = useState(false);
 
-  const [adminGameFreezeDate, setAdminGameFreezeDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [adminGameFreezeAction, setAdminGameFreezeAction] = useState<boolean>(true);
-  const [adminGameFreezeReason, setAdminGameFreezeReason] = useState<string>('');
-  const [isSubmittingAdminGameFreeze, setIsSubmittingAdminGameFreeze] = useState(false);
-
   const [adminGameCommitmentReason, setAdminGameCommitmentReason] = useState<string>('');
   const [isSubmittingAdminGameCommitment, setIsSubmittingAdminGameCommitment] = useState(false);
 
@@ -444,10 +441,10 @@ export const AdminControlPage: React.FC = () => {
   // ------------------------------------------
   // User Search & Selection
   // ------------------------------------------
-  const handleSearchUsers = async (q: string = searchQuery) => {
+  const handleSearchUsers = async (q: string = searchQuery, filter: 'all' | 'deleted' = userFilterTab) => {
     setIsSearching(true);
     try {
-      const res = await searchAdminUsers(q.trim());
+      const res = await searchAdminUsers(q.trim(), filter === 'deleted' ? 'deleted' : undefined);
       if (res.success) {
         setSearchResults(res.users || []);
       }
@@ -886,45 +883,6 @@ export const AdminControlPage: React.FC = () => {
           toast.error(extractErrorMessage(err, `Failed to grant ${gameName} date.`));
         } finally {
           setIsSubmittingAdminGameGrant(false);
-        }
-      }
-    );
-  };
-
-  const handleAdminFreezeGameDate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUserId || !linkedInGroup?.id) return;
-    const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
-    const gameName = game ? game.name : selectedAdminGameId;
-    const actionLabel = adminGameFreezeAction ? 'freeze' : 'unfreeze';
-    const reason = adminGameFreezeReason.trim() || `Admin ${actionLabel}d ${gameName} on ${adminGameFreezeDate}`;
-
-    openPinPrompt(
-      `Authorize ${gameName} Freeze Update`,
-      `Enter Super Admin Sensitive Password to ${actionLabel} ${gameName} on ${adminGameFreezeDate} for @${selectedUserDetails?.username}.`,
-      async (pin) => {
-        setIsSubmittingAdminGameFreeze(true);
-        try {
-          const res = await adminFreezeLinkedInGameDate(selectedUserId, linkedInGroup.id, {
-            gameId: selectedAdminGameId,
-            date: adminGameFreezeDate,
-            isFrozen: adminGameFreezeAction,
-            reason,
-            sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
-          });
-          if (res.success) {
-            toast.info(res.message);
-            setAdminGameFreezeReason('');
-            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, `Failed to update ${gameName} freeze.`));
-        } finally {
-          setIsSubmittingAdminGameFreeze(false);
         }
       }
     );
@@ -1694,6 +1652,34 @@ export const AdminControlPage: React.FC = () => {
           toast.error(extractErrorMessage(err, 'Failed to update notification channel preferences.'));
         } finally {
           setIsSavingPreferences(false);
+        }
+      }
+    );
+  };
+
+  const handleSendTestReminder = (scope: 'OVERALL' | 'TASK', taskId?: string, taskTitle?: string) => {
+    if (!selectedUserId) return;
+    openPinPrompt(
+      'Authorize Test Reminder Delivery',
+      `Enter Super Admin Sensitive Password to dispatch a live test ${
+        scope === 'TASK' ? `task reminder for "${taskTitle}"` : 'overall streak reminder'
+      } to @${selectedUserDetails?.username} via In-App and Email.`,
+      async (pin) => {
+        setIsSendingTestReminder(true);
+        try {
+          const res = await adminSendTestReminder(selectedUserId, {
+            scope,
+            taskId,
+            reason: `Super Admin test reminder dispatch (${scope})`,
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.success(res.message);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to dispatch test reminder.'));
+        } finally {
+          setIsSendingTestReminder(false);
         }
       }
     );
@@ -2478,12 +2464,44 @@ export const AdminControlPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSearching}
-                  className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                  className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer"
                 >
                   {isSearching ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   <span>Search Directory</span>
                 </button>
               </form>
+
+              <div className="flex items-center gap-2 pt-3 mt-3 border-t border-dark-border/60">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserFilterTab('all');
+                    handleSearchUsers(searchQuery, 'all');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    userFilterTab === 'all'
+                      ? 'bg-flame-500 text-zinc-950 shadow-sm'
+                      : 'bg-dark-surface hover:bg-dark-surface/80 text-zinc-400 hover:text-zinc-200 border border-dark-border'
+                  }`}
+                >
+                  All Users
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserFilterTab('deleted');
+                    handleSearchUsers(searchQuery, 'deleted');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    userFilterTab === 'deleted'
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'bg-dark-surface hover:bg-dark-surface/80 text-rose-400 hover:text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Deleted Accounts (Recovery Window)</span>
+                </button>
+              </div>
             </div>
 
             {/* Layout: Either Search Results or Selected User Control Center */}
@@ -3626,12 +3644,14 @@ export const AdminControlPage: React.FC = () => {
                           <option value="overall">
                             Overall Streak Scope (Current Capacity: {selectedUserDetails?.overallFreezeCapacity || 1}, Shields: {selectedUserDetails?.overallFreezeBalance || 0}/{selectedUserDetails?.overallFreezeCapacity || 1})
                           </option>
-                          {selectedUserDetails?.tasks?.map((t: any) => (
-                            <option key={t.id} value={t.id}>
-                              {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal Task] '}
-                              {t.title} (Cap: {t.freezeCapacity || 1}, Shields: {t.freezeBalance || 0}/{t.freezeCapacity || 1}, Recharge: {t.freezeRechargeDays || 0}/7d)
-                            </option>
-                          ))}
+                          {selectedUserDetails?.tasks
+                            ?.filter((t: any) => !isLinkedInName(t.title) && !isLinkedInName(t.group?.name))
+                            .map((t: any) => (
+                              <option key={t.id} value={t.id}>
+                                {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal Task] '}
+                                {t.title} (Cap: {t.freezeCapacity || 1}, Shields: {t.freezeBalance || 0}/{t.freezeCapacity || 1}, Recharge: {t.freezeRechargeDays || 0}/7d)
+                              </option>
+                            ))}
                         </select>
                         {freezeScope !== 'overall' && selectedUserDetails?.tasks?.find((t: any) => t.id === freezeScope)?.isGroupTask && (
                           <p className="text-[10px] text-amber-400 pt-1">
@@ -3937,7 +3957,7 @@ export const AdminControlPage: React.FC = () => {
                           const isCommitted = activeRecord?.isCommitted !== false;
                           return (
                             <div className="space-y-4">
-                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
                                   <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
                                     Current Streak
@@ -3955,16 +3975,6 @@ export const AdminControlPage: React.FC = () => {
                                   <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-zinc-200">
                                     <Trophy className="w-5 h-5 text-amber-400" />
                                     <span>{activeRecord?.longestStreak ?? 0}d</span>
-                                  </div>
-                                </div>
-
-                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
-                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
-                                    Freeze Available
-                                  </span>
-                                  <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-sky-400">
-                                    <Snowflake className="w-5 h-5 text-sky-400" />
-                                    <span>{activeRecord?.freezeBalance ?? 1}/1</span>
                                   </div>
                                 </div>
 
@@ -4004,7 +4014,7 @@ export const AdminControlPage: React.FC = () => {
                               </div>
 
                               {/* Game Management Actions Grid */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {/* Form A: Commitment Control */}
                                 <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3 flex flex-col justify-between">
                                   <div className="space-y-3">
@@ -4175,77 +4185,6 @@ export const AdminControlPage: React.FC = () => {
                                     >
                                       {isSubmittingAdminGameGrant ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                                       <span>Grant Completion Date</span>
-                                    </button>
-                                  </form>
-                                </div>
-
-                                {/* Form C: Freeze / Protect Date */}
-                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
-                                  <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
-                                    <Snowflake className="w-4 h-4 text-sky-400" />
-                                    <span>Freeze / Protect Date</span>
-                                  </h4>
-                                  <p className="text-[11px] text-zinc-400">
-                                    Protect or unfreeze a date specifically for {activeGame?.name}.
-                                  </p>
-
-                                  <form onSubmit={handleAdminFreezeGameDate} className="space-y-3">
-                                    <div>
-                                      <label className="text-[10px] text-zinc-400 block mb-1">Target Date</label>
-                                      <input
-                                        type="date"
-                                        value={adminGameFreezeDate}
-                                        onChange={(e) => setAdminGameFreezeDate(e.target.value)}
-                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 font-mono"
-                                        required
-                                      />
-                                    </div>
-
-                                    <div className="flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setAdminGameFreezeAction(true)}
-                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                          adminGameFreezeAction
-                                            ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
-                                            : 'bg-dark-card text-zinc-400 border-dark-border'
-                                        }`}
-                                      >
-                                        Freeze
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setAdminGameFreezeAction(false)}
-                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                                          !adminGameFreezeAction
-                                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
-                                            : 'bg-dark-card text-zinc-400 border-dark-border'
-                                        }`}
-                                      >
-                                        Unfreeze
-                                      </button>
-                                    </div>
-
-                                    <div>
-                                      <input
-                                        type="text"
-                                        value={adminGameFreezeReason}
-                                        onChange={(e) => setAdminGameFreezeReason(e.target.value)}
-                                        placeholder="Admin reason..."
-                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
-                                        required
-                                      />
-                                    </div>
-
-                                    {renderNotificationOptions()}
-
-                                    <button
-                                      type="submit"
-                                      disabled={isSubmittingAdminGameFreeze}
-                                      className="w-full py-2 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                                    >
-                                      {isSubmittingAdminGameFreeze ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                                      <span>Apply Game Freeze</span>
                                     </button>
                                   </form>
                                 </div>
@@ -4670,18 +4609,34 @@ export const AdminControlPage: React.FC = () => {
                           </div>
                         )}
 
-                        <button
-                          type="submit"
-                          disabled={isSavingOverallReminders}
-                          className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
-                        >
-                          {isSavingOverallReminders ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-4 h-4" />
-                          )}
-                          <span>Save Overall Reminder Settings</span>
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2.5">
+                          <button
+                            type="submit"
+                            disabled={isSavingOverallReminders}
+                            className="flex-1 py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                          >
+                            {isSavingOverallReminders ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4" />
+                            )}
+                            <span>Save Overall Reminder Settings</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendTestReminder('OVERALL')}
+                            disabled={isSendingTestReminder}
+                            className="px-4 py-2.5 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/40 text-sky-300 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                            title="Send an immediate test reminder to the user's In-App and Email inbox"
+                          >
+                            {isSendingTestReminder ? (
+                              <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
+                            ) : (
+                              <Bell className="w-4 h-4 text-sky-400" />
+                            )}
+                            <span>Send Test Reminder</span>
+                          </button>
+                        </div>
                       </form>
                     </div>
 
@@ -4830,13 +4785,27 @@ export const AdminControlPage: React.FC = () => {
                                   )}
                                 </div>
 
-                                {/* Save Button */}
-                                <div className="flex justify-end pt-1">
+                                {/* Save Button & Test Action */}
+                                <div className="flex justify-end gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSendTestReminder('TASK', task.id, task.title)}
+                                    disabled={isSendingTestReminder}
+                                    className="px-3 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                    title="Send a live test reminder for this task"
+                                  >
+                                    {isSendingTestReminder ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Bell className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Send Test</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => handleSaveTaskReminders(task.id, task.title)}
                                     disabled={savingTaskId === task.id}
-                                    className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                    className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                                   >
                                     {savingTaskId === task.id ? (
                                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -6260,6 +6229,31 @@ export const AdminControlPage: React.FC = () => {
                         </p>
                       </div>
                     </div>
+
+                    {selectedUserDetails?.isDeleted && (
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                            <h4 className="text-xs font-bold text-emerald-300">Account Currently in Deletion Recovery Window</h4>
+                          </div>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
+                            {selectedUserDetails.deletionDaysRemaining ?? 10} Days Remaining
+                          </span>
+                        </div>
+                        <p className="text-xs text-zinc-300">
+                          This user requested account deletion and is currently blocked from logging in. You can restore their account and full login access with all streaks, tasks, and history intact.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleRecoverUserAccount(selectedUserDetails.id, selectedUserDetails.username)}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Authorize & Recover Account</span>
+                        </button>
+                      </div>
+                    )}
 
                     <div className="p-4 bg-dark-bg/60 rounded-xl border border-rose-500/20 text-xs text-zinc-300 space-y-2">
                       <p className="font-bold text-rose-300">Cascaded Deletions Include:</p>

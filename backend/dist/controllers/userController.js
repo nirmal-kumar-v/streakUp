@@ -54,6 +54,8 @@ const streakService_1 = require("../services/streakService");
 const client_1 = require("@prisma/client");
 const otpService_1 = require("../services/otpService");
 const emailService_1 = require("../services/emailService");
+const adminConfigService_1 = require("../services/adminConfigService");
+const imageValidator_1 = require("../utils/imageValidator");
 const updateProfileSchema = zod_1.z.object({
     name: zod_1.z.string().min(2).max(50).optional(),
     profileImage: zod_1.z.string().max(500).optional().nullable(),
@@ -83,7 +85,9 @@ async function getPublicProfile(req, res) {
                 createdAt: true,
                 _count: {
                     select: {
-                        taskCompletions: true
+                        taskCompletions: true,
+                        friendshipsAsUser1: true,
+                        friendshipsAsUser2: true,
                     }
                 }
             }
@@ -126,6 +130,7 @@ async function getPublicProfile(req, res) {
                 }
             }
         }
+        const connectionsCount = (user._count?.friendshipsAsUser1 || 0) + (user._count?.friendshipsAsUser2 || 0);
         return res.json({
             success: true,
             profile: {
@@ -137,6 +142,7 @@ async function getPublicProfile(req, res) {
                 longestStreak: user.longestStreak,
                 points: user.points ?? 0,
                 totalCompletedTasks: user._count.taskCompletions,
+                connectionsCount,
                 memberSince: user.createdAt,
                 relationshipStatus,
                 requestId
@@ -232,20 +238,22 @@ async function uploadProfileImage(req, res) {
         }
         const mimeType = match[1].toLowerCase();
         const base64Data = match[2];
-        // Check size limit: max 5MB (Base64 string ~ 7MB)
-        const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
-        const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+        const buffer = Buffer.from(base64Data, 'base64');
+        const sizeInBytes = buffer.length;
+        const limitMb = (0, adminConfigService_1.getUserProfileImageLimitMb)(userId);
+        const MAX_SIZE_BYTES = limitMb * 1024 * 1024;
         if (sizeInBytes > MAX_SIZE_BYTES) {
             return res.status(400).json({
                 success: false,
-                error: `File size exceeds the 5 MB limit. Your file is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
+                error: `File size exceeds your ${limitMb} MB limit. Your file is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
             });
         }
-        // Validate minimum content size (empty or corrupt images)
-        if (sizeInBytes < 64) {
+        // Validate image file content, magic bytes, dimensions, and integrity
+        const validation = (0, imageValidator_1.validateImageBuffer)(buffer, mimeType);
+        if (!validation.valid) {
             return res.status(400).json({
                 success: false,
-                error: 'The uploaded file is empty or corrupted.'
+                error: validation.error || 'The uploaded file is empty or corrupted.'
             });
         }
         // Save persistent image data in PostgreSQL
@@ -646,12 +654,13 @@ async function verifyChangeEmail(req, res) {
                 error: 'This email address is already in use by another account.',
             });
         }
-        // Update user registered email and record timestamp
+        // Update user registered email and record timestamp, ensuring verified status
         const now = new Date();
         const updatedUser = await prisma_1.default.user.update({
             where: { id: userId },
             data: {
                 email: cleanNewEmail,
+                isEmailVerified: true,
                 emailLastChangedAt: now,
             },
             select: {
@@ -660,6 +669,15 @@ async function verifyChangeEmail(req, res) {
                 username: true,
                 email: true,
                 emailLastChangedAt: true,
+                isEmailVerified: true,
+            },
+        });
+        // Reset customNotificationEmail so all future notifications seamlessly route to the new verified registered email
+        await prisma_1.default.notificationPreference.updateMany({
+            where: { userId },
+            data: {
+                customNotificationEmail: null,
+                isCustomEmailVerified: false,
             },
         });
         return res.json({
@@ -717,44 +735,22 @@ async function deleteAccount(req, res) {
                 return res.status(401).json({ success: false, error: 'Incorrect password entered.' });
             }
         }
-        // Execute atomic cleanup
-        await prisma_1.default.$transaction(async (tx) => {
-            // 1. Handle owned groups safely:
-            // If group has other members, transfer ownership to the earliest joined member.
-            // If user was the sole member, delete the group.
-            for (const group of user.ownedGroups) {
-                if (group.members.length > 0) {
-                    const nextOwner = group.members[0];
-                    await tx.group.update({
-                        where: { id: group.id },
-                        data: { ownerId: nextOwner.userId }
-                    });
-                    await tx.groupMember.update({
-                        where: { id: nextOwner.id },
-                        data: { role: 'OWNER' }
-                    });
-                }
-                else {
-                    await tx.group.delete({
-                        where: { id: group.id }
-                    });
-                }
-            }
-            // 2. Delete the user
-            // All relations with onDelete: Cascade will be permanently removed:
-            // Task, TaskCompletion, PointLedger, StudyNoteReaction, GroupMember,
-            // Friendship, FriendRequest, FreezeLog, Notification, NotificationPreference,
-            // ReminderSchedule, MilestoneEvent, EmailDelivery, EmailOtp, PasswordResetToken.
-            await tx.user.delete({
-                where: { id: userId }
-            });
+        // Soft-delete account: preserve records for 10-day admin recovery window
+        const { recordAccountDeletion } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+        await recordAccountDeletion({
+            userId,
+            username: user.username,
+            name: user.name,
+            email: user.email,
+            deletedBy: 'USER',
+            reason: 'Deleted by user in settings',
         });
         // Clear any auth cookies if present
         res.clearCookie('token');
         res.clearCookie('jwt');
         return res.json({
             success: true,
-            message: 'Your account and all associated data have been permanently deleted.'
+            message: 'Your account has been deleted. An admin can recover your account within 10 days.',
         });
     }
     catch (err) {

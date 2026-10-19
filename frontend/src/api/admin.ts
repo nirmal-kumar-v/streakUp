@@ -161,11 +161,11 @@ export async function clearAdminAuditLogs(params?: { targetUserId?: string; sens
   return res.data;
 }
 
-export async function searchAdminUsers(q: string = '') {
+export async function searchAdminUsers(q: string = '', filter?: string) {
   const res = await adminApiClient.get<{
     success: boolean;
     users: AdminUser[];
-  }>('/admin/users', { params: { q } });
+  }>('/admin/users', { params: { q, filter } });
   return res.data;
 }
 
@@ -725,6 +725,21 @@ export async function adminTriggerManualReminderCheck(sensitivePin?: string) {
   }>(
     '/admin/reminders/run-check',
     {},
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminSendTestReminder(
+  userId: string,
+  data: { scope: 'OVERALL' | 'TASK'; taskId?: string; reason?: string; sensitivePin?: string }
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/users/${userId}/reminders/send-test`,
+    body,
     {
       headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
     }
