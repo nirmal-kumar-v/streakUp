@@ -147,7 +147,9 @@ export interface StudyActivityItem {
   totalReactions?: number;
 }
 
-export async function fetchFriendsStudyActivity(page: number = 1, limit: number = 20) {
+export async function fetchFriendsStudyActivity(page: number = 1, limit: number = 20, days?: number) {
+  const params: Record<string, any> = { page, limit };
+  if (days && days > 0) params.days = days;
   const res = await apiClient.get<{
     success: boolean;
     activity: StudyActivityItem[];
@@ -157,7 +159,7 @@ export async function fetchFriendsStudyActivity(page: number = 1, limit: number 
       total: number;
       totalPages: number;
     };
-  }>('/friends/study-activity', { params: { page, limit } });
+  }>('/friends/study-activity', { params });
   return res.data;
 }
 

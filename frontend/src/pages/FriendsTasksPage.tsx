@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   fetchFriendsTasks,
   fetchFriendsStudyActivity,
   FriendTaskGroup,
   StudyActivityItem,
 } from '../api/friends';
-import { toggleStudyNoteReaction, ReactionType } from '../api/reactions';
+import { toggleStudyNoteReaction } from '../api/reactions';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 import {
@@ -16,6 +16,10 @@ import {
   Sparkles,
   Trophy,
   Activity,
+  Heart,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
 } from 'lucide-react';
 
 export const FriendsTasksPage: React.FC = () => {
@@ -23,10 +27,38 @@ export const FriendsTasksPage: React.FC = () => {
   const [friendsTasks, setFriendsTasks] = useState<FriendTaskGroup[]>([]);
   const [activity, setActivity] = useState<StudyActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Pagination & Filter state for Study Activity Feed
+  const [activityPage, setActivityPage] = useState<number>(1);
+  const [activityTotalPages, setActivityTotalPages] = useState<number>(1);
+  const [activityTotal, setActivityTotal] = useState<number>(0);
+  const [activityDays, setActivityDays] = useState<number | undefined>(undefined); // undefined = all time
+
+  const inFlightLikesRef = useRef<Set<string>>(new Set());
 
   // Detail Modal for viewing task leaderboard
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  const loadActivity = useCallback(async (targetPage = 1, targetDays = activityDays) => {
+    setIsLoadingActivity(true);
+    try {
+      const actRes = await fetchFriendsStudyActivity(targetPage, 15, targetDays);
+      if (actRes.success) {
+        setActivity(actRes.activity || []);
+        if (actRes.pagination) {
+          setActivityPage(actRes.pagination.page);
+          setActivityTotalPages(actRes.pagination.totalPages || 1);
+          setActivityTotal(actRes.pagination.total);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load study activity:', err);
+    } finally {
+      setIsLoadingActivity(false);
+    }
+  }, [activityDays]);
 
   const loadData = async () => {
     if (friendsTasks.length === 0 && activity.length === 0) {
@@ -36,10 +68,17 @@ export const FriendsTasksPage: React.FC = () => {
     try {
       const [tasksRes, actRes] = await Promise.all([
         fetchFriendsTasks(),
-        fetchFriendsStudyActivity(1, 40),
+        fetchFriendsStudyActivity(1, 15, activityDays),
       ]);
       if (tasksRes.success) setFriendsTasks(tasksRes.friendsTasks || []);
-      if (actRes.success) setActivity(actRes.activity || []);
+      if (actRes.success) {
+        setActivity(actRes.activity || []);
+        if (actRes.pagination) {
+          setActivityPage(actRes.pagination.page);
+          setActivityTotalPages(actRes.pagination.totalPages || 1);
+          setActivityTotal(actRes.pagination.total);
+        }
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to load friends tasks and activity.');
     } finally {
@@ -51,51 +90,63 @@ export const FriendsTasksPage: React.FC = () => {
     loadData();
   }, []);
 
-  const REACTION_CONFIG: Array<{ type: ReactionType; emoji: string; label: string }> = [
-    { type: 'FIRE', emoji: '🔥', label: 'Fire' },
-    { type: 'STRONG', emoji: '💪', label: 'Strong' },
-    { type: 'CLAP', emoji: '👏', label: 'Clap' },
-    { type: 'CELEBRATE', emoji: '🎉', label: 'Celebrate' },
-  ];
+  const handleTimeframeChange = (days?: number) => {
+    setActivityDays(days);
+    setActivityPage(1);
+    loadActivity(1, days);
+  };
 
-  const handleToggleReaction = async (completionId: string, reactionType: ReactionType) => {
-    // Optimistic UI update
+  // Instant optimistic like toggle (0ms latency, eliminates flicker)
+  const handleLikeNote = async (completionId: string) => {
+    if (inFlightLikesRef.current.has(completionId)) return;
+    inFlightLikesRef.current.add(completionId);
+
+    const targetItem = activity.find((a) => a.id === completionId);
+    if (!targetItem) {
+      inFlightLikesRef.current.delete(completionId);
+      return;
+    }
+
+    const previousItem = { ...targetItem };
+    const hadLiked =
+      targetItem.userReactions?.includes('LIKE') ||
+      (targetItem.userReactions && targetItem.userReactions.length > 0);
+
+    const currentLikes =
+      (targetItem.reactionCounts?.LIKE || 0) +
+      (targetItem.reactionCounts?.FIRE || 0) +
+      (targetItem.reactionCounts?.STRONG || 0) +
+      (targetItem.reactionCounts?.CLAP || 0) +
+      (targetItem.reactionCounts?.CELEBRATE || 0);
+
+    const nextLikes = hadLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+    const nextUserReactions = hadLiked ? [] : ['LIKE'];
+
+    // 1. Instant optimistic state update
     setActivity((prev) =>
       prev.map((item) => {
         if (item.id !== completionId) return item;
-        const currentReactions = { ...(item.reactions || {}) };
-        const currentUserReactions = [...(item.userReactions || [])];
-        const hasReacted = currentUserReactions.includes(reactionType);
-
-        if (hasReacted) {
-          currentReactions[reactionType] = Math.max(0, (currentReactions[reactionType] || 1) - 1);
-          const nextUserReactions = currentUserReactions.filter((r) => r !== reactionType);
-          return {
-            ...item,
-            reactions: currentReactions,
-            userReactions: nextUserReactions,
-          };
-        } else {
-          currentReactions[reactionType] = (currentReactions[reactionType] || 0) + 1;
-          currentUserReactions.push(reactionType);
-          return {
-            ...item,
-            reactions: currentReactions,
-            userReactions: currentUserReactions,
-          };
-        }
+        return {
+          ...item,
+          reactionCounts: { ...item.reactionCounts, LIKE: nextLikes },
+          reactions: { ...item.reactions, LIKE: nextLikes },
+          userReactions: nextUserReactions,
+          totalReactions: nextLikes,
+        };
       })
     );
 
+    // 2. Perform background sync
     try {
-      const res = await toggleStudyNoteReaction(completionId, reactionType);
+      const res = await toggleStudyNoteReaction(completionId, 'LIKE');
       if (res.success) {
-        const nextCounts = res.reactions || res.counts;
+        const nextCounts = res.counts || res.reactions;
         setActivity((prev) =>
           prev.map((item) => {
             if (item.id !== completionId) return item;
             return {
               ...item,
+              reactionCounts: nextCounts,
               reactions: nextCounts,
               userReactions: res.userReactions || [],
             };
@@ -103,8 +154,12 @@ export const FriendsTasksPage: React.FC = () => {
         );
       }
     } catch (err) {
-      console.error('Failed to toggle reaction:', err);
-      loadData();
+      // Rollback on network failure
+      setActivity((prev) =>
+        prev.map((item) => (item.id === completionId ? previousItem : item))
+      );
+    } finally {
+      inFlightLikesRef.current.delete(completionId);
     }
   };
 
@@ -281,8 +336,52 @@ export const FriendsTasksPage: React.FC = () => {
         </div>
       ) : (
         /* TAB 2: FRIENDS-ONLY STUDY ACTIVITY FEED */
-        <div className="space-y-3 max-w-3xl mx-auto">
-          {activity.length === 0 ? (
+        <div className="space-y-4 max-w-3xl mx-auto">
+          {/* Timeframe & Feed Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-dark-card border border-dark-border rounded-2xl">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-flame-400" />
+              <span className="text-xs font-bold text-zinc-200">Study Logs History</span>
+              {activityTotal > 0 && (
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  ({activityTotal} {activityTotal === 1 ? 'entry' : 'entries'})
+                </span>
+              )}
+            </div>
+
+            {/* Timeframe Quick Filters */}
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {[
+                { label: 'All', days: undefined },
+                { label: '30 Days', days: 30 },
+                { label: '14 Days', days: 14 },
+                { label: '7 Days', days: 7 },
+              ].map((tf) => {
+                const isSelected = activityDays === tf.days;
+                return (
+                  <button
+                    key={tf.label}
+                    type="button"
+                    onClick={() => handleTimeframeChange(tf.days)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-flame-500 text-zinc-950 font-bold shadow-sm'
+                        : 'bg-dark-surface hover:bg-dark-hover text-zinc-400 hover:text-zinc-200 border border-dark-border/60'
+                    }`}
+                  >
+                    {tf.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {isLoadingActivity ? (
+            <div className="py-16 text-center text-zinc-400 space-y-2">
+              <div className="w-6 h-6 border-2 border-flame-500 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs font-mono">Loading notes...</p>
+            </div>
+          ) : activity.length === 0 ? (
             <div className="py-20 text-center bg-dark-card border border-dashed border-dark-border rounded-2xl p-8 space-y-2">
               <Activity className="w-12 h-12 text-dark-muted mx-auto opacity-50" />
               <h3 className="text-base font-bold text-zinc-200">No Study Logs Yet</h3>
@@ -291,76 +390,127 @@ export const FriendsTasksPage: React.FC = () => {
               </p>
             </div>
           ) : (
-            activity.map((item) => (
-              <div
-                key={item.id}
-                className="p-4 bg-dark-card border border-dark-border rounded-2xl shadow-panel hover:border-zinc-700 transition-colors space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <InitialsAvatar
-                      name={item.user.name}
-                      image={item.user.profileImage}
-                      size="md"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-zinc-100">{item.user.name}</span>
-                        <span className="text-[11px] text-zinc-500 font-mono">
-                          @{item.user.username}
-                        </span>
-                        {item.isCurrentUser && (
-                          <span className="text-[10px] px-1.5 py-0.2 bg-flame-500 text-zinc-950 font-black rounded-full">
-                            YOU
-                          </span>
-                        )}
+            <>
+              {activity.map((item) => {
+                const hasLiked =
+                  item.userReactions?.includes('LIKE') ||
+                  (item.userReactions && item.userReactions.length > 0);
+
+                const totalLikes =
+                  (item.reactionCounts?.LIKE || 0) +
+                  (item.reactionCounts?.FIRE || 0) +
+                  (item.reactionCounts?.STRONG || 0) +
+                  (item.reactionCounts?.CLAP || 0) +
+                  (item.reactionCounts?.CELEBRATE || 0);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="p-4 bg-dark-card border border-dark-border rounded-2xl shadow-panel hover:border-zinc-700 transition-colors space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <InitialsAvatar
+                          name={item.user.name}
+                          image={item.user.profileImage}
+                          size="md"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-zinc-100">{item.user.name}</span>
+                            <span className="text-[11px] text-zinc-500 font-mono">
+                              @{item.user.username}
+                            </span>
+                            {item.isCurrentUser && (
+                              <span className="text-[10px] px-1.5 py-0.2 bg-flame-500 text-zinc-950 font-black rounded-full">
+                                YOU
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                            <span className="text-zinc-200 font-medium">"{item.task.title}"</span>
+                            <span>•</span>
+                            <span className="text-flame-400 font-mono font-bold flex items-center gap-0.5">
+                              <Flame className="w-3 h-3 fill-flame-500" />
+                              <span>{item.task.currentStreak}d</span>
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
-                        <span className="text-zinc-200 font-medium">"{item.task.title}"</span>
-                        <span>•</span>
-                        <span className="text-flame-400 font-mono font-bold flex items-center gap-0.5">
-                          <Flame className="w-3 h-3 fill-flame-500" />
-                          <span>{item.task.currentStreak}d</span>
-                        </span>
+
+                      <div className="text-right text-[11px] text-zinc-500 font-mono">
+                        {item.completionDate}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="text-right text-[11px] text-zinc-500 font-mono">
-                    {item.completionDate}
-                  </div>
-                </div>
+                    <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-200 italic flex items-start gap-2.5">
+                      <Sparkles className="w-4 h-4 text-flame-400 shrink-0 mt-0.5" />
+                      <span className="leading-relaxed">"{item.studyNote}"</span>
+                    </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs text-zinc-200 italic flex items-start gap-2.5">
-                  <Sparkles className="w-4 h-4 text-flame-400 shrink-0 mt-0.5" />
-                  <span className="leading-relaxed">"{item.studyNote}"</span>
-                </div>
-
-                {/* Study Note Reactions (Requirement 6) */}
-                <div className="flex items-center gap-2 pt-1 flex-wrap">
-                  {REACTION_CONFIG.map(({ type, emoji, label }) => {
-                    const count = item.reactions?.[type] || 0;
-                    const hasReacted = item.userReactions?.includes(type);
-                    return (
+                    {/* Single Premium Heart / Like Icon Bar */}
+                    <div className="flex items-center gap-2 pt-1">
                       <button
-                        key={type}
                         type="button"
-                        onClick={() => handleToggleReaction(item.id, type)}
-                        title={`${label} (${count})`}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all active:scale-95 border ${
-                          hasReacted
-                            ? 'bg-flame-500/20 border-flame-500/50 text-flame-300 font-bold shadow-sm'
+                        onClick={() => handleLikeNote(item.id)}
+                        title={hasLiked ? 'Unlike note' : 'Like note'}
+                        aria-label={hasLiked ? 'Unlike note' : 'Like note'}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 touch-manipulation select-none cursor-pointer border ${
+                          hasLiked
+                            ? 'bg-rose-500/15 border-rose-500/40 text-rose-400 shadow-sm shadow-rose-500/10'
                             : 'bg-dark-surface/60 border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
                         }`}
                       >
-                        <span className="text-sm">{emoji}</span>
-                        {count > 0 && <span className="font-mono text-[11px] font-bold">{count}</span>}
+                        <Heart
+                          className={`w-3.5 h-3.5 transition-transform ${
+                            hasLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-zinc-400'
+                          }`}
+                        />
+                        {totalLikes > 0 && (
+                          <span
+                            className={`font-mono text-[11px] font-bold ${
+                              hasLiked ? 'text-rose-400' : 'text-zinc-400'
+                            }`}
+                          >
+                            {totalLikes}
+                          </span>
+                        )}
                       </button>
-                    );
-                  })}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Multi-Page Pagination Bar */}
+              {activityTotalPages > 1 && (
+                <div className="flex items-center justify-between pt-3 pb-1 border-t border-dark-border/60">
+                  <button
+                    type="button"
+                    disabled={activityPage <= 1 || isLoadingActivity}
+                    onClick={() => loadActivity(activityPage - 1, activityDays)}
+                    className="px-3.5 py-2 bg-dark-card hover:bg-dark-surface border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous</span>
+                  </button>
+
+                  <span className="text-xs text-zinc-400 font-medium">
+                    Page <strong className="text-zinc-100">{activityPage}</strong> of{' '}
+                    <strong className="text-zinc-100">{activityTotalPages}</strong>
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={activityPage >= activityTotalPages || isLoadingActivity}
+                    onClick={() => loadActivity(activityPage + 1, activityDays)}
+                    className="px-3.5 py-2 bg-dark-card hover:bg-dark-surface border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
-              </div>
-            ))
+              )}
+            </>
           )}
         </div>
       )}

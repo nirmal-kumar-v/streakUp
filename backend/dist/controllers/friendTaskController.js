@@ -167,17 +167,20 @@ async function getFriendsStudyActivity(req, res) {
         const friendIds = await getAcceptedFriendUserIds(userId);
         // Include self and friends
         const allowedUserIds = [userId, ...friendIds];
+        const days = req.query.days ? parseInt(req.query.days) : undefined;
+        const dateFilter = days && !isNaN(days) && days > 0
+            ? { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) }
+            : undefined;
+        const baseWhere = {
+            userId: { in: allowedUserIds },
+            studyNote: { not: null },
+            ...(dateFilter ? { completedAt: dateFilter } : {})
+        };
         const totalCompletions = await prisma_1.default.taskCompletion.count({
-            where: {
-                userId: { in: allowedUserIds },
-                studyNote: { not: null }
-            }
+            where: baseWhere
         });
         const completions = await prisma_1.default.taskCompletion.findMany({
-            where: {
-                userId: { in: allowedUserIds },
-                studyNote: { not: null }
-            },
+            where: baseWhere,
             orderBy: { completedAt: 'desc' },
             skip,
             take: limit,

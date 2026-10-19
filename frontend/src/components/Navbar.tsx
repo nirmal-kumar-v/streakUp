@@ -18,11 +18,18 @@ import { InitialsAvatar } from './InitialsAvatar';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
-  const { pendingRequestsCount } = useBadges();
+  const { pendingRequestsCount, unreadNotificationsCount, clearNotifications } = useBadges();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Auto-clear notification indicator when visiting /notifications
+  useEffect(() => {
+    if (location.pathname === '/notifications' && unreadNotificationsCount > 0) {
+      clearNotifications();
+    }
+  }, [location.pathname, unreadNotificationsCount, clearNotifications]);
 
   // Auto-close mobile menu on route change
   useEffect(() => {
@@ -220,6 +227,12 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
+                  {unreadNotificationsCount > 0 && !isActive('/notifications') && (
+                    <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-flame-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-flame-500 ring-2 ring-dark-bg" />
+                    </span>
+                  )}
                 </Link>
 
                 {/* Current Streak Indicator: Flame Vector + Numeric Value Only */}
@@ -316,6 +329,12 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
+                  {unreadNotificationsCount > 0 && !isActive('/notifications') && (
+                    <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-flame-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-flame-500 ring-2 ring-dark-bg" />
+                    </span>
+                  )}
                 </Link>
 
                 {/* Mobile Streak Display: Flame Vector + Numeric Value Only */}

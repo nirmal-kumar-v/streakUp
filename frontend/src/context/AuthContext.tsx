@@ -78,14 +78,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
-  const login = (newToken: string, newUser: User) => {
+  const login = useCallback((newToken: string, newUser: User) => {
     localStorage.setItem('streakup_token', newToken);
     localStorage.setItem('streakup_user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await logoutUser();
     } catch {
@@ -96,14 +96,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
     }
-  };
+  }, []);
 
-  const updateUser = (updatedFields: Partial<User>) => {
-    if (!user) return;
-    const merged = { ...user, ...updatedFields };
-    setUser(merged);
-    localStorage.setItem('streakup_user', JSON.stringify(merged));
-  };
+  const updateUser = useCallback((updatedFields: Partial<User>) => {
+    setUser((prevUser) => {
+      if (!prevUser) return null;
+      const merged = { ...prevUser, ...updatedFields };
+      localStorage.setItem('streakup_user', JSON.stringify(merged));
+      return merged;
+    });
+  }, []);
 
   return (
     <AuthContext.Provider

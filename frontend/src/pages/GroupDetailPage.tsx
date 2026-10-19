@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   fetchGroupDetails,
@@ -51,7 +51,7 @@ import {
   MessageSquare,
   CheckSquare,
   ShieldAlert,
-  ThumbsUp,
+  Heart,
   Edit3,
   Eye,
   EyeOff,
@@ -652,7 +652,40 @@ export const GroupDetailPage: React.FC = () => {
     }
   };
 
+  const inFlightReactionsRef = useRef<Set<string>>(new Set());
+
   const handleReaction = async (completionId: string, emoji: EmojiType) => {
+    if (inFlightReactionsRef.current.has(completionId)) return;
+    inFlightReactionsRef.current.add(completionId);
+
+    const targetNote = notes.find((n) => n.id === completionId);
+    if (!targetNote) {
+      inFlightReactionsRef.current.delete(completionId);
+      return;
+    }
+
+    const previousNote = { ...targetNote };
+    const hadLiked = targetNote.userReactions?.includes(emoji) || false;
+    const currentCount = targetNote.reactionCounts?.[emoji] || 0;
+    const nextCount = hadLiked ? Math.max(0, currentCount - 1) : currentCount + 1;
+    const nextUserReactions = hadLiked
+      ? (targetNote.userReactions || []).filter((e) => e !== emoji)
+      : [...(targetNote.userReactions || []), emoji];
+
+    // 1. Instant 0ms optimistic UI update (completely eliminates click/unclick delay)
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.id === completionId
+          ? {
+              ...n,
+              reactionCounts: { ...n.reactionCounts, [emoji]: nextCount },
+              userReactions: nextUserReactions,
+            }
+          : n
+      )
+    );
+
+    // 2. Background sync
     try {
       const res = await toggleStudyNoteReaction(completionId, emoji);
       if (res.success) {
@@ -669,7 +702,13 @@ export const GroupDetailPage: React.FC = () => {
         );
       }
     } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to toggle reaction.'));
+      // Rollback on network failure
+      setNotes((prev) =>
+        prev.map((n) => (n.id === completionId ? previousNote : n))
+      );
+      toast.error(extractErrorMessage(err, 'Failed to update reaction.'));
+    } finally {
+      inFlightReactionsRef.current.delete(completionId);
     }
   };
 
@@ -1495,23 +1534,22 @@ export const GroupDetailPage: React.FC = () => {
                       "{note.studyNote}"
                     </p>
 
-                    {/* Reactions Bar - Like Only (No Emoji, No Dislike) */}
+                    {/* Reactions Bar - Premium Like Button */}
                     <div className="flex items-center gap-2 mt-3 pt-2 border-t border-dark-border/40">
                       <button
                         type="button"
                         onClick={() => handleReaction(note.id, 'LIKE')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 touch-manipulation select-none ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 touch-manipulation select-none cursor-pointer ${
                           hasLiked
-                            ? 'bg-flame-500/15 border border-flame-500/40 text-flame-400 shadow-sm shadow-flame-500/10'
+                            ? 'bg-rose-500/15 border border-rose-500/40 text-rose-400 shadow-sm shadow-rose-500/10'
                             : 'bg-dark-surface border border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
                         }`}
-                        title={hasLiked ? 'Unlike' : 'Like'}
+                        title={hasLiked ? 'Unlike note' : 'Like note'}
                         aria-label={hasLiked ? 'Unlike note' : 'Like note'}
                       >
-                        <ThumbsUp className={`w-3.5 h-3.5 ${hasLiked ? 'fill-flame-400 text-flame-400' : 'text-zinc-400'}`} />
-                        <span>Like</span>
+                        <Heart className={`w-3.5 h-3.5 transition-transform ${hasLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'text-zinc-400'}`} />
                         {likeCount > 0 && (
-                          <span className={`text-[11px] font-mono font-bold ${hasLiked ? 'text-flame-400' : 'text-zinc-400'}`}>
+                          <span className={`text-[11px] font-mono font-bold ${hasLiked ? 'text-rose-400' : 'text-zinc-400'}`}>
                             {likeCount}
                           </span>
                         )}
