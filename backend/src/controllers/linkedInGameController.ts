@@ -14,7 +14,6 @@ import {
 } from '../services/linkedInGameService';
 import { DEFAULT_TIMEZONE, getTodayInTimezone } from '../services/timezoneService';
 import { createNotification } from '../services/notificationService';
-import { buildTaskCompletionEmail } from '../services/emailService';
 import { NotificationCategory } from '@prisma/client';
 
 interface ValidationSuccess {
@@ -182,29 +181,15 @@ export async function completeLinkedInGame(req: AuthenticatedRequest, res: Respo
 
     const leaderboard = await getGameLeaderboard(groupId, normalizedGameId);
 
-    // Dispatch game completion notification & email directly to the completing user
-    prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true },
-    }).then((userRecord) => {
-      const emailContent = buildTaskCompletionEmail({
-        userName: userRecord?.name || 'Habit Builder',
-        taskTitle: `${validation.group.name}: ${updatedGame.name}`,
-        currentStreak: updatedGame.currentStreak,
-        studyNote,
-      });
-
-      createNotification({
-        userId,
-        category: NotificationCategory.TASK_REMINDER,
-        title: `Game Completed: ${updatedGame.name}`,
-        message: `You completed "${updatedGame.name}" in ${validation.group.name}! Current streak: ${updatedGame.currentStreak} day${updatedGame.currentStreak === 1 ? '' : 's'}.`,
-        actionUrl: `/groups/${groupId}`,
-        eventKey: `LI_GAME_COMPLETION:${userId}:${groupId}:${normalizedGameId}:${completionDate || getTodayInTimezone(tz)}`,
-        emailSubject: emailContent.subject,
-        emailText: emailContent.text,
-      }).catch((err) => console.error('[completeLinkedInGame] Notification error:', err));
-    }).catch((err) => console.error('[completeLinkedInGame] Fetch user error:', err));
+    // In-app notification for game completion history (NO email dispatch)
+    createNotification({
+      userId,
+      category: NotificationCategory.TASK_REMINDER,
+      title: `Game Completed: ${updatedGame.name}`,
+      message: `You completed "${updatedGame.name}" in ${validation.group.name}! Current streak: ${updatedGame.currentStreak} day${updatedGame.currentStreak === 1 ? '' : 's'}.`,
+      actionUrl: `/groups/${groupId}`,
+      eventKey: `LI_GAME_COMPLETION:${userId}:${groupId}:${normalizedGameId}:${completionDate || getTodayInTimezone(tz)}`,
+    }).catch((err) => console.error('[completeLinkedInGame] Notification error:', err));
 
     return res.json({
       success: true,

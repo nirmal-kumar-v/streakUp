@@ -20,7 +20,6 @@ import { TaskDetailModal } from '../components/TaskDetailModal';
 import { ActivityHeatmap } from '../components/ActivityHeatmap';
 import { triggerStreakCelebration } from '../components/StreakCelebration';
 import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
-import { Link } from 'react-router-dom';
 import {
   Flame,
   Trophy,
@@ -32,7 +31,6 @@ import {
   Zap,
   Award,
   Calendar,
-  Users,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
@@ -337,22 +335,9 @@ export const DashboardPage: React.FC = () => {
       {/* Top Welcome & Quick Action */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight">
-              Welcome back, <span className="text-flame-400">{user?.name?.split(' ')[0]}</span>!
-            </h1>
-            <Link
-              to="/friends"
-              title="View your connections"
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 text-cyan-400 text-xs font-mono font-bold tracking-wide transition-all shadow-sm"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>
-                {user?.connectionsCount ?? 0}{' '}
-                {user?.connectionsCount === 1 ? 'Connection' : 'Connections'}
-              </span>
-            </Link>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight">
+            Welcome back, <span className="text-flame-400">{user?.name?.split(' ')[0]}</span>!
+          </h1>
           <p className="text-sm text-dark-muted mt-1">
             Keep your streak blazing. Complete today's daily checklist before midnight.
           </p>

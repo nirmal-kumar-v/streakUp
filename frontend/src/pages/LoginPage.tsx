@@ -7,7 +7,7 @@ import {
   ArrowRight,
   Lock,
   User as UserIcon,
-  CheckCircle2,
+  CheckCircle2, and 
   ShieldAlert,
   Bug,
   Lightbulb,

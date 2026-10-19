@@ -4,6 +4,7 @@ import {
   FreezeScope,
   User,
   Task,
+  EmailDeliveryStatus,
 } from '@prisma/client';
 import { getTodayInTimezone } from './timezoneService';
 import { findBestMatchingTask } from './fuzzyMatchService';
@@ -40,6 +41,7 @@ export interface CreateNotificationParams {
   emailSubject?: string;
   emailHtml?: string;
   emailText?: string;
+  emailIdempotencyKey?: string | null;
 }
 
 /**
@@ -195,7 +197,9 @@ export async function createNotification(params: CreateNotificationParams) {
       }
     }
 
-    const emailIdempotencyKey = eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`;
+    const emailIdempotencyKey =
+      params.emailIdempotencyKey ||
+      (eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`);
 
     await sendEmail({
       userId,
@@ -395,26 +399,48 @@ export async function checkAndTriggerFriendActivityAlerts(params: {
     });
 
     if (friendOverallCompletions === 0) {
-      // Recipient has not completed any task today!
-      const emailContent = buildFriendOverallActivityEmail({
-        recipientName: friend.name,
-        friendName: completedUser.name,
+      // Recipient has not completed any task today.
+      // Deduplicate: At most ONE overall reminder email per recipient per day across ALL friends
+      const overallEmailKey = `EMAIL:FRIEND_OVERALL_REMINDER:${friend.id}:${friendToday}`;
+      const alreadySentOverallMail = await prisma.emailDelivery.findFirst({
+        where: {
+          idempotencyKey: overallEmailKey,
+          status: EmailDeliveryStatus.SENT,
+        },
       });
 
-      // Deduplicate: At most once per completedUser, recipient, and friend's local date
       const overallEventKey = `FRIEND_OVERALL:${completedUserId}:${friend.id}:${friendToday}`;
 
-      await createNotification({
-        userId: friend.id,
-        category: NotificationCategory.FRIEND_OVERALL_ACTIVITY,
-        title: `${completedUser.name} completed today's activity`,
-        message: `Your friend ${completedUser.name} has completed today's activity. You haven't completed any task today yet. Complete a task to keep your overall streak going!`,
-        friendId: completedUser.id,
-        actionUrl: `/dashboard`,
-        eventKey: overallEventKey,
-        emailSubject: emailContent.subject,
-        emailText: emailContent.text,
-      });
+      if (alreadySentOverallMail) {
+        // Feed in-app notification without sending duplicate email
+        await createNotification({
+          userId: friend.id,
+          category: NotificationCategory.FRIEND_OVERALL_ACTIVITY,
+          title: `${completedUser.name} completed today's activity`,
+          message: `Your friend ${completedUser.name} has completed today's activity. You haven't completed any task today yet. Complete a task to keep your overall streak going!`,
+          friendId: completedUser.id,
+          actionUrl: `/dashboard`,
+          eventKey: overallEventKey,
+        });
+      } else {
+        const emailContent = buildFriendOverallActivityEmail({
+          recipientName: friend.name,
+          friendName: completedUser.name,
+        });
+
+        await createNotification({
+          userId: friend.id,
+          category: NotificationCategory.FRIEND_OVERALL_ACTIVITY,
+          title: `${completedUser.name} completed today's activity`,
+          message: `Your friend ${completedUser.name} has completed today's activity. You haven't completed any task today yet. Complete a task to keep your overall streak going!`,
+          friendId: completedUser.id,
+          actionUrl: `/dashboard`,
+          eventKey: overallEventKey,
+          emailSubject: emailContent.subject,
+          emailText: emailContent.text,
+          emailIdempotencyKey: overallEmailKey,
+        });
+      }
     }
 
     // 2. Task-Specific Activity Alert
@@ -435,27 +461,51 @@ export async function checkAndTriggerFriendActivityAlerts(params: {
 
       if (friendGroupTask && friendGroupTask.completions.length === 0) {
         const groupName = completedTask.group?.name || completedTaskTitle;
-        const emailContent = buildFriendTaskActivityEmail({
-          recipientName: friend.name,
-          friendName: completedUser.name,
-          taskTitle: groupName,
-          studyNote: studyNote || undefined,
-        });
-
         const taskEventKey = `FRIEND_GROUP_TASK:${completedUserId}:${friend.id}:${friendGroupTask.id}:${friendToday}`;
 
-        await createNotification({
-          userId: friend.id,
-          category: NotificationCategory.FRIEND_TASK_ACTIVITY,
-          title: `${completedUser.name} completed ${groupName}`,
-          message: `Your friend ${completedUser.name} completed the shared group task ${groupName} today, but you haven't completed it yet. Keep your streak blazing!`,
-          friendId: completedUser.id,
-          taskId: friendGroupTask.id,
-          actionUrl: `/groups/${completedTask.groupId}`,
-          eventKey: taskEventKey,
-          emailSubject: emailContent.subject,
-          emailText: emailContent.text,
+        // Deduplicate: If multiple friends complete the same shared task, only one email reminder per task per day
+        const taskEmailKey = `EMAIL:FRIEND_TASK_REMINDER:${friend.id}:${friendGroupTask.id}:${friendToday}`;
+        const alreadySentTaskMail = await prisma.emailDelivery.findFirst({
+          where: {
+            idempotencyKey: taskEmailKey,
+            status: EmailDeliveryStatus.SENT,
+          },
         });
+
+        if (alreadySentTaskMail) {
+          // Record in-app notification without triggering another email for the same task today
+          await createNotification({
+            userId: friend.id,
+            category: NotificationCategory.FRIEND_TASK_ACTIVITY,
+            title: `${completedUser.name} completed ${groupName}`,
+            message: `Your friend ${completedUser.name} completed the shared group task ${groupName} today, but you haven't completed it yet. Keep your streak blazing!`,
+            friendId: completedUser.id,
+            taskId: friendGroupTask.id,
+            actionUrl: `/groups/${completedTask.groupId}`,
+            eventKey: taskEventKey,
+          });
+        } else {
+          const emailContent = buildFriendTaskActivityEmail({
+            recipientName: friend.name,
+            friendName: completedUser.name,
+            taskTitle: groupName,
+            studyNote: studyNote || undefined,
+          });
+
+          await createNotification({
+            userId: friend.id,
+            category: NotificationCategory.FRIEND_TASK_ACTIVITY,
+            title: `${completedUser.name} completed ${groupName}`,
+            message: `Your friend ${completedUser.name} completed the shared group task ${groupName} today, but you haven't completed it yet. Keep your streak blazing!`,
+            friendId: completedUser.id,
+            taskId: friendGroupTask.id,
+            actionUrl: `/groups/${completedTask.groupId}`,
+            eventKey: taskEventKey,
+            emailSubject: emailContent.subject,
+            emailText: emailContent.text,
+            emailIdempotencyKey: taskEmailKey,
+          });
+        }
       }
     } else {
       // Personal Task: Find matching tasks in friend's active daily habits
@@ -482,28 +532,50 @@ export async function checkAndTriggerFriendActivityAlerts(params: {
         const friendCompletedMatchingTask = matchedTask.completions.length > 0;
 
         if (!friendCompletedMatchingTask) {
-          // Friend hasn't completed their matching task today!
-          const emailContent = buildFriendTaskActivityEmail({
-            recipientName: friend.name,
-            friendName: completedUser.name,
-            taskTitle: matchedTask.title,
-            studyNote: studyNote || undefined,
-          });
-
           const taskEventKey = `FRIEND_TASK:${completedUserId}:${friend.id}:${matchedTask.id}:${friendToday}`;
 
-          await createNotification({
-            userId: friend.id,
-            category: NotificationCategory.FRIEND_TASK_ACTIVITY,
-            title: `${completedUser.name} completed ${completedTaskTitle}`,
-            message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
-            friendId: completedUser.id,
-            taskId: matchedTask.id,
-            actionUrl: `/dashboard`,
-            eventKey: taskEventKey,
-            emailSubject: emailContent.subject,
-            emailText: emailContent.text,
+          // Deduplicate: If multiple friends complete their matching task, only one email reminder per task per day
+          const taskEmailKey = `EMAIL:FRIEND_TASK_REMINDER:${friend.id}:${matchedTask.id}:${friendToday}`;
+          const alreadySentTaskMail = await prisma.emailDelivery.findFirst({
+            where: {
+              idempotencyKey: taskEmailKey,
+              status: EmailDeliveryStatus.SENT,
+            },
           });
+
+          if (alreadySentTaskMail) {
+            await createNotification({
+              userId: friend.id,
+              category: NotificationCategory.FRIEND_TASK_ACTIVITY,
+              title: `${completedUser.name} completed ${completedTaskTitle}`,
+              message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
+              friendId: completedUser.id,
+              taskId: matchedTask.id,
+              actionUrl: `/dashboard`,
+              eventKey: taskEventKey,
+            });
+          } else {
+            const emailContent = buildFriendTaskActivityEmail({
+              recipientName: friend.name,
+              friendName: completedUser.name,
+              taskTitle: matchedTask.title,
+              studyNote: studyNote || undefined,
+            });
+
+            await createNotification({
+              userId: friend.id,
+              category: NotificationCategory.FRIEND_TASK_ACTIVITY,
+              title: `${completedUser.name} completed ${completedTaskTitle}`,
+              message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
+              friendId: completedUser.id,
+              taskId: matchedTask.id,
+              actionUrl: `/dashboard`,
+              eventKey: taskEventKey,
+              emailSubject: emailContent.subject,
+              emailText: emailContent.text,
+              emailIdempotencyKey: taskEmailKey,
+            });
+          }
         }
       }
     }

@@ -21,7 +21,6 @@ const luxon_1 = require("luxon");
 const streakService_1 = require("../services/streakService");
 const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
 const notificationService_1 = require("../services/notificationService");
-const emailService_1 = require("../services/emailService");
 const pointsService_1 = require("../services/pointsService");
 const client_1 = require("@prisma/client");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
@@ -358,30 +357,15 @@ async function completeTask(req, res) {
                 completedTaskTitle: task.title,
                 studyNote: 'LinkedIn games completed',
             }).catch((err) => console.error('[completeTask:LinkedIn] Friend activity alert error:', err));
-            // Dispatch habit completion notification & email directly to the completing user
-            prisma_1.default.user.findUnique({
-                where: { id: userId },
-                select: { name: true },
-            }).then((userRecord) => {
-                const liEmail = (0, emailService_1.buildTaskCompletionEmail)({
-                    userName: userRecord?.name || 'Habit Builder',
-                    taskTitle: task.title,
-                    currentStreak: liResult.highestStreak,
-                    pointsAwarded: 0,
-                    totalPoints: newTotalPoints,
-                    studyNote: 'Committed LinkedIn games completed',
-                });
-                (0, notificationService_1.createNotification)({
-                    userId,
-                    category: client_1.NotificationCategory.TASK_REMINDER,
-                    title: `Habit Completed: ${task.title}`,
-                    message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}.`,
-                    actionUrl: `/dashboard`,
-                    eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
-                    emailSubject: liEmail.subject,
-                    emailText: liEmail.text,
-                }).catch((err) => console.error('[completeTask:LinkedIn] User completion notification error:', err));
-            }).catch((err) => console.error('[completeTask:LinkedIn] Fetch user error:', err));
+            // In-app notification for habit completion history (NO email dispatch)
+            (0, notificationService_1.createNotification)({
+                userId,
+                category: client_1.NotificationCategory.TASK_REMINDER,
+                title: `Habit Completed: ${task.title}`,
+                message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}.`,
+                actionUrl: `/dashboard`,
+                eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+            }).catch((err) => console.error('[completeTask:LinkedIn] User completion notification error:', err));
             return res.json({
                 success: true,
                 message: 'Committed LinkedIn games completed!',
@@ -480,30 +464,15 @@ async function completeTask(req, res) {
                 studyNote: completion.studyNote,
             }).catch((err) => console.error('[completeTask] Friend activity alert error:', err));
         }
-        // Dispatch habit completion notification & email directly to the completing user
-        prisma_1.default.user.findUnique({
-            where: { id: userId },
-            select: { name: true },
-        }).then((userRecord) => {
-            const completionEmail = (0, emailService_1.buildTaskCompletionEmail)({
-                userName: userRecord?.name || 'Habit Builder',
-                taskTitle: task.title,
-                currentStreak: taskStreak.currentStreak,
-                pointsAwarded,
-                totalPoints: newTotalPoints,
-                studyNote: completion.studyNote,
-            });
-            (0, notificationService_1.createNotification)({
-                userId,
-                category: client_1.NotificationCategory.TASK_REMINDER,
-                title: `Habit Completed: ${task.title}`,
-                message: `You completed "${task.title}" today! Streak: ${taskStreak.currentStreak} day${taskStreak.currentStreak === 1 ? '' : 's'}${pointsAwarded > 0 ? ` (+${pointsAwarded} pts)` : ''}.`,
-                actionUrl: `/dashboard`,
-                eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
-                emailSubject: completionEmail.subject,
-                emailText: completionEmail.text,
-            }).catch((err) => console.error('[completeTask] User completion notification error:', err));
-        }).catch((err) => console.error('[completeTask] Fetch user error:', err));
+        // In-app notification for habit completion history (NO email dispatch)
+        (0, notificationService_1.createNotification)({
+            userId,
+            category: client_1.NotificationCategory.TASK_REMINDER,
+            title: `Habit Completed: ${task.title}`,
+            message: `You completed "${task.title}" today! Streak: ${taskStreak.currentStreak} day${taskStreak.currentStreak === 1 ? '' : 's'}${pointsAwarded > 0 ? ` (+${pointsAwarded} pts)` : ''}.`,
+            actionUrl: `/dashboard`,
+            eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+        }).catch((err) => console.error('[completeTask] User completion notification error:', err));
         return res.json({
             success: true,
             message: 'Task marked as completed.',
