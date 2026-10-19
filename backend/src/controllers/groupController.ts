@@ -186,6 +186,11 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
           { joinCode: { equals: rawQuery.toUpperCase() } },
         ],
       };
+    } else {
+      // Discover recommendations feed: only include groups marked Discoverable
+      whereClause = {
+        isDiscoverable: true,
+      };
     }
 
     const currentUser = await prisma.user.findUnique({
@@ -195,7 +200,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
     const cUsername = (currentUser?.username || '').toLowerCase().replace(/^@/, '');
     const cId = currentUserId.toLowerCase();
 
-    // If no search query, order by member count descending to show top 5 featured groups
+    // If no search query, order by member count descending to show top featured discoverable groups
     const groups = await prisma.group.findMany({
       where: whereClause,
       take: rawQuery ? 50 : 25,
@@ -209,6 +214,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
         joinCode: true,
         scheduledDays: true,
         ownerId: true,
+        isDiscoverable: true,
         hiddenFrom: true,
         visibleOnlyTo: true,
         createdAt: true,
@@ -264,6 +270,7 @@ export async function searchGroups(req: AuthenticatedRequest, res: Response) {
           isMember: !!membership,
           userRole: membership?.role || null,
           myRequestStatus: requestStatus,
+          isDiscoverable: g.isDiscoverable !== false,
         };
       })
     );

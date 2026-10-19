@@ -57,13 +57,21 @@ export async function getOrCreateNotificationPreferences(userId: string) {
         emailNotificationsEnabled: true,
         inAppNotificationsEnabled: true,
         overallStreakRemindersEmail: true,
+        overallStreakRemindersInApp: true,
         taskRemindersEmail: true,
+        taskRemindersInApp: true,
         friendOverallActivityAlerts: true,
+        friendOverallActivityInApp: true,
         friendTaskActivityAlerts: true,
+        friendTaskActivityInApp: true,
         friendOverallMilestones: true,
+        friendOverallMilestonesInApp: true,
         friendTaskMilestones: true,
+        friendTaskMilestonesInApp: true,
         myMilestonesEmail: true,
+        myMilestonesInApp: true,
         freezeStatusNotifications: true,
+        freezeStatusInApp: true,
       },
     });
   }
@@ -103,9 +111,33 @@ export async function createNotification(params: CreateNotificationParams) {
     });
   }
 
-  // 3. Create In-App Notification (if in-app channel enabled and not already recorded)
+  // 3. Create In-App Notification (if in-app channel enabled and category permitted)
+  const isInAppCategoryEnabled = () => {
+    if (!pref.inAppNotificationsEnabled) return false;
+    switch (category) {
+      case NotificationCategory.OVERALL_REMINDER:
+        return pref.overallStreakRemindersInApp ?? true;
+      case NotificationCategory.TASK_REMINDER:
+        return pref.taskRemindersInApp ?? true;
+      case NotificationCategory.FRIEND_OVERALL_ACTIVITY:
+        return pref.friendOverallActivityInApp ?? true;
+      case NotificationCategory.FRIEND_TASK_ACTIVITY:
+        return pref.friendTaskActivityInApp ?? true;
+      case NotificationCategory.FRIEND_OVERALL_MILESTONE:
+        return pref.friendOverallMilestonesInApp ?? true;
+      case NotificationCategory.FRIEND_TASK_MILESTONE:
+        return pref.friendTaskMilestonesInApp ?? true;
+      case NotificationCategory.MY_MILESTONE:
+        return pref.myMilestonesInApp ?? true;
+      case NotificationCategory.SYSTEM:
+        return true;
+      default:
+        return pref.freezeStatusInApp ?? true;
+    }
+  };
+
   let notification = existingNotification;
-  if (!existingNotification && pref.inAppNotificationsEnabled) {
+  if (!existingNotification && isInAppCategoryEnabled()) {
     notification = await prisma.notification.create({
       data: {
         userId,

@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { NotificationPreference } from './notifications';
+import { compressProfileImage } from '../utils/imageCompressor';
 
 // Normalize base URL (strip trailing slash)
 const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
@@ -45,6 +47,7 @@ export interface AdminUser {
   points: number;
   overallFreezeBalance: number;
   overallFreezeRechargeDays: number;
+  overallFreezeCapacity?: number;
   lastUsernameChangeAt: string | null;
   emailLastChangedAt?: string | null;
   isEmailVerified?: boolean;
@@ -244,13 +247,17 @@ export async function adjustUserFreezes(
   data: {
     overallFreezeBalance?: number;
     overallFreezeRechargeDays?: number;
+    overallFreezeCapacity?: number;
+    freezeBalance?: number;
+    freezeRechargeDays?: number;
+    freezeCapacity?: number;
     historicalFreezeDate?: string;
     taskId?: string;
     reason: string;
   } & AdminNotificationPayload
 ) {
   const { sensitivePin, ...body } = data;
-  const res = await adminApiClient.post<{ success: boolean; message: string; user: any; historicalFreezeApplied: boolean }>(
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any; task?: any; historicalFreezeApplied: boolean }>(
     `/admin/users/${userId}/adjust-freezes`,
     body,
     {
@@ -541,6 +548,9 @@ export async function adminUpdateUserProfileImage(
   } & AdminNotificationPayload
 ) {
   const { sensitivePin, ...body } = data;
+  if (body.profileImage && body.profileImage.startsWith('data:image/')) {
+    body.profileImage = await compressProfileImage(body.profileImage);
+  }
   const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
     `/admin/users/${userId}/profile-image`,
     body,
@@ -550,6 +560,155 @@ export async function adminUpdateUserProfileImage(
   );
   return res.data;
 }
+
+export interface AdminGroupItem {
+  id: string;
+  name: string;
+  description: string | null;
+  joinCode: string;
+  isDiscoverable: boolean;
+  scheduledDays: number[];
+  memberCount: number;
+  taskCount?: number;
+  ownerId: string;
+  owner?: { id: string; name: string; username: string; email: string };
+  hiddenFrom?: string[];
+  visibleOnlyTo?: string[];
+  createdAt: string;
+}
+
+export interface AdminReminderNextOccurrence {
+  nextIso: string | null;
+  nextDisplay: string;
+  relativeDisplay: string;
+  isToday: boolean;
+}
+
+export interface AdminUserReminderSettings {
+  success: boolean;
+  timezone: string;
+  quotaLimit: number;
+  preferences?: NotificationPreference;
+  overall: {
+    isEnabled: boolean;
+    schedules: Array<{
+      id: string;
+      time: string;
+      isEnabled: boolean;
+      nextOccurrence: AdminReminderNextOccurrence;
+    }>;
+    emailNotificationsEnabled: boolean;
+    customNotificationEmail: string | null;
+  };
+  tasks: Array<{
+    taskId: string;
+    title: string;
+    recurrence: string;
+    scheduledDays: number[];
+    isGroupTask: boolean;
+    groupName: string | null;
+    taskRemindersEnabled: boolean;
+    schedules: Array<{
+      id: string;
+      time: string;
+      isEnabled: boolean;
+      nextOccurrence: AdminReminderNextOccurrence;
+    }>;
+    maxAllowed: number;
+  }>;
+}
+
+export async function searchGroupsForAdmin(query?: string) {
+  const res = await adminApiClient.get<{ success: boolean; groups: AdminGroupItem[] }>('/admin/groups', {
+    params: { q: query || '' },
+  });
+  return res.data;
+}
+
+export async function adminToggleGroupDiscoverability(
+  groupId: string,
+  data: { isDiscoverable: boolean; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; group: AdminGroupItem }>(
+    `/admin/groups/${groupId}/discoverability`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function getUserReminderSettings(userId: string) {
+  const res = await adminApiClient.get<AdminUserReminderSettings>(`/admin/users/${userId}/reminders`);
+  return res.data;
+}
+
+export async function adminUpdateOverallReminders(
+  userId: string,
+  data: { isEnabled: boolean; times: string[]; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; isEnabled: boolean; times: string[] }>(
+    `/admin/users/${userId}/reminders/overall`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminUpdateTaskReminders(
+  userId: string,
+  taskId: string,
+  data: { isEnabled: boolean; times: string[]; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; taskId: string; isEnabled: boolean; times: string[] }>(
+    `/admin/users/${userId}/reminders/tasks/${taskId}`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminTriggerManualReminderCheck(sensitivePin?: string) {
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    timestamp: string;
+    processed: number;
+    sent: number;
+    skipped: number;
+  }>(
+    '/admin/reminders/run-check',
+    {},
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminUpdateUserPreferences(
+  userId: string,
+  data: { preferences: Partial<NotificationPreference>; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.put<{ success: boolean; message: string; preferences: NotificationPreference }>(
+    `/admin/users/${userId}/preferences`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 
 
 

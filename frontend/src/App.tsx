@@ -16,6 +16,7 @@ import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
 import { apiClient } from './api/client';
+import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
 
 // Lazy loaded secondary routes for optimal initial bundle size and rapid FCP
 const ForgotPasswordPage = lazy(() =>
@@ -96,6 +97,7 @@ const PageFallback: React.FC = () => (
 );
 
 export const AppContent: React.FC = () => {
+  useAllDevicesDisableZoom();
   const { isAuthenticated } = useAuth();
 
   // Periodically trigger serverless reminder check while user is active (every 5 minutes)

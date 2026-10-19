@@ -32,6 +32,13 @@ import {
   overrideDiscoverGroupsLimit,
   overrideProfileImageLimit,
   adminUpdateUserProfileImage,
+  searchGroupsForAdmin,
+  adminToggleGroupDiscoverability,
+  getUserReminderSettings,
+  adminUpdateOverallReminders,
+  adminUpdateTaskReminders,
+  adminTriggerManualReminderCheck,
+  adminUpdateUserPreferences,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
@@ -72,14 +79,24 @@ router.post('/users/:userId/override-profile-image-limit', requireSensitiveAuth,
 router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);
+// Reminder Management & Scheduling Controls
+router.get('/users/:userId/reminders', getUserReminderSettings);
+router.post('/users/:userId/reminders/overall', requireSensitiveAuth, adminUpdateOverallReminders);
+router.post('/users/:userId/reminders/tasks/:taskId', requireSensitiveAuth, adminUpdateTaskReminders);
 router.delete('/reminders/:reminderId', adminDeleteReminderSchedule);
+router.post('/reminders/run-check', requireSensitiveAuth, adminTriggerManualReminderCheck);
+router.put('/users/:userId/preferences', requireSensitiveAuth, adminUpdateUserPreferences);
 
-// Task & Group Management
+// Group Management & Discoverability Controls
+router.get('/groups', searchGroupsForAdmin);
+router.post('/groups/:groupId/discoverability', requireSensitiveAuth, adminToggleGroupDiscoverability);
+router.post('/groups/:groupId/manage-member', adminManageGroupMember);
+router.post('/groups/:groupId/update-full', adminUpdateGroupFull);
+
+// Task Management
 router.post('/tasks/:taskId/visibility', updateTaskVisibility);
 router.post('/tasks/:taskId/update-full', adminUpdateTaskFull);
 router.post('/tasks/:taskId/recover', adminRecoverGroupTask);
-router.post('/groups/:groupId/manage-member', adminManageGroupMember);
-router.post('/groups/:groupId/update-full', adminUpdateGroupFull);
 router.post('/completions/:completionId/moderate', adminModerateStudyNote);
 
 // High-Risk Sensitive Operations (Requires Sensitive PIN confirmation)

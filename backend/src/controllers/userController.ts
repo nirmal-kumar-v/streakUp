@@ -8,6 +8,7 @@ import { OtpPurpose, NotificationCategory } from '@prisma/client';
 import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
 import { sendEmail, buildChangeEmailOtpEmail } from '../services/emailService';
 import { getUserProfileImageLimitMb } from '../services/adminConfigService';
+import { validateImageBuffer } from '../utils/imageValidator';
 
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(50).optional(),
@@ -203,8 +204,8 @@ export async function uploadProfileImage(req: AuthenticatedRequest, res: Respons
     const mimeType = match[1].toLowerCase();
     const base64Data = match[2];
 
-    // Check dynamic per-user size limit (default 5MB or customized by Admin)
-    const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
+    const buffer = Buffer.from(base64Data, 'base64');
+    const sizeInBytes = buffer.length;
     const limitMb = getUserProfileImageLimitMb(userId);
     const MAX_SIZE_BYTES = limitMb * 1024 * 1024;
 
@@ -215,11 +216,12 @@ export async function uploadProfileImage(req: AuthenticatedRequest, res: Respons
       });
     }
 
-    // Validate minimum content size (empty or corrupt images)
-    if (sizeInBytes < 64) {
+    // Validate image file content, magic bytes, dimensions, and integrity
+    const validation = validateImageBuffer(buffer, mimeType);
+    if (!validation.valid) {
       return res.status(400).json({
         success: false,
-        error: 'The uploaded file is empty or corrupted.'
+        error: validation.error || 'The uploaded file is empty or corrupted.'
       });
     }
 

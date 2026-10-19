@@ -276,14 +276,18 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
     const preferences = await getOrCreateNotificationPreferences(userId);
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { email: true, timezone: true },
+      select: { email: true, timezone: true, isEmailVerified: true },
     });
+
+    const reminderLimit = getUserReminderLimit(userId);
 
     return res.json({
       success: true,
       preferences,
       defaultEmail: user?.email,
       timezone: user?.timezone,
+      isEmailVerified: user?.isEmailVerified !== false,
+      reminderLimit,
       isSmtpConfigured: isSmtpConfigured(),
     });
   } catch (err: any) {
@@ -296,13 +300,26 @@ const updatePreferencesSchema = z.object({
   emailNotificationsEnabled: z.boolean().optional(),
   inAppNotificationsEnabled: z.boolean().optional(),
   overallStreakRemindersEmail: z.boolean().optional(),
+  overallStreakRemindersInApp: z.boolean().optional(),
   taskRemindersEmail: z.boolean().optional(),
+  taskRemindersInApp: z.boolean().optional(),
   friendOverallActivityAlerts: z.boolean().optional(),
+  friendOverallActivityEmail: z.boolean().optional(),
+  friendOverallActivityInApp: z.boolean().optional(),
   friendTaskActivityAlerts: z.boolean().optional(),
+  friendTaskActivityEmail: z.boolean().optional(),
+  friendTaskActivityInApp: z.boolean().optional(),
   friendOverallMilestones: z.boolean().optional(),
+  friendOverallMilestonesEmail: z.boolean().optional(),
+  friendOverallMilestonesInApp: z.boolean().optional(),
   friendTaskMilestones: z.boolean().optional(),
+  friendTaskMilestonesEmail: z.boolean().optional(),
+  friendTaskMilestonesInApp: z.boolean().optional(),
   myMilestonesEmail: z.boolean().optional(),
+  myMilestonesInApp: z.boolean().optional(),
   freezeStatusNotifications: z.boolean().optional(),
+  freezeStatusEmail: z.boolean().optional(),
+  freezeStatusInApp: z.boolean().optional(),
   customNotificationEmail: z.string().email('Invalid email address format').optional().nullable(),
 });
 
@@ -344,19 +361,33 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
       }
     }
 
+    const friendOverallEmailVal = data.friendOverallActivityEmail !== undefined ? data.friendOverallActivityEmail : data.friendOverallActivityAlerts;
+    const friendTaskEmailVal = data.friendTaskActivityEmail !== undefined ? data.friendTaskActivityEmail : data.friendTaskActivityAlerts;
+    const friendOverallMilestonesVal = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
+    const friendTaskMilestonesVal = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
+    const freezeStatusEmailVal = data.freezeStatusEmail !== undefined ? data.freezeStatusEmail : data.freezeStatusNotifications;
+
     const updated = await prisma.notificationPreference.update({
       where: { userId },
       data: {
         ...(data.emailNotificationsEnabled !== undefined ? { emailNotificationsEnabled: data.emailNotificationsEnabled } : {}),
         ...(data.inAppNotificationsEnabled !== undefined ? { inAppNotificationsEnabled: data.inAppNotificationsEnabled } : {}),
         ...(data.overallStreakRemindersEmail !== undefined ? { overallStreakRemindersEmail: data.overallStreakRemindersEmail } : {}),
+        ...(data.overallStreakRemindersInApp !== undefined ? { overallStreakRemindersInApp: data.overallStreakRemindersInApp } : {}),
         ...(data.taskRemindersEmail !== undefined ? { taskRemindersEmail: data.taskRemindersEmail } : {}),
-        ...(data.friendOverallActivityAlerts !== undefined ? { friendOverallActivityAlerts: data.friendOverallActivityAlerts } : {}),
-        ...(data.friendTaskActivityAlerts !== undefined ? { friendTaskActivityAlerts: data.friendTaskActivityAlerts } : {}),
-        ...(data.friendOverallMilestones !== undefined ? { friendOverallMilestones: data.friendOverallMilestones } : {}),
-        ...(data.friendTaskMilestones !== undefined ? { friendTaskMilestones: data.friendTaskMilestones } : {}),
+        ...(data.taskRemindersInApp !== undefined ? { taskRemindersInApp: data.taskRemindersInApp } : {}),
+        ...(friendOverallEmailVal !== undefined ? { friendOverallActivityAlerts: friendOverallEmailVal } : {}),
+        ...(data.friendOverallActivityInApp !== undefined ? { friendOverallActivityInApp: data.friendOverallActivityInApp } : {}),
+        ...(friendTaskEmailVal !== undefined ? { friendTaskActivityAlerts: friendTaskEmailVal } : {}),
+        ...(data.friendTaskActivityInApp !== undefined ? { friendTaskActivityInApp: data.friendTaskActivityInApp } : {}),
+        ...(friendOverallMilestonesVal !== undefined ? { friendOverallMilestones: friendOverallMilestonesVal } : {}),
+        ...(data.friendOverallMilestonesInApp !== undefined ? { friendOverallMilestonesInApp: data.friendOverallMilestonesInApp } : {}),
+        ...(friendTaskMilestonesVal !== undefined ? { friendTaskMilestones: friendTaskMilestonesVal } : {}),
+        ...(data.friendTaskMilestonesInApp !== undefined ? { friendTaskMilestonesInApp: data.friendTaskMilestonesInApp } : {}),
         ...(data.myMilestonesEmail !== undefined ? { myMilestonesEmail: data.myMilestonesEmail } : {}),
-        ...(data.freezeStatusNotifications !== undefined ? { freezeStatusNotifications: data.freezeStatusNotifications } : {}),
+        ...(data.myMilestonesInApp !== undefined ? { myMilestonesInApp: data.myMilestonesInApp } : {}),
+        ...(freezeStatusEmailVal !== undefined ? { freezeStatusNotifications: freezeStatusEmailVal } : {}),
+        ...(data.freezeStatusInApp !== undefined ? { freezeStatusInApp: data.freezeStatusInApp } : {}),
         ...customEmailUpdate,
       },
     });

@@ -18,6 +18,9 @@ import {
   getUserProfileImageLimitMb,
   setUserProfileImageLimitMb,
 } from '../services/adminConfigService';
+import { calculateNextOccurrence, runReminderCheck } from '../services/reminderSchedulerService';
+import { validateImageBuffer } from '../utils/imageValidator';
+
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 
@@ -488,6 +491,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
                 description: true,
                 joinCode: true,
                 ownerId: true,
+                isDiscoverable: true,
                 hiddenFrom: true,
                 visibleOnlyTo: true,
                 members: {
@@ -502,6 +506,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
           orderBy: { time: 'asc' },
           include: { task: { select: { id: true, title: true } } },
         },
+        notificationPreference: true,
         ownedGroups: {
           include: {
             members: {
@@ -963,7 +968,7 @@ export async function grantDayStreak(req: AdminAuthenticatedRequest, res: Respon
 }
 
 /**
- * Adjust freezes (balance out of 7, or historical freeze date protection)
+ * Adjust freezes (balance out of 7, capacity 1-7, recharge days, or historical freeze date protection)
  */
 export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Response) {
   try {
@@ -971,6 +976,10 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
     const {
       overallFreezeBalance,
       overallFreezeRechargeDays,
+      overallFreezeCapacity,
+      freezeBalance,
+      freezeRechargeDays,
+      freezeCapacity,
       historicalFreezeDate,
       taskId,
       reason,
@@ -984,31 +993,103 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
       return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { tasks: { where: taskId ? { id: taskId } : undefined } },
+    });
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
-    const beforeState = {
-      overallFreezeBalance: user.overallFreezeBalance,
-      overallFreezeRechargeDays: user.overallFreezeRechargeDays,
-    };
-
-    const updateData: any = {};
-    if (typeof overallFreezeBalance === 'number') {
-      // Clamped out of 7 shields
-      updateData.overallFreezeBalance = Math.max(0, Math.min(7, Math.round(overallFreezeBalance)));
-    }
-    if (typeof overallFreezeRechargeDays === 'number' && overallFreezeRechargeDays >= 0) {
-      updateData.overallFreezeRechargeDays = overallFreezeRechargeDays;
+    const targetTask = taskId ? user.tasks.find((t) => t.id === taskId) : null;
+    if (taskId && !targetTask) {
+      return res.status(404).json({ success: false, error: 'Target task not found for this user.' });
     }
 
-    let updatedUser = user;
-    if (Object.keys(updateData).length > 0) {
-      updatedUser = await prisma.user.update({
-        where: { id: userId },
-        data: updateData,
-      });
+    const beforeState: any = taskId
+      ? {
+          scope: 'TASK',
+          taskId,
+          taskTitle: targetTask?.title,
+          freezeBalance: targetTask?.freezeBalance ?? 0,
+          freezeRechargeDays: targetTask?.freezeRechargeDays ?? 0,
+          freezeCapacity: targetTask?.freezeCapacity ?? 1,
+        }
+      : {
+          scope: 'OVERALL',
+          overallFreezeBalance: user.overallFreezeBalance,
+          overallFreezeRechargeDays: user.overallFreezeRechargeDays,
+          overallFreezeCapacity: user.overallFreezeCapacity ?? 1,
+        };
+
+    const changesList: string[] = [];
+    let updatedUser: any = user;
+    let updatedTask: any = targetTask;
+
+    if (taskId && targetTask) {
+      // Task Scope Freeze Management
+      const taskUpdateData: any = {};
+      const newCapacity = typeof freezeCapacity === 'number'
+        ? Math.max(1, Math.min(7, Math.round(freezeCapacity)))
+        : (typeof overallFreezeCapacity === 'number' ? Math.max(1, Math.min(7, Math.round(overallFreezeCapacity))) : undefined);
+
+      if (newCapacity !== undefined) {
+        taskUpdateData.freezeCapacity = newCapacity;
+        changesList.push(`Task freeze capacity set to ${newCapacity} shield(s) (was ${targetTask.freezeCapacity || 1}).`);
+      }
+
+      const effectiveCapacity = newCapacity ?? (targetTask.freezeCapacity || 1);
+      const newBalance = typeof freezeBalance === 'number'
+        ? Math.max(0, Math.min(effectiveCapacity, Math.round(freezeBalance)))
+        : (typeof overallFreezeBalance === 'number' ? Math.max(0, Math.min(effectiveCapacity, Math.round(overallFreezeBalance))) : undefined);
+
+      if (newBalance !== undefined) {
+        taskUpdateData.freezeBalance = newBalance;
+        changesList.push(`Task freeze balance set to ${newBalance}/${effectiveCapacity} (was ${targetTask.freezeBalance}/${targetTask.freezeCapacity || 1}).`);
+      }
+
+      const newRecharge = typeof freezeRechargeDays === 'number'
+        ? Math.max(0, Math.min(7, Math.round(freezeRechargeDays)))
+        : (typeof overallFreezeRechargeDays === 'number' ? Math.max(0, Math.min(7, Math.round(overallFreezeRechargeDays))) : undefined);
+
+      if (newRecharge !== undefined) {
+        taskUpdateData.freezeRechargeDays = newRecharge;
+        changesList.push(`Task freeze recharge progress set to ${newRecharge}/7 days (was ${targetTask.freezeRechargeDays}/7 days).`);
+      }
+
+      if (Object.keys(taskUpdateData).length > 0) {
+        updatedTask = await prisma.task.update({
+          where: { id: taskId },
+          data: taskUpdateData,
+        });
+      }
+    } else {
+      // Overall Scope Freeze Management
+      const userUpdateData: any = {};
+      if (typeof overallFreezeCapacity === 'number') {
+        const cap = Math.max(1, Math.min(7, Math.round(overallFreezeCapacity)));
+        userUpdateData.overallFreezeCapacity = cap;
+        changesList.push(`Overall freeze inventory capacity set to ${cap} shield(s) (was ${user.overallFreezeCapacity || 1}).`);
+      }
+
+      const effectiveCapacity = userUpdateData.overallFreezeCapacity ?? (user.overallFreezeCapacity || 1);
+      if (typeof overallFreezeBalance === 'number') {
+        const bal = Math.max(0, Math.min(effectiveCapacity, Math.round(overallFreezeBalance)));
+        userUpdateData.overallFreezeBalance = bal;
+        changesList.push(`Freeze shield balance set to ${bal}/${effectiveCapacity} (was ${user.overallFreezeBalance}/${user.overallFreezeCapacity || 1}).`);
+      }
+      if (typeof overallFreezeRechargeDays === 'number' && overallFreezeRechargeDays >= 0) {
+        const rech = Math.max(0, Math.min(7, Math.round(overallFreezeRechargeDays)));
+        userUpdateData.overallFreezeRechargeDays = rech;
+        changesList.push(`Shelf recharge progress set to ${rech}/7 days (was ${user.overallFreezeRechargeDays}/7 days).`);
+      }
+
+      if (Object.keys(userUpdateData).length > 0) {
+        updatedUser = await prisma.user.update({
+          where: { id: userId },
+          data: userUpdateData,
+        });
+      }
     }
 
     // If historical freeze date protection requested (e.g. "2026-10-17")
@@ -1032,20 +1113,31 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
         update: {},
       });
 
-      // Recalculate streaks so freeze protection is immediately active in workflow
-      await recalculateUserStreaks(prisma, userId, user.timezone);
+      // Recalculate streaks
       if (taskId) {
         await recalculateTaskStreaks(prisma, taskId, userId, user.timezone);
+      } else {
+        await recalculateUserStreaks(prisma, userId, user.timezone);
       }
+      changesList.push(`Historical freeze protection recorded for date ${historicalFreezeDate} (${taskId ? `Task "${targetTask?.title}"` : 'Overall Streak'}).`);
     }
 
-    const changesList: string[] = [];
-    if (typeof overallFreezeBalance === 'number') {
-      changesList.push(`Freeze shield balance set to ${updatedUser.overallFreezeBalance}/7 (was ${beforeState.overallFreezeBalance}/7).`);
-    }
-    if (historicalLog) {
-      changesList.push(`Streak freeze protection applied for ${historicalFreezeDate}.`);
-    }
+    const afterState: any = taskId
+      ? {
+          scope: 'TASK',
+          taskId,
+          freezeBalance: updatedTask?.freezeBalance,
+          freezeRechargeDays: updatedTask?.freezeRechargeDays,
+          freezeCapacity: updatedTask?.freezeCapacity,
+          historicalLog,
+        }
+      : {
+          scope: 'OVERALL',
+          overallFreezeBalance: updatedUser.overallFreezeBalance,
+          overallFreezeRechargeDays: updatedUser.overallFreezeRechargeDays,
+          overallFreezeCapacity: updatedUser.overallFreezeCapacity,
+          historicalLog,
+        };
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
@@ -1054,19 +1146,15 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
       targetUser: `@${user.username}`,
       reason,
       beforeState,
-      afterState: {
-        overallFreezeBalance: updatedUser.overallFreezeBalance,
-        overallFreezeRechargeDays: updatedUser.overallFreezeRechargeDays,
-        historicalLog,
-      },
+      afterState,
     });
 
     await dispatchAdminNotification({
       userId,
       adminUsername: req.admin!.username,
-      actionTitle: 'Freeze Settings Adjusted',
+      actionTitle: taskId ? `Task Freeze Settings Adjusted (${targetTask?.title})` : 'Overall Freeze Settings Adjusted',
       reason,
-      changesSummary: changesList.join(' '),
+      changesSummary: changesList.join(' ') || 'Freeze settings updated.',
       sendInApp,
       sendEmail: shouldSendEmail,
       includeReason,
@@ -1080,7 +1168,16 @@ export async function adjustFreezes(req: AdminAuthenticatedRequest, res: Respons
         id: updatedUser.id,
         overallFreezeBalance: updatedUser.overallFreezeBalance,
         overallFreezeRechargeDays: updatedUser.overallFreezeRechargeDays,
+        overallFreezeCapacity: updatedUser.overallFreezeCapacity,
       },
+      task: updatedTask
+        ? {
+            id: updatedTask.id,
+            freezeBalance: updatedTask.freezeBalance,
+            freezeRechargeDays: updatedTask.freezeRechargeDays,
+            freezeCapacity: updatedTask.freezeCapacity,
+          }
+        : undefined,
       historicalFreezeApplied: Boolean(historicalLog),
     });
   } catch (err: any) {
@@ -1906,6 +2003,7 @@ export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: 
       ownerId,
       hiddenFrom,
       visibleOnlyTo,
+      isDiscoverable,
       reason,
       sendInApp,
       sendEmail: shouldSendEmail,
@@ -1933,6 +2031,7 @@ export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: 
       description: group.description,
       joinCode: group.joinCode,
       ownerId: group.ownerId,
+      isDiscoverable: group.isDiscoverable,
       hiddenFrom: group.hiddenFrom,
       visibleOnlyTo: group.visibleOnlyTo,
     };
@@ -1941,6 +2040,7 @@ export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: 
     if (name) updateData.name = String(name).trim();
     if (description !== undefined) updateData.description = description;
     if (joinCode) updateData.joinCode = String(joinCode).trim().toUpperCase();
+    if (typeof isDiscoverable === 'boolean') updateData.isDiscoverable = isDiscoverable;
     if (Array.isArray(hiddenFrom)) updateData.hiddenFrom = hiddenFrom;
     if (Array.isArray(visibleOnlyTo)) updateData.visibleOnlyTo = visibleOnlyTo;
 
@@ -1963,7 +2063,7 @@ export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: 
       data: updateData,
     });
 
-    const changesSummary = `Group "${beforeState.name}" updated: name="${updatedGroup.name}".`;
+    const changesSummary = `Group "${beforeState.name}" updated: name="${updatedGroup.name}", discoverable=${updatedGroup.isDiscoverable}.`;
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
@@ -1997,6 +2097,146 @@ export async function adminUpdateGroupFull(req: AdminAuthenticatedRequest, res: 
     return res.status(500).json({ success: false, error: 'Failed to update group settings.' });
   }
 }
+
+/**
+ * Search all groups across the platform for Super Admin management
+ */
+export async function searchGroupsForAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const q = ((req.query.q as string) || '').trim();
+    const where: any = q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { joinCode: { equals: q.toUpperCase() } },
+            { owner: { username: { contains: q.replace(/^@/, ''), mode: 'insensitive' } } },
+          ],
+        }
+      : {};
+
+    const groups = await prisma.group.findMany({
+      where,
+      take: 50,
+      orderBy: [{ members: { _count: 'desc' } }, { createdAt: 'desc' }],
+      include: {
+        owner: { select: { id: true, name: true, username: true, email: true } },
+        _count: { select: { members: true, tasks: true } },
+      },
+    });
+
+    return res.json({
+      success: true,
+      groups: groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        description: g.description,
+        joinCode: g.joinCode,
+        isDiscoverable: g.isDiscoverable !== false,
+        scheduledDays: g.scheduledDays,
+        memberCount: g._count.members,
+        taskCount: g._count.tasks,
+        ownerId: g.ownerId,
+        owner: g.owner,
+        hiddenFrom: g.hiddenFrom,
+        visibleOnlyTo: g.visibleOnlyTo,
+        createdAt: g.createdAt,
+      })),
+    });
+  } catch (err: any) {
+    console.error('searchGroupsForAdmin error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to search groups.' });
+  }
+}
+
+/**
+ * Toggle Group Discoverability (Discoverable vs Non-discoverable)
+ */
+export async function adminToggleGroupDiscoverability(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { groupId } = req.params;
+    const {
+      isDiscoverable,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof isDiscoverable !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'isDiscoverable must be a boolean (true or false).' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: {
+        owner: { select: { id: true, username: true, email: true } },
+      },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    const beforeState = {
+      groupId: group.id,
+      name: group.name,
+      isDiscoverable: group.isDiscoverable,
+    };
+
+    const updatedGroup = await prisma.group.update({
+      where: { id: groupId },
+      data: { isDiscoverable },
+    });
+
+    const statusLabel = isDiscoverable ? 'Discoverable' : 'Non-discoverable';
+    const changesSummary = `Group "${group.name}" visibility changed to ${statusLabel}. ${
+      isDiscoverable
+        ? 'Now visible in public discovery feeds and recommendations.'
+        : 'Hidden from discovery feeds; remains searchable by name/code and accessible to all existing members.'
+    }`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'GROUP_DISCOVERABILITY_OVERRIDE',
+      targetUserId: group.ownerId,
+      targetUser: `@${group.owner.username} (Group: ${group.name})`,
+      reason,
+      beforeState,
+      afterState: {
+        groupId: updatedGroup.id,
+        name: updatedGroup.name,
+        isDiscoverable: updatedGroup.isDiscoverable,
+      },
+    });
+
+    await dispatchAdminNotification({
+      userId: group.ownerId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Group Visibility Changed to ${statusLabel}`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Group "${group.name}" is now marked ${statusLabel}.`,
+      group: updatedGroup,
+    });
+  } catch (err: any) {
+    console.error('adminToggleGroupDiscoverability error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update group discoverability.' });
+  }
+}
+
 
 /**
  * Remove streak freeze from a specific date and recalculate streaks
@@ -2387,8 +2627,10 @@ export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest
       // Check if data URI
       const dataUriMatch = profileImage.match(/^data:image\/(jpeg|jpg|png|webp|gif);base64,(.+)$/i);
       if (dataUriMatch) {
+        const declaredMime = dataUriMatch[1].toLowerCase();
         const base64Data = dataUriMatch[2];
-        const sizeInBytes = Math.ceil((base64Data.length * 3) / 4);
+        const buffer = Buffer.from(base64Data, 'base64');
+        const sizeInBytes = buffer.length;
         const limitMb = getUserProfileImageLimitMb(userId);
         const MAX_SIZE_BYTES = limitMb * 1024 * 1024;
         if (sizeInBytes > MAX_SIZE_BYTES) {
@@ -2396,6 +2638,15 @@ export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest
             success: false,
             error: `Image size exceeds the ${limitMb} MB limit. Provided image is ${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB.`
           });
+        }
+        if (declaredMime !== 'gif') {
+          const validation = validateImageBuffer(buffer, declaredMime);
+          if (!validation.valid) {
+            return res.status(400).json({
+              success: false,
+              error: validation.error || 'The uploaded file is empty or corrupted.'
+            });
+          }
         }
         newImage = profileImage;
       } else if (/^https?:\/\/.+/i.test(profileImage)) {
@@ -2461,6 +2712,548 @@ export async function adminUpdateUserProfileImage(req: AdminAuthenticatedRequest
     return res.status(500).json({ success: false, error: 'Failed to update profile image.' });
   }
 }
+
+/**
+ * Get comprehensive effective reminder configuration and schedules for a user
+ */
+export async function getUserReminderSettings(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        notificationPreference: true,
+        reminderSchedules: {
+          orderBy: { time: 'asc' },
+          include: {
+            task: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                recurrence: true,
+                scheduledDays: true,
+                isGroupTask: true,
+                groupId: true,
+                group: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        tasks: {
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            group: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const timezone = user.timezone || 'Asia/Kolkata';
+    const quotaLimit = getUserReminderLimit(userId);
+
+    // 1. Overall Schedules
+    const overallSchedules = user.reminderSchedules
+      .filter((s) => s.scope === 'OVERALL')
+      .map((s) => ({
+        id: s.id,
+        time: s.time,
+        isEnabled: s.isEnabled,
+        nextOccurrence: calculateNextOccurrence(s.time, timezone, undefined, s.isEnabled),
+      }));
+
+    const isOverallEnabled =
+      user.notificationPreference?.overallStreakRemindersEmail !== false &&
+      overallSchedules.some((s) => s.isEnabled);
+
+    // 2. Task Schedules (Personal & Group tasks, up to 2 times per task)
+    const taskSettings = user.tasks.map((task) => {
+      const schedules = user.reminderSchedules
+        .filter((s) => s.scope === 'TASK' && s.taskId === task.id)
+        .map((s) => ({
+          id: s.id,
+          time: s.time,
+          isEnabled: s.isEnabled,
+          nextOccurrence: calculateNextOccurrence(s.time, timezone, task.scheduledDays, s.isEnabled),
+        }));
+
+      const isTaskEnabled =
+        user.notificationPreference?.taskRemindersEmail !== false &&
+        schedules.some((s) => s.isEnabled);
+
+      return {
+        taskId: task.id,
+        title: task.title,
+        recurrence: task.recurrence,
+        scheduledDays: task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+        isGroupTask: task.isGroupTask || Boolean(task.groupId),
+        groupName: task.group?.name || null,
+        taskRemindersEnabled: isTaskEnabled,
+        schedules,
+        maxAllowed: 2,
+      };
+    });
+
+    return res.json({
+      success: true,
+      timezone,
+      quotaLimit,
+      preferences: user.notificationPreference || {
+        emailNotificationsEnabled: true,
+        inAppNotificationsEnabled: true,
+        overallStreakRemindersEmail: true,
+        overallStreakRemindersInApp: true,
+        taskRemindersEmail: true,
+        taskRemindersInApp: true,
+        friendOverallActivityAlerts: true,
+        friendOverallActivityInApp: true,
+        friendTaskActivityAlerts: true,
+        friendTaskActivityInApp: true,
+        friendOverallMilestones: true,
+        friendOverallMilestonesInApp: true,
+        friendTaskMilestones: true,
+        friendTaskMilestonesInApp: true,
+        myMilestonesEmail: true,
+        myMilestonesInApp: true,
+        freezeStatusNotifications: true,
+        freezeStatusInApp: true,
+      },
+      overall: {
+        isEnabled: isOverallEnabled,
+        schedules: overallSchedules,
+        emailNotificationsEnabled: user.notificationPreference?.emailNotificationsEnabled ?? true,
+        customNotificationEmail: user.notificationPreference?.customNotificationEmail || null,
+      },
+      tasks: taskSettings,
+    });
+  } catch (err: any) {
+    console.error('getUserReminderSettings error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve reminder settings.' });
+  }
+}
+
+/**
+ * Super Admin updates overall streak reminder schedule and enabled status
+ */
+export async function adminUpdateOverallReminders(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      isEnabled,
+      times,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof isEnabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'isEnabled must be a boolean.' });
+    }
+
+    if (!Array.isArray(times)) {
+      return res.status(400).json({ success: false, error: 'times must be an array of "HH:mm" strings.' });
+    }
+
+    const quotaLimit = getUserReminderLimit(userId);
+    if (times.length > quotaLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot configure ${times.length} times. Quota limit for this user is ${quotaLimit}.`,
+      });
+    }
+
+    // Validate times format
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const formattedTimes: string[] = [];
+    for (const t of times) {
+      if (!timeRegex.test(String(t).trim())) {
+        return res.status(400).json({ success: false, error: `Invalid time format "${t}". Use 24hr format HH:mm.` });
+      }
+      const [h, m] = String(t).trim().split(':');
+      const norm = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+      if (!formattedTimes.includes(norm)) {
+        formattedTimes.push(norm);
+      }
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        reminderSchedules: { where: { scope: 'OVERALL' } },
+        notificationPreference: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeState = {
+      overallStreakRemindersEmail: user.notificationPreference?.overallStreakRemindersEmail ?? true,
+      times: user.reminderSchedules.map((s) => s.time),
+    };
+
+    // Apply database updates atomically
+    await prisma.$transaction(async (tx) => {
+      // 1. Clear old overall schedules
+      await tx.reminderSchedule.deleteMany({
+        where: { userId, scope: 'OVERALL' },
+      });
+
+      // 2. Insert new schedules if any
+      if (formattedTimes.length > 0) {
+        await tx.reminderSchedule.createMany({
+          data: formattedTimes.map((t) => ({
+            userId,
+            scope: 'OVERALL',
+            time: t,
+            isEnabled,
+          })),
+        });
+      }
+
+      // 3. Update notification preferences
+      await tx.notificationPreference.upsert({
+        where: { userId },
+        create: {
+          userId,
+          overallStreakRemindersEmail: isEnabled,
+        },
+        update: {
+          overallStreakRemindersEmail: isEnabled,
+        },
+      });
+    });
+
+    const changesSummary = `Overall streak reminders ${isEnabled ? 'ENABLED' : 'PAUSED'}. Scheduled times: ${
+      formattedTimes.length > 0 ? formattedTimes.join(', ') : 'None'
+    }.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_OVERALL_REMINDERS',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: {
+        isEnabled,
+        times: formattedTimes,
+      },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Overall Streak Reminders Updated by Admin',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Overall streak reminder settings updated for @${user.username}.`,
+      isEnabled,
+      times: formattedTimes,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateOverallReminders error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update overall reminders.' });
+  }
+}
+
+/**
+ * Super Admin updates personal or group task reminder schedule (up to 2 times per task)
+ */
+export async function adminUpdateTaskReminders(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, taskId } = req.params;
+    const {
+      isEnabled,
+      times,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof isEnabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'isEnabled must be a boolean.' });
+    }
+
+    if (!Array.isArray(times)) {
+      return res.status(400).json({ success: false, error: 'times must be an array of "HH:mm" strings.' });
+    }
+
+    // Up to two independently configurable reminder times per task
+    if (times.length > 2) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tasks are permitted a maximum of two independently configurable reminder times.',
+      });
+    }
+
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    const formattedTimes: string[] = [];
+    for (const t of times) {
+      if (!timeRegex.test(String(t).trim())) {
+        return res.status(400).json({ success: false, error: `Invalid time format "${t}". Use 24hr format HH:mm.` });
+      }
+      const [h, m] = String(t).trim().split(':');
+      const norm = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+      if (!formattedTimes.includes(norm)) {
+        formattedTimes.push(norm);
+      }
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        user: { select: { id: true, username: true } },
+        group: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!task) {
+      return res.status(404).json({ success: false, error: 'Task not found.' });
+    }
+
+    const existingSchedules = await prisma.reminderSchedule.findMany({
+      where: { userId, scope: 'TASK', taskId },
+    });
+
+    const beforeState = {
+      taskId,
+      taskTitle: task.title,
+      times: existingSchedules.map((s) => s.time),
+      isEnabled: existingSchedules.length > 0 ? existingSchedules[0].isEnabled : true,
+    };
+
+    // Apply database updates atomically
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete previous schedules for this specific task
+      await tx.reminderSchedule.deleteMany({
+        where: { userId, scope: 'TASK', taskId },
+      });
+
+      // 2. Insert updated schedules (up to 2)
+      if (formattedTimes.length > 0) {
+        await tx.reminderSchedule.createMany({
+          data: formattedTimes.map((t) => ({
+            userId,
+            scope: 'TASK',
+            taskId,
+            time: t,
+            isEnabled,
+          })),
+        });
+      }
+    });
+
+    const changesSummary = `Reminders for task "${task.title}" ${isEnabled ? 'ENABLED' : 'PAUSED'}. Scheduled times (${formattedTimes.length}/2): ${
+      formattedTimes.length > 0 ? formattedTimes.join(', ') : 'None'
+    }.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_TASK_REMINDERS',
+      targetUserId: userId,
+      targetUser: `@${task.user.username} (Task: ${task.title})`,
+      reason,
+      beforeState,
+      afterState: {
+        taskId,
+        isEnabled,
+        times: formattedTimes,
+      },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Task Reminders Updated: "${task.title}"`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Reminders for "${task.title}" updated successfully.`,
+      taskId,
+      isEnabled,
+      times: formattedTimes,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateTaskReminders error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update task reminders.' });
+  }
+}
+
+/**
+ * Super Admin triggers manual execution check of reminders on demand
+ */
+export async function adminTriggerManualReminderCheck(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const result = await runReminderCheck();
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'TRIGGER_MANUAL_REMINDER_CHECK',
+      reason: 'Manual on-demand check of active reminder schedules executed by administrator.',
+      beforeState: null,
+      afterState: result,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Reminder execution check completed.',
+      timestamp: new Date().toISOString(),
+      ...result,
+    });
+  } catch (err: any) {
+    console.error('adminTriggerManualReminderCheck error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to execute reminder check.' });
+  }
+}
+
+/**
+ * Super Admin updates a user's notification channel delivery preferences
+ */
+export async function adminUpdateUserPreferences(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      preferences,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (!preferences || typeof preferences !== 'object') {
+      return res.status(400).json({ success: false, error: 'preferences object is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { notificationPreference: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeState = user.notificationPreference || null;
+
+    const updated = await prisma.notificationPreference.upsert({
+      where: { userId },
+      update: {
+        ...(preferences.emailNotificationsEnabled !== undefined ? { emailNotificationsEnabled: preferences.emailNotificationsEnabled } : {}),
+        ...(preferences.inAppNotificationsEnabled !== undefined ? { inAppNotificationsEnabled: preferences.inAppNotificationsEnabled } : {}),
+        ...(preferences.overallStreakRemindersEmail !== undefined ? { overallStreakRemindersEmail: preferences.overallStreakRemindersEmail } : {}),
+        ...(preferences.overallStreakRemindersInApp !== undefined ? { overallStreakRemindersInApp: preferences.overallStreakRemindersInApp } : {}),
+        ...(preferences.taskRemindersEmail !== undefined ? { taskRemindersEmail: preferences.taskRemindersEmail } : {}),
+        ...(preferences.taskRemindersInApp !== undefined ? { taskRemindersInApp: preferences.taskRemindersInApp } : {}),
+        ...(preferences.friendOverallActivityAlerts !== undefined ? { friendOverallActivityAlerts: preferences.friendOverallActivityAlerts } : {}),
+        ...(preferences.friendOverallActivityInApp !== undefined ? { friendOverallActivityInApp: preferences.friendOverallActivityInApp } : {}),
+        ...(preferences.friendTaskActivityAlerts !== undefined ? { friendTaskActivityAlerts: preferences.friendTaskActivityAlerts } : {}),
+        ...(preferences.friendTaskActivityInApp !== undefined ? { friendTaskActivityInApp: preferences.friendTaskActivityInApp } : {}),
+        ...(preferences.friendOverallMilestones !== undefined ? { friendOverallMilestones: preferences.friendOverallMilestones } : {}),
+        ...(preferences.friendOverallMilestonesInApp !== undefined ? { friendOverallMilestonesInApp: preferences.friendOverallMilestonesInApp } : {}),
+        ...(preferences.friendTaskMilestones !== undefined ? { friendTaskMilestones: preferences.friendTaskMilestones } : {}),
+        ...(preferences.friendTaskMilestonesInApp !== undefined ? { friendTaskMilestonesInApp: preferences.friendTaskMilestonesInApp } : {}),
+        ...(preferences.myMilestonesEmail !== undefined ? { myMilestonesEmail: preferences.myMilestonesEmail } : {}),
+        ...(preferences.myMilestonesInApp !== undefined ? { myMilestonesInApp: preferences.myMilestonesInApp } : {}),
+        ...(preferences.freezeStatusNotifications !== undefined ? { freezeStatusNotifications: preferences.freezeStatusNotifications } : {}),
+        ...(preferences.freezeStatusInApp !== undefined ? { freezeStatusInApp: preferences.freezeStatusInApp } : {}),
+      },
+      create: {
+        userId,
+        emailNotificationsEnabled: preferences.emailNotificationsEnabled ?? true,
+        inAppNotificationsEnabled: preferences.inAppNotificationsEnabled ?? true,
+        overallStreakRemindersEmail: preferences.overallStreakRemindersEmail ?? true,
+        overallStreakRemindersInApp: preferences.overallStreakRemindersInApp ?? true,
+        taskRemindersEmail: preferences.taskRemindersEmail ?? true,
+        taskRemindersInApp: preferences.taskRemindersInApp ?? true,
+        friendOverallActivityAlerts: preferences.friendOverallActivityAlerts ?? true,
+        friendOverallActivityInApp: preferences.friendOverallActivityInApp ?? true,
+        friendTaskActivityAlerts: preferences.friendTaskActivityAlerts ?? true,
+        friendTaskActivityInApp: preferences.friendTaskActivityInApp ?? true,
+        friendOverallMilestones: preferences.friendOverallMilestones ?? true,
+        friendOverallMilestonesInApp: preferences.friendOverallMilestonesInApp ?? true,
+        friendTaskMilestones: preferences.friendTaskMilestones ?? true,
+        friendTaskMilestonesInApp: preferences.friendTaskMilestonesInApp ?? true,
+        myMilestonesEmail: preferences.myMilestonesEmail ?? true,
+        myMilestonesInApp: preferences.myMilestonesInApp ?? true,
+        freezeStatusNotifications: preferences.freezeStatusNotifications ?? true,
+        freezeStatusInApp: preferences.freezeStatusInApp ?? true,
+      },
+    });
+
+    const changesSummary = `Updated in-app & email notification trigger channels for @${user.username}.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'UPDATE_NOTIFICATION_PREFERENCES',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: updated,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Notification Delivery Channels Updated by Admin',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Notification preferences updated for @${user.username}.`,
+      preferences: updated,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateUserPreferences error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update user notification preferences.' });
+  }
+}
+
+
 
 
 

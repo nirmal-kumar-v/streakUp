@@ -103,6 +103,7 @@ model User {
   emailLastChangedAt      DateTime?        // Tracks last registered email change (14-day limit)
   overallFreezeBalance    Int              @default(0)
   overallFreezeRechargeDays Int            @default(0)
+  overallFreezeCapacity   Int              @default(1)
   lastOverallFreezeUsedAt DateTime?
   maxStarredNotifications Int?             @default(15) // Overridable limit for starred notifications (default 15)
   createdAt               DateTime         @default(now())
@@ -131,6 +132,7 @@ model User {
   sentGroupInvitations    GroupInvitation[] @relation("SentGroupInvitations")
   receivedGroupInvitations GroupInvitation[] @relation("ReceivedGroupInvitations")
   noteReactions           StudyNoteReaction[]
+  adminConfig             UserAdminConfig?
 
   @@index([normalizedUsername])
   @@index([currentStreak(sort: Desc), longestStreak(sort: Desc)])
@@ -155,6 +157,7 @@ model Task {
   longestStreak        Int              @default(0)
   freezeBalance        Int              @default(0)
   freezeRechargeDays   Int              @default(0)
+  freezeCapacity       Int              @default(1)
   lastFreezeUsedAt     DateTime?
   hiddenFrom           String[]         @default([]) // "all" or list of usernames/IDs to hide from
   visibleOnlyTo        String[]         @default([]) // if non-empty, only visible to these usernames/IDs
@@ -297,13 +300,21 @@ model NotificationPreference {
   emailNotificationsEnabled   Boolean  @default(true)
   inAppNotificationsEnabled   Boolean  @default(true)
   overallStreakRemindersEmail Boolean  @default(true)
+  overallStreakRemindersInApp Boolean  @default(true)
   taskRemindersEmail          Boolean  @default(true)
+  taskRemindersInApp          Boolean  @default(true)
   friendOverallActivityAlerts Boolean  @default(true)
+  friendOverallActivityInApp  Boolean  @default(true)
   friendTaskActivityAlerts    Boolean  @default(true)
+  friendTaskActivityInApp     Boolean  @default(true)
   friendOverallMilestones     Boolean  @default(true)
+  friendOverallMilestonesInApp Boolean @default(true)
   friendTaskMilestones        Boolean  @default(true)
+  friendTaskMilestonesInApp   Boolean  @default(true)
   myMilestonesEmail           Boolean  @default(true)
+  myMilestonesInApp           Boolean  @default(true)
   freezeStatusNotifications   Boolean  @default(true)
+  freezeStatusInApp           Boolean  @default(true)
   customNotificationEmail     String?
   isCustomEmailVerified       Boolean  @default(false)
   customEmailVerifyToken      String?
@@ -427,6 +438,7 @@ model Group {
   scheduledDays Int[]              @default([0, 1, 2, 3, 4, 5, 6]) // 0=Sun, 1=Mon, ..., 6=Sat
   ownerId       String
   owner         User               @relation("OwnedGroups", fields: [ownerId], references: [id], onDelete: Cascade)
+  isDiscoverable Boolean           @default(true) // If false, hidden from public discovery feed but remains searchable by name/joinCode
   hiddenFrom    String[]           @default([]) // usernames or "all" hidden by owner from finding group or seeing group tasks
   visibleOnlyTo String[]           @default([]) // if non-empty, only visible to these usernames/IDs
   createdAt     DateTime           @default(now())
@@ -513,3 +525,18 @@ model AdminAuditLog {
   @@index([targetUserId])
   @@index([createdAt])
 }
+
+model UserAdminConfig {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaderboardLimit    Int      @default(10)
+  reminderLimit       Int      @default(3)
+  discoverGroupsLimit Int      @default(5)
+  profileImageLimitMb Int      @default(5)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId])
+}
+

@@ -4,8 +4,9 @@ import { getLocalDateString, getYesterdayDateString, DEFAULT_TIMEZONE, isValidTi
 export interface TimelineStreakResult {
   currentStreak: number;
   longestStreak: number;
-  freezeBalance: number; // 0 or 1
+  freezeBalance: number; // 0 up to maxCapacity
   freezeRechargeDays: number; // 0 to 7
+  maxCapacity: number; // permitted maximum inventory
   hasCompletedToday: boolean;
   isTodayProtected: boolean;
   totalCompletedDays: number;
@@ -23,10 +24,13 @@ export function calculateStreakAndFreezes(
   existingProtectedDates: string[] = [],
   timezone: string = DEFAULT_TIMEZONE,
   referenceDate?: Date,
-  scheduledDays?: number[] // Array of 0..6 (0=Sun, 1=Mon, ..., 6=Sat)
+  scheduledDays?: number[], // Array of 0..6 (0=Sun, 1=Mon, ..., 6=Sat)
+  maxCapacity: number = 1
 ): TimelineStreakResult {
   const zone = isValidTimezone(timezone) ? timezone : DEFAULT_TIMEZONE;
   const now = referenceDate ? DateTime.fromJSDate(referenceDate).setZone(zone) : DateTime.now().setZone(zone);
+
+  const effectiveMaxCapacity = Math.max(1, Math.min(7, Math.round(maxCapacity || 1)));
 
   const todayStr = getLocalDateString(zone, now.toJSDate());
   const yesterdayStr = getYesterdayDateString(zone, now.toJSDate());
@@ -46,6 +50,7 @@ export function calculateStreakAndFreezes(
       longestStreak: 0,
       freezeBalance: 0,
       freezeRechargeDays: 0,
+      maxCapacity: effectiveMaxCapacity,
       hasCompletedToday: false,
       isTodayProtected: false,
       totalCompletedDays: 0,
@@ -71,7 +76,7 @@ export function calculateStreakAndFreezes(
   while (simDate < todayDate) {
     const curDateStr = simDate.toFormat('yyyy-MM-dd');
     const dayOfWeek = simDate.weekday % 7; // 0=Sunday, 1=Monday, ..., 6=Saturday
-    const isScheduledDay = !scheduledDays || scheduledDays.length === 0 || scheduledDays.includes(dayOfWeek);
+    const isScheduledDay = !scheduledDays || !Array.isArray(scheduledDays) || scheduledDays.length === 0 || scheduledDays.includes(dayOfWeek);
 
     if (completedSet.has(curDateStr)) {
       // Completed day (counts whether scheduled or not)
@@ -81,27 +86,34 @@ export function calculateStreakAndFreezes(
       }
 
       // Freeze earning / recharge logic
-      if (freezeBalance === 0) {
+      if (freezeBalance < effectiveMaxCapacity) {
         freezeRechargeDays += 1;
         if (freezeRechargeDays >= 7) {
-          freezeBalance = 1;
-          freezeRechargeDays = 7;
+          freezeBalance += 1;
+          if (freezeBalance >= effectiveMaxCapacity) {
+            freezeRechargeDays = 7; // Capped once capacity is reached
+          } else {
+            freezeRechargeDays = 0; // Reset to 0 for next qualifying cycle
+          }
         }
+      } else {
+        // Inventory is full at permitted maximum
+        freezeRechargeDays = 7; // Keep capped at 7/7, never increase beyond it
       }
     } else if (protectedSet.has(curDateStr)) {
       // Already recorded as protected day
       // Streak continuity is preserved without incrementing currentStreak
       // Protected day does NOT count toward recharge days
       // Freeze was consumed on this day
-      freezeBalance = 0;
-      freezeRechargeDays = 0;
+      freezeBalance = Math.max(0, freezeBalance - 1);
+      freezeRechargeDays = 0; // Reset recharge progress to 0/7 on consumption
       hasEverConsumedFreeze = true;
     } else if (isScheduledDay) {
       // Scheduled day that was MISSED!
-      if (currentStreak > 0 && freezeBalance === 1) {
+      if (currentStreak > 0 && freezeBalance >= 1) {
         // We have an available freeze! Protect this missed day
-        freezeBalance = 0;
-        freezeRechargeDays = 0;
+        freezeBalance = Math.max(0, freezeBalance - 1);
+        freezeRechargeDays = 0; // Reset recharge progress to 0/7 on consumption
         hasEverConsumedFreeze = true;
         protectedSet.add(curDateStr);
         newlyConsumedDates.push(curDateStr);
@@ -129,16 +141,22 @@ export function calculateStreakAndFreezes(
     if (currentStreak > longestStreak) {
       longestStreak = currentStreak;
     }
-    if (freezeBalance === 0) {
+    if (freezeBalance < effectiveMaxCapacity) {
       freezeRechargeDays += 1;
       if (freezeRechargeDays >= 7) {
-        freezeBalance = 1;
-        freezeRechargeDays = 7;
+        freezeBalance += 1;
+        if (freezeBalance >= effectiveMaxCapacity) {
+          freezeRechargeDays = 7;
+        } else {
+          freezeRechargeDays = 0;
+        }
       }
+    } else {
+      freezeRechargeDays = 7;
     }
   } else if (isTodayProtected) {
     // Today was already protected
-    freezeBalance = 0;
+    freezeBalance = Math.max(0, freezeBalance - 1);
     freezeRechargeDays = 0;
   } else {
     // Today is in progress (pending).
@@ -147,13 +165,14 @@ export function calculateStreakAndFreezes(
   }
 
   // Cap freeze recharge days display
-  const finalRechargeDays = freezeBalance === 1 ? 7 : Math.min(6, freezeRechargeDays);
+  const finalRechargeDays = freezeBalance >= effectiveMaxCapacity ? 7 : Math.min(6, freezeRechargeDays);
 
   return {
     currentStreak,
     longestStreak,
     freezeBalance,
     freezeRechargeDays: finalRechargeDays,
+    maxCapacity: effectiveMaxCapacity,
     hasCompletedToday,
     isTodayProtected,
     totalCompletedDays,

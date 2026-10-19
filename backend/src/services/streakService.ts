@@ -102,14 +102,12 @@ export async function recalculateUserStreaks(
   userId: string,
   userTimezone?: string
 ): Promise<StreakResult> {
-  let tz = userTimezone;
-  if (!tz) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { timezone: true }
-    });
-    tz = user?.timezone || DEFAULT_TIMEZONE;
-  }
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true, overallFreezeCapacity: true }
+  });
+  const tz = userTimezone || user?.timezone || DEFAULT_TIMEZONE;
+  const maxCapacity = user?.overallFreezeCapacity || 1;
 
   // Fetch all unique completion dates for this user across all tasks
   const completions = await prisma.taskCompletion.findMany({
@@ -127,8 +125,8 @@ export async function recalculateUserStreaks(
   });
   const protectedDates = freezeLogs.map((l: { protectedDate: string }) => l.protectedDate);
 
-  // Calculate overall streak and freezes
-  const freezeResult = calculateStreakAndFreezes(completionDates, protectedDates, tz);
+  // Calculate overall streak and freezes with approved capacity
+  const freezeResult = calculateStreakAndFreezes(completionDates, protectedDates, tz, undefined, undefined, maxCapacity);
 
   // Save any newly consumed freeze dates
   if (freezeResult.newlyConsumedDates.length > 0) {
@@ -187,7 +185,7 @@ export async function recalculateTaskStreaks(
 ): Promise<TimelineStreakResult> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, recurrence: true, scheduledDays: true }
+    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true }
   });
 
   if (!task || task.recurrence === 'ONE_TIME') {
@@ -196,6 +194,7 @@ export async function recalculateTaskStreaks(
       longestStreak: 0,
       freezeBalance: 0,
       freezeRechargeDays: 0,
+      maxCapacity: 1,
       hasCompletedToday: false,
       isTodayProtected: false,
       totalCompletedDays: 0,
@@ -226,12 +225,15 @@ export async function recalculateTaskStreaks(
   });
   const protectedDates = freezeLogs.map((l: { protectedDate: string }) => l.protectedDate);
 
+  const taskCapacity = task.freezeCapacity || 1;
+
   const freezeResult = calculateStreakAndFreezes(
     completionDates,
     protectedDates,
     tz,
     undefined,
-    task.scheduledDays || [0, 1, 2, 3, 4, 5, 6]
+    task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+    taskCapacity
   );
 
   if (freezeResult.newlyConsumedDates.length > 0) {

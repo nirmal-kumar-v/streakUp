@@ -34,6 +34,9 @@ import {
   Camera,
   Upload,
   ImageIcon,
+  Compass,
+  Play,
+  Plus,
 } from 'lucide-react';
 import {
   adminLogin,
@@ -67,9 +70,19 @@ import {
   overrideDiscoverGroupsLimit,
   overrideProfileImageLimit,
   adminUpdateUserProfileImage,
+  searchGroupsForAdmin,
+  adminToggleGroupDiscoverability,
+  getUserReminderSettings,
+  adminUpdateOverallReminders,
+  adminUpdateTaskReminders,
+  adminTriggerManualReminderCheck,
+  adminUpdateUserPreferences,
   AdminUser,
   AdminAuditLogItem,
+  AdminGroupItem,
+  AdminUserReminderSettings,
 } from '../api/admin';
+import { NotificationPreference } from '../api/notifications';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
@@ -86,9 +99,9 @@ export const AdminControlPage: React.FC = () => {
   const [activeAdmin, setActiveAdmin] = useState<any>(null);
 
   // ------------------------------------------
-  // Primary Tabs: users | audit | security
+  // Primary Tabs: users | groups | audit | security
   // ------------------------------------------
-  const [primaryTab, setPrimaryTab] = useState<'users' | 'audit' | 'security'>('users');
+  const [primaryTab, setPrimaryTab] = useState<'users' | 'groups' | 'audit' | 'security'>('users');
 
   // ------------------------------------------
   // User Search & Selected User State
@@ -102,7 +115,7 @@ export const AdminControlPage: React.FC = () => {
 
   // Sub-tabs inside Selected User Control Center
   const [userTab, setUserTab] = useState<
-    'overview' | 'username_email' | 'streaks' | 'points' | 'limits' | 'tasks_groups' | 'danger'
+    'overview' | 'username_email' | 'streaks' | 'points' | 'reminders' | 'limits' | 'tasks_groups' | 'danger'
   >('overview');
 
   // ------------------------------------------
@@ -169,11 +182,36 @@ export const AdminControlPage: React.FC = () => {
   const [streakReason, setStreakReason] = useState('');
   const [isSubmittingStreak, setIsSubmittingStreak] = useState(false);
 
-  // Freeze Shield Balance & Shelf Recharge Control
+  // Freeze Shield Balance & Shelf Recharge Control (Scope Isolated)
+  const [freezeScope, setFreezeScope] = useState<'overall' | string>('overall');
+  const [newFreezeCapacity, setNewFreezeCapacity] = useState<number>(1);
   const [newFreezeBalance, setNewFreezeBalance] = useState<number>(0);
   const [newFreezeRechargeDays, setNewFreezeRechargeDays] = useState<number>(0);
   const [freezeControlReason, setFreezeControlReason] = useState('');
   const [isSubmittingFreezeControl, setIsSubmittingFreezeControl] = useState(false);
+
+  // Groups Discovery Management State
+  const [adminGroupsList, setAdminGroupsList] = useState<AdminGroupItem[]>([]);
+  const [isLoadingAdminGroups, setIsLoadingAdminGroups] = useState(false);
+  const [groupSearchQuery, setGroupSearchQuery] = useState('');
+  const [groupDiscoverFilter, setGroupDiscoverFilter] = useState<'ALL' | 'DISCOVERABLE' | 'NON_DISCOVERABLE'>('ALL');
+
+  // Reminders Management State
+  const [userReminderSettings, setUserReminderSettings] = useState<AdminUserReminderSettings | null>(null);
+  const [isLoadingReminders, setIsLoadingReminders] = useState(false);
+  const [overallReminderEnabled, setOverallReminderEnabled] = useState(true);
+  const [overallReminderTimes, setOverallReminderTimes] = useState<string[]>(['20:00']);
+  const [newOverallReminderTime, setNewOverallReminderTime] = useState<string>('08:00');
+  const [overallReminderDays, setOverallReminderDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [overallReminderTimezone, setOverallReminderTimezone] = useState('Asia/Kolkata');
+  const [taskRemindersState, setTaskRemindersState] = useState<Record<string, { reminderTimes: string[]; isReminderActive: boolean }>>({});
+  const [newTaskReminderTime, setNewTaskReminderTime] = useState<Record<string, string>>({});
+  const [isSavingOverallReminders, setIsSavingOverallReminders] = useState(false);
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [manualCheckLogs, setManualCheckLogs] = useState<any | null>(null);
+  const [isRunningManualCheck, setIsRunningManualCheck] = useState(false);
+  const [adminNotificationPreferences, setAdminNotificationPreferences] = useState<NotificationPreference | null>(null);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
   // Points
   const [pointsDelta, setPointsDelta] = useState<number>(0);
@@ -375,6 +413,8 @@ export const AdminControlPage: React.FC = () => {
         setNewReminderLimit(u.reminderLimit || 3);
         setNewDiscoverGroupsLimit(u.discoverGroupsLimit || 5);
         setNewProfileImageLimitMb(u.profileImageLimitMb || 5);
+        setFreezeScope('overall');
+        setNewFreezeCapacity(u.overallFreezeCapacity || 1);
         setNewFreezeBalance(u.overallFreezeBalance || 0);
         setNewFreezeRechargeDays(u.overallFreezeRechargeDays || 0);
         setSelectedTimezone(u.timezone || 'Asia/Kolkata');
@@ -430,6 +470,18 @@ export const AdminControlPage: React.FC = () => {
       loadAuditLogs(1);
     }
   }, [isAdminAuth, primaryTab, auditFilterAction]);
+
+  useEffect(() => {
+    if (isAdminAuth && primaryTab === 'groups') {
+      loadAdminGroups();
+    }
+  }, [isAdminAuth, primaryTab]);
+
+  useEffect(() => {
+    if (isAdminAuth && userTab === 'reminders' && selectedUserId) {
+      loadUserReminders(selectedUserId);
+    }
+  }, [isAdminAuth, userTab, selectedUserId]);
 
   // ------------------------------------------
   // PIN Confirmation Execution Helper
@@ -985,6 +1037,23 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
+  // Freeze Shield Scope Switching
+  const handleFreezeScopeChange = (scope: string) => {
+    setFreezeScope(scope);
+    if (scope === 'overall') {
+      setNewFreezeCapacity(selectedUserDetails?.overallFreezeCapacity || 1);
+      setNewFreezeBalance(selectedUserDetails?.overallFreezeBalance || 0);
+      setNewFreezeRechargeDays(selectedUserDetails?.overallFreezeRechargeDays || 0);
+    } else {
+      const targetTask = selectedUserDetails?.tasks?.find((t: any) => t.id === scope);
+      if (targetTask) {
+        setNewFreezeCapacity(targetTask.freezeCapacity || 1);
+        setNewFreezeBalance(targetTask.freezeBalance || 0);
+        setNewFreezeRechargeDays(targetTask.freezeRechargeDays || 0);
+      }
+    }
+  };
+
   // Freeze Shield Balance & Shelf Recharge Control
   const handleUpdateFreezeControl = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -993,22 +1062,38 @@ export const AdminControlPage: React.FC = () => {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
+    const targetLabel =
+      freezeScope === 'overall'
+        ? 'Overall Streak Freeze'
+        : `Task "${selectedUserDetails?.tasks?.find((t: any) => t.id === freezeScope)?.title || freezeScope}"`;
+
     openPinPrompt(
-      'Authorize Freeze Shields & Recharge Update',
-      `Enter Super Admin Sensitive Password to update freeze shields to ${newFreezeBalance}/7 and recharge progress to ${newFreezeRechargeDays}/7 days for @${selectedUserDetails?.username}.`,
+      'Authorize Freeze Inventory & Recharge Update',
+      `Enter Super Admin Sensitive Password to update ${targetLabel}: Max Capacity ${newFreezeCapacity}, Shields ${newFreezeBalance}/${newFreezeCapacity}, Recharge ${newFreezeRechargeDays}/7 days for @${selectedUserDetails?.username}.`,
       async (pin) => {
         setIsSubmittingFreezeControl(true);
         try {
-          const res = await adjustUserFreezes(selectedUserId, {
-            overallFreezeBalance: Number(newFreezeBalance),
-            overallFreezeRechargeDays: Number(newFreezeRechargeDays),
+          const payload: any = {
             reason: freezeControlReason.trim(),
             sensitivePin: pin,
             sendInApp: notifyInApp,
             sendEmail: notifyEmail,
             includeReason: notifyIncludeReason,
             includeChanges: notifyIncludeChanges,
-          });
+          };
+
+          if (freezeScope === 'overall') {
+            payload.overallFreezeCapacity = Number(newFreezeCapacity);
+            payload.overallFreezeBalance = Number(newFreezeBalance);
+            payload.overallFreezeRechargeDays = Number(newFreezeRechargeDays);
+          } else {
+            payload.taskId = freezeScope;
+            payload.freezeCapacity = Number(newFreezeCapacity);
+            payload.freezeBalance = Number(newFreezeBalance);
+            payload.freezeRechargeDays = Number(newFreezeRechargeDays);
+          }
+
+          const res = await adjustUserFreezes(selectedUserId, payload);
           if (res.success) {
             toast.info(res.message);
             setFreezeControlReason('');
@@ -1018,6 +1103,277 @@ export const AdminControlPage: React.FC = () => {
           toast.error(extractErrorMessage(err, 'Failed to update freeze shields & recharge days.'));
         } finally {
           setIsSubmittingFreezeControl(false);
+        }
+      }
+    );
+  };
+
+  // Group Discovery Functions
+  const loadAdminGroups = async (query = groupSearchQuery) => {
+    setIsLoadingAdminGroups(true);
+    try {
+      const res = await searchGroupsForAdmin(query);
+      if (res.success) {
+        setAdminGroupsList(res.groups || []);
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to fetch groups.'));
+    } finally {
+      setIsLoadingAdminGroups(false);
+    }
+  };
+
+  const handleToggleGroupDiscoverability = (group: AdminGroupItem) => {
+    const nextState = !group.isDiscoverable;
+    openPinPrompt(
+      nextState ? 'Enable Public Discoverability' : 'Make Group Non-Discoverable',
+      `Enter Super Admin Sensitive Password to mark group "${group.name}" (${group.joinCode}) as ${
+        nextState ? 'Publicly Discoverable' : 'Non-Discoverable (Direct search/code only)'
+      }. Existing members and search by name/code remain active.`,
+      async (pin) => {
+        try {
+          const res = await adminToggleGroupDiscoverability(group.id, {
+            isDiscoverable: nextState,
+            reason: `Admin toggled group "${group.name}" discoverability to ${nextState ? 'Discoverable' : 'Non-discoverable'}`,
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            loadAdminGroups();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update group discoverability.'));
+        }
+      }
+    );
+  };
+
+  // Reminder Management Functions
+  const loadUserReminders = async (userId: string) => {
+    setIsLoadingReminders(true);
+    try {
+      const res = await getUserReminderSettings(userId);
+      if (res.success) {
+        setUserReminderSettings(res);
+        setOverallReminderEnabled(res.overall?.isEnabled ?? true);
+        const overallTimes = (res.overall?.schedules || []).map((s: any) => s.time);
+        setOverallReminderTimes(overallTimes.length > 0 ? overallTimes : ['20:00']);
+        setOverallReminderTimezone(res.timezone || 'Asia/Kolkata');
+        if (res.preferences) {
+          setAdminNotificationPreferences(res.preferences);
+        }
+
+        const initialTasks: Record<string, { reminderTimes: string[]; isReminderActive: boolean }> = {};
+        const defaultTaskInputs: Record<string, string> = {};
+        for (const t of res.tasks || []) {
+          const taskTimes = t.schedules && t.schedules.length > 0 ? t.schedules.map((s: any) => s.time) : [];
+          initialTasks[t.taskId] = {
+            reminderTimes: taskTimes,
+            isReminderActive: t.taskRemindersEnabled ?? true,
+          };
+          defaultTaskInputs[t.taskId] = '09:00';
+        }
+        setTaskRemindersState(initialTasks);
+        setNewTaskReminderTime(defaultTaskInputs);
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to fetch user reminder settings.'));
+    } finally {
+      setIsLoadingReminders(false);
+    }
+  };
+
+  const handleAddOverallReminder = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newOverallReminderTime) return;
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(newOverallReminderTime)) {
+      toast.error('Invalid time format. Please use HH:mm in 24hr format.');
+      return;
+    }
+    const [h, m] = newOverallReminderTime.split(':');
+    const formatted = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+    if (overallReminderTimes.includes(formatted)) {
+      toast.error(`Time ${formatted} is already in the overall reminders list.`);
+      return;
+    }
+    const quota = userReminderSettings?.quotaLimit || selectedUserDetails?.reminderLimit || 3;
+    if (overallReminderTimes.length >= quota) {
+      toast.error(`User overall reminder limit reached (${quota} max). Increase quota first.`);
+      return;
+    }
+    setOverallReminderTimes([...overallReminderTimes, formatted].sort());
+    toast.info(`Added ${formatted}. Click "Save Overall Reminder Settings" to apply.`);
+  };
+
+  const handleRemoveOverallReminder = (timeToRemove: string) => {
+    setOverallReminderTimes((prev) => prev.filter((t) => t !== timeToRemove));
+  };
+
+  const handleAddTaskReminderTime = (taskId: string) => {
+    const timeVal = newTaskReminderTime[taskId] || '09:00';
+    const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeRegex.test(timeVal)) {
+      toast.error('Invalid time format. Please use HH:mm in 24hr format.');
+      return;
+    }
+    const [h, m] = timeVal.split(':');
+    const formatted = `${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
+    const taskConfig = taskRemindersState[taskId] || { reminderTimes: [], isReminderActive: true };
+    if (taskConfig.reminderTimes.includes(formatted)) {
+      toast.error(`Time ${formatted} is already configured for this task.`);
+      return;
+    }
+    if (taskConfig.reminderTimes.length >= 2) {
+      toast.error('Tasks support a maximum of 2 reminder times.');
+      return;
+    }
+    setTaskRemindersState({
+      ...taskRemindersState,
+      [taskId]: {
+        ...taskConfig,
+        reminderTimes: [...taskConfig.reminderTimes, formatted].sort(),
+      },
+    });
+    toast.info(`Added ${formatted} for this task. Click "Save Task Reminders" to apply.`);
+  };
+
+  const handleRemoveTaskReminderTime = (taskId: string, timeToRemove: string) => {
+    const taskConfig = taskRemindersState[taskId];
+    if (!taskConfig) return;
+    setTaskRemindersState({
+      ...taskRemindersState,
+      [taskId]: {
+        ...taskConfig,
+        reminderTimes: taskConfig.reminderTimes.filter((t) => t !== timeToRemove),
+      },
+    });
+  };
+
+  const handleSaveOverallReminders = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    const quota = userReminderSettings?.quotaLimit || selectedUserDetails?.reminderLimit || 3;
+    if (overallReminderTimes.length > quota) {
+      toast.error(`Cannot save ${overallReminderTimes.length} reminder times. User quota limit is ${quota}.`);
+      return;
+    }
+    openPinPrompt(
+      'Authorize Overall Reminder Update',
+      `Enter Super Admin Sensitive Password to configure overall reminder schedule (${overallReminderTimes.join(', ') || 'No times'}) for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSavingOverallReminders(true);
+        try {
+          const res = await adminUpdateOverallReminders(selectedUserId, {
+            times: overallReminderTimes,
+            isEnabled: overallReminderEnabled,
+            reason: `Admin updated overall reminder schedule (${overallReminderTimes.join(', ') || 'cleared'})`,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            loadUserReminders(selectedUserId);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update overall reminders.'));
+        } finally {
+          setIsSavingOverallReminders(false);
+        }
+      }
+    );
+  };
+
+  const handleSaveTaskReminders = async (taskId: string, taskTitle: string) => {
+    if (!selectedUserId) return;
+    const taskConfig = taskRemindersState[taskId];
+    if (!taskConfig) return;
+    if (taskConfig.reminderTimes.length > 2) {
+      toast.error('Tasks support a maximum of 2 reminder times.');
+      return;
+    }
+
+    openPinPrompt(
+      'Authorize Task Reminder Update',
+      `Enter Super Admin Sensitive Password to configure reminder times (${taskConfig.reminderTimes.join(', ') || 'No times'}) for task "${taskTitle}".`,
+      async (pin) => {
+        setSavingTaskId(taskId);
+        try {
+          const res = await adminUpdateTaskReminders(selectedUserId, taskId, {
+            times: taskConfig.reminderTimes,
+            isEnabled: taskConfig.isReminderActive,
+            reason: `Admin configured reminders for task "${taskTitle}" (${taskConfig.reminderTimes.join(', ') || 'cleared'})`,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            loadUserReminders(selectedUserId);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update task reminders.'));
+        } finally {
+          setSavingTaskId(null);
+        }
+      }
+    );
+  };
+
+  const handleTriggerManualReminderCheck = async () => {
+    setIsRunningManualCheck(true);
+    try {
+      const res = await adminTriggerManualReminderCheck();
+      if (res.success) {
+        toast.info(res.message || 'Reminder check executed successfully.');
+        setManualCheckLogs(res);
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to trigger manual reminder check.'));
+    } finally {
+      setIsRunningManualCheck(false);
+    }
+  };
+
+  const handleAdminTogglePref = (key: keyof NotificationPreference) => {
+    if (!adminNotificationPreferences) return;
+    setAdminNotificationPreferences({
+      ...adminNotificationPreferences,
+      [key]: !adminNotificationPreferences[key],
+    });
+  };
+
+  const handleSaveAdminPreferences = async () => {
+    if (!selectedUserId || !adminNotificationPreferences) return;
+
+    openPinPrompt(
+      'Authorize Notification Channel Updates',
+      `Enter Super Admin Sensitive Password to save notification delivery channels for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSavingPreferences(true);
+        try {
+          const res = await adminUpdateUserPreferences(selectedUserId, {
+            preferences: adminNotificationPreferences,
+            reason: `Admin updated notification channel preferences for @${selectedUserDetails?.username}`,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setAdminNotificationPreferences(res.preferences);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update notification channel preferences.'));
+        } finally {
+          setIsSavingPreferences(false);
         }
       }
     );
@@ -1726,6 +2082,18 @@ export const AdminControlPage: React.FC = () => {
           </button>
           <button
             type="button"
+            onClick={() => setPrimaryTab('groups')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'groups'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <Compass className="w-4 h-4" />
+            <span>Group Discoverability & Directory</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setPrimaryTab('audit')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
               primaryTab === 'audit'
@@ -2077,6 +2445,17 @@ export const AdminControlPage: React.FC = () => {
                     }`}
                   >
                     Points & Ledger
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserTab('reminders')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                      userTab === 'reminders'
+                        ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Reminders & Schedules
                   </button>
                   <button
                     type="button"
@@ -2835,89 +3214,178 @@ export const AdminControlPage: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
                           <Snowflake className="w-4 h-4 text-sky-400" />
-                          <span>Freeze Shield Balance & Shelf Recharge Engine</span>
+                          <span>Freeze Inventory, Capacity & Recharge Engine</span>
                         </h3>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold">
-                          MAX 7 SHIELDS • 7-DAY RECHARGE
+                          SCOPE ISOLATED • APPROVED CAPACITIES 1-7
                         </span>
                       </div>
 
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        Adjust authoritative freeze inventory and exact recharge days. When a member maintains habit streaks, they accumulate days toward recharging a freeze shield (e.g. 5/7 recharge days). Super Admin can directly calibrate either value.
+                        Default capacity is strictly 1 shield per scope. Once full, recharge stops at 7/7. Super Admin can approve increased capacity (e.g. 2 shields), grant or correct shields, calibrate recharge progress, or apply date-specific administrative freezes.
                       </p>
 
-                      {/* Prominent Current Status Card */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-dark-surface border border-dark-border rounded-xl">
-                        {/* Freeze Shields */}
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
-                            <Snowflake className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
-                              Shield Inventory
-                            </span>
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-2xl font-black text-sky-400 font-mono">
-                                {selectedUserDetails?.overallFreezeBalance || 0}
-                              </span>
-                              <span className="text-xs font-bold text-zinc-400">/ 7 Shields</span>
-                            </div>
-                          </div>
-                        </div>
+                      {/* Scope Selector */}
+                      <div className="bg-dark-surface p-3.5 rounded-xl border border-dark-border space-y-1">
+                        <label className="block text-xs font-semibold text-zinc-300">
+                          Target Freeze Scope (Separation Enforced)
+                        </label>
+                        <select
+                          value={freezeScope}
+                          onChange={(e) => handleFreezeScopeChange(e.target.value)}
+                          className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
+                        >
+                          <option value="overall">
+                            Overall Streak Scope (Current Capacity: {selectedUserDetails?.overallFreezeCapacity || 1}, Shields: {selectedUserDetails?.overallFreezeBalance || 0}/{selectedUserDetails?.overallFreezeCapacity || 1})
+                          </option>
+                          {selectedUserDetails?.tasks?.map((t: any) => (
+                            <option key={t.id} value={t.id}>
+                              {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal Task] '}
+                              {t.title} (Cap: {t.freezeCapacity || 1}, Shields: {t.freezeBalance || 0}/{t.freezeCapacity || 1}, Recharge: {t.freezeRechargeDays || 0}/7d)
+                            </option>
+                          ))}
+                        </select>
+                        {freezeScope !== 'overall' && selectedUserDetails?.tasks?.find((t: any) => t.id === freezeScope)?.isGroupTask && (
+                          <p className="text-[10px] text-amber-400 pt-1">
+                            ✓ Scope Isolated: Modifying this group task freeze inventory affects only this selected member.
+                          </p>
+                        )}
+                      </div>
 
-                        {/* Shelf Recharge Progress */}
-                        <div className="flex items-center gap-3 border-t sm:border-t-0 sm:border-l border-dark-border/80 pt-3 sm:pt-0 sm:pl-4">
-                          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                            <Clock className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
-                              Shelf Recharge Progress
-                            </span>
-                            <div className="flex items-baseline gap-1.5 mb-1.5">
-                              <span className="text-2xl font-black text-amber-400 font-mono">
-                                {selectedUserDetails?.overallFreezeRechargeDays || 0}
-                              </span>
-                              <span className="text-xs font-bold text-zinc-400">/ 7 Days</span>
+                      {/* Prominent Current Status Card for Selected Scope */}
+                      {(() => {
+                        const targetTask = freezeScope !== 'overall' ? selectedUserDetails?.tasks?.find((t: any) => t.id === freezeScope) : null;
+                        const currentCap = freezeScope === 'overall' ? (selectedUserDetails?.overallFreezeCapacity || 1) : (targetTask?.freezeCapacity || 1);
+                        const currentBal = freezeScope === 'overall' ? (selectedUserDetails?.overallFreezeBalance || 0) : (targetTask?.freezeBalance || 0);
+                        const currentRec = freezeScope === 'overall' ? (selectedUserDetails?.overallFreezeRechargeDays || 0) : (targetTask?.freezeRechargeDays || 0);
+
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-dark-surface border border-dark-border rounded-xl">
+                            {/* Capacity */}
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                                <ShieldCheck className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                  Approved Capacity
+                                </span>
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-2xl font-black text-purple-400 font-mono">
+                                    {currentCap}
+                                  </span>
+                                  <span className="text-xs font-bold text-zinc-400">
+                                    {currentCap === 1 ? 'Shield (Default)' : 'Shields (Approved)'}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            {/* Visual 7-pip meter */}
-                            <div className="flex items-center gap-1">
-                              {[0, 1, 2, 3, 4, 5, 6].map((pip) => (
-                                <div
-                                  key={pip}
-                                  className={`h-1.5 flex-1 rounded-full ${
-                                    pip < (selectedUserDetails?.overallFreezeRechargeDays || 0)
-                                      ? 'bg-amber-400 shadow-sm shadow-amber-400/50'
-                                      : 'bg-dark-card border border-dark-border'
+
+                            {/* Freeze Shields */}
+                            <div className="flex items-center gap-3 border-t sm:border-t-0 sm:border-l border-dark-border/80 pt-3 sm:pt-0 sm:pl-4">
+                              <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                                <Snowflake className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                  Current Inventory
+                                </span>
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-2xl font-black text-sky-400 font-mono">
+                                    {currentBal}
+                                  </span>
+                                  <span className="text-xs font-bold text-zinc-400">/ {currentCap} Shields</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Shelf Recharge Progress */}
+                            <div className="flex items-center gap-3 border-t sm:border-t-0 sm:border-l border-dark-border/80 pt-3 sm:pt-0 sm:pl-4">
+                              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                <Clock className="w-5 h-5" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-[11px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                  Recharge Progress
+                                </span>
+                                <div className="flex items-baseline gap-1.5 mb-1.5">
+                                  <span className="text-2xl font-black text-amber-400 font-mono">
+                                    {currentRec}
+                                  </span>
+                                  <span className="text-xs font-bold text-zinc-400">/ 7 Days {currentBal >= currentCap ? '(Capped)' : ''}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  {[0, 1, 2, 3, 4, 5, 6].map((pip) => (
+                                    <div
+                                      key={pip}
+                                      className={`h-1.5 flex-1 rounded-full ${
+                                        pip < currentRec
+                                          ? 'bg-amber-400 shadow-sm shadow-amber-400/50'
+                                          : 'bg-dark-card border border-dark-border'
+                                      }`}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <form onSubmit={handleUpdateFreezeControl} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          {/* Permitted Max Capacity */}
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              Permitted Max Capacity (1 - 7)
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="7"
+                              value={newFreezeCapacity}
+                              onChange={(e) =>
+                                setNewFreezeCapacity(Math.max(1, Math.min(7, parseInt(e.target.value, 10) || 1)))
+                              }
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-purple-500"
+                              required
+                            />
+                            <div className="flex items-center gap-1.5 mt-2">
+                              {[1, 2, 3, 5, 7].map((cap) => (
+                                <button
+                                  key={cap}
+                                  type="button"
+                                  onClick={() => setNewFreezeCapacity(cap)}
+                                  className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-all ${
+                                    newFreezeCapacity === cap
+                                      ? 'bg-purple-500 text-zinc-950 shadow-sm'
+                                      : 'bg-dark-surface hover:bg-dark-border text-zinc-400 hover:text-zinc-200'
                                   }`}
-                                />
+                                >
+                                  {cap} {cap === 1 ? 'def' : 'cap'}
+                                </button>
                               ))}
                             </div>
                           </div>
-                        </div>
-                      </div>
 
-                      <form onSubmit={handleUpdateFreezeControl} className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           {/* Set Freeze Balance */}
                           <div>
                             <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                              New Freeze Shields (0 - 7)
+                              Shield Balance (0 - {newFreezeCapacity})
                             </label>
                             <input
                               type="number"
                               min="0"
-                              max="7"
+                              max={newFreezeCapacity}
                               value={newFreezeBalance}
                               onChange={(e) =>
-                                setNewFreezeBalance(Math.max(0, Math.min(7, parseInt(e.target.value, 10) || 0)))
+                                setNewFreezeBalance(Math.max(0, Math.min(newFreezeCapacity, parseInt(e.target.value, 10) || 0)))
                               }
                               className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
                               required
                             />
                             <div className="flex items-center gap-1.5 mt-2">
-                              {[0, 1, 2, 3, 5, 7].map((num) => (
+                              {[0, 1, 2, 3, 5, 7].filter((num) => num <= newFreezeCapacity).map((num) => (
                                 <button
                                   key={num}
                                   type="button"
@@ -2937,7 +3405,7 @@ export const AdminControlPage: React.FC = () => {
                           {/* Set Recharge Days */}
                           <div>
                             <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                              Recharge Days toward Next Shield (0 - 7 days)
+                              Recharge Days (0 - 7 days)
                             </label>
                             <input
                               type="number"
@@ -2979,7 +3447,7 @@ export const AdminControlPage: React.FC = () => {
                             type="text"
                             value={freezeControlReason}
                             onChange={(e) => setFreezeControlReason(e.target.value)}
-                            placeholder="e.g. Calibrated freeze shelf recharge days (5/7) per user support request"
+                            placeholder="e.g. Approved 2-shield capacity upgrade per streak milestone support ticket"
                             className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500"
                             required
                           />
@@ -2997,7 +3465,7 @@ export const AdminControlPage: React.FC = () => {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
-                          <span>Apply Freeze Shields & Recharge Adjustment</span>
+                          <span>Apply Freeze Inventory, Capacity & Recharge Adjustment</span>
                         </button>
                       </form>
                     </div>
@@ -3147,6 +3615,780 @@ export const AdminControlPage: React.FC = () => {
                           </table>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SUB-TAB: REMINDERS & SCHEDULES */}
+                {userTab === 'reminders' && (
+                  <div className="space-y-6">
+                    {/* Header Card */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shrink-0">
+                            <Bell className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-200">
+                              Authoritative Reminder Scheduling & Execution Engine
+                            </h3>
+                            <p className="text-xs text-zinc-400">
+                              Admin Panel controls overall daily alerts and up to 2 independently configurable reminder times per personal or group task.
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleTriggerManualReminderCheck}
+                          disabled={isRunningManualCheck}
+                          className="px-3.5 py-2 bg-dark-surface hover:bg-dark-border text-flame-400 border border-flame-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm shrink-0"
+                          title="Trigger immediate scheduler pass and review diagnostic logs"
+                        >
+                          {isRunningManualCheck ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                          <span>Trigger Manual Reminder Check</span>
+                        </button>
+                      </div>
+
+                      {/* Diagnostic Logs Output if present */}
+                      {manualCheckLogs && (
+                        <div className="mt-3 p-3 bg-dark-surface/80 border border-dark-border rounded-xl text-xs space-y-1.5 font-mono">
+                          <div className="flex items-center justify-between text-zinc-300 font-bold">
+                            <span>Scheduler Diagnostic Run Results:</span>
+                            <span className="text-emerald-400">Status: {manualCheckLogs.status}</span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-zinc-400 text-[11px] pt-1">
+                            <div>Overall Checked: <strong className="text-zinc-200">{manualCheckLogs.overallSchedulesChecked}</strong></div>
+                            <div>Overall Sent: <strong className="text-zinc-200">{manualCheckLogs.overallRemindersSent}</strong></div>
+                            <div>Tasks Checked: <strong className="text-zinc-200">{manualCheckLogs.tasksChecked}</strong></div>
+                            <div>Task Reminders Sent: <strong className="text-zinc-200">{manualCheckLogs.taskRemindersSent}</strong></div>
+                          </div>
+                          {manualCheckLogs.errors && manualCheckLogs.errors.length > 0 && (
+                            <div className="text-rose-400 text-[11px] pt-1">
+                              Errors: {manualCheckLogs.errors.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 1: Overall Reminders */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-sky-400" />
+                          <span>Overall Daily Reminder Configuration</span>
+                        </h4>
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+                          overallReminderEnabled
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                            : 'bg-zinc-500/10 border-zinc-500/30 text-zinc-400'
+                        }`}>
+                          {overallReminderEnabled ? 'ENABLED' : 'DISABLED'}
+                        </span>
+                      </div>
+
+                      <form onSubmit={handleSaveOverallReminders} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* Toggle Active */}
+                          <div className="flex flex-col justify-center">
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              Reminder State
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer mt-1">
+                              <input
+                                type="checkbox"
+                                checked={overallReminderEnabled}
+                                onChange={(e) => setOverallReminderEnabled(e.target.checked)}
+                                className="w-4 h-4 rounded text-flame-500 focus:ring-0 bg-dark-surface border-dark-border"
+                              />
+                              <span className="text-xs text-zinc-200 font-medium">
+                                {overallReminderEnabled ? 'Active (Will trigger daily)' : 'Disabled'}
+                              </span>
+                            </label>
+                          </div>
+
+                          {/* Timezone */}
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                              User Timezone
+                            </label>
+                            <input
+                              type="text"
+                              value={overallReminderTimezone}
+                              onChange={(e) => setOverallReminderTimezone(e.target.value)}
+                              placeholder="e.g. Asia/Kolkata or UTC"
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-sky-500 font-mono"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        {/* Configured Overall Reminder Times & Add Time */}
+                        <div className="p-3.5 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-xs font-semibold text-zinc-300">
+                              Configured Overall Reminder Times
+                            </label>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 font-bold">
+                              {overallReminderTimes.length} / {userReminderSettings?.quotaLimit || selectedUserDetails?.reminderLimit || 3} Slots Used
+                            </span>
+                          </div>
+
+                          {/* Existing Time Pills */}
+                          {overallReminderTimes.length === 0 ? (
+                            <p className="text-xs text-zinc-500 italic">No overall reminder times configured yet.</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              {overallReminderTimes.map((time) => (
+                                <div
+                                  key={time}
+                                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-dark-card border border-sky-500/30 rounded-xl text-xs font-mono text-sky-300 shadow-sm"
+                                >
+                                  <Clock className="w-3.5 h-3.5 text-sky-400" />
+                                  <span className="font-bold">{time}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveOverallReminder(time)}
+                                    title="Remove this reminder time"
+                                    className="p-0.5 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 rounded-md transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Add New Time Input */}
+                          {overallReminderTimes.length < (userReminderSettings?.quotaLimit || selectedUserDetails?.reminderLimit || 3) ? (
+                            <div className="pt-2 border-t border-dark-border/60">
+                              <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                                Add Notification Time (HH:mm)
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="time"
+                                  value={newOverallReminderTime}
+                                  onChange={(e) => setNewOverallReminderTime(e.target.value)}
+                                  className="px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-sky-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleAddOverallReminder}
+                                  className="px-3.5 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Add Time</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-2 bg-dark-card/50 rounded-lg border border-dark-border/60 text-[11px] text-zinc-400">
+                              Overall reminder limit reached ({userReminderSettings?.quotaLimit || selectedUserDetails?.reminderLimit || 3} max). Increase the user's quota limit above to allow more times.
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Active Days */}
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                            Supported Active Days
+                          </label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, idx) => {
+                              const isSelected = overallReminderDays.includes(idx);
+                              return (
+                                <button
+                                  key={dayName}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      if (overallReminderDays.length > 1) {
+                                        setOverallReminderDays(overallReminderDays.filter((d) => d !== idx));
+                                      }
+                                    } else {
+                                      setOverallReminderDays([...overallReminderDays, idx].sort());
+                                    }
+                                  }}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                                    isSelected
+                                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                                      : 'bg-dark-surface text-zinc-400 border border-dark-border hover:bg-dark-border/40'
+                                  }`}
+                                >
+                                  {dayName}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Next Scheduled Occurrence Banner */}
+                        {userReminderSettings?.overall?.schedules?.[0]?.nextOccurrence?.nextDisplay && (
+                          <div className="p-3 bg-dark-surface/60 rounded-xl border border-dark-border flex items-center justify-between text-xs">
+                            <span className="text-zinc-400">Next Scheduled Occurrence:</span>
+                            <span className="font-mono text-sky-400 font-bold">
+                              {userReminderSettings.overall.schedules[0].nextOccurrence.nextDisplay} ({userReminderSettings.overall.schedules[0].nextOccurrence.relativeDisplay})
+                            </span>
+                          </div>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={isSavingOverallReminders}
+                          className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSavingOverallReminders ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Save Overall Reminder Settings</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Section 2: Task Reminders (2 independently configurable times per task) */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-purple-400" />
+                            <span>Personal & Group Task Reminders (Max 2 Per Task)</span>
+                          </h4>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            Each task supports up to two independently configurable times. Changes persist directly into the database and scheduler.
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold">
+                          {selectedUserDetails?.tasks?.length || 0} TASKS
+                        </span>
+                      </div>
+
+                      {isLoadingReminders ? (
+                        <div className="py-8 flex items-center justify-center gap-2 text-xs text-zinc-400">
+                          <RefreshCw className="w-4 h-4 animate-spin text-flame-400" />
+                          <span>Loading reminder schedules...</span>
+                        </div>
+                      ) : !selectedUserDetails?.tasks || selectedUserDetails.tasks.length === 0 ? (
+                        <p className="text-xs text-zinc-500 py-4">No tasks found for this user.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {selectedUserDetails.tasks.map((task: any) => {
+                            const taskState = taskRemindersState[task.id] || {
+                              reminderTimes: task.reminderTimes && task.reminderTimes.length > 0 ? task.reminderTimes : [],
+                              isReminderActive: task.isReminderActive ?? true,
+                            };
+                            const times = taskState.reminderTimes || [];
+
+                            return (
+                              <div
+                                key={task.id}
+                                className="p-4 bg-dark-surface border border-dark-border rounded-xl space-y-3 hover:border-dark-border/80 transition-all"
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-zinc-100">{task.title}</span>
+                                    {task.isGroupTask ? (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                                        Group: {task.group?.name || 'Group Task'}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                                        Personal Task
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-3">
+                                    <label className="flex items-center gap-1.5 cursor-pointer text-xs text-zinc-300 font-medium">
+                                      <input
+                                        type="checkbox"
+                                        checked={taskState.isReminderActive}
+                                        onChange={(e) => {
+                                          setTaskRemindersState({
+                                            ...taskRemindersState,
+                                            [task.id]: {
+                                              ...taskState,
+                                              isReminderActive: e.target.checked,
+                                            },
+                                          });
+                                        }}
+                                        className="w-3.5 h-3.5 rounded text-flame-500 focus:ring-0 bg-dark-card border-dark-border"
+                                      />
+                                      <span>Reminders Active</span>
+                                    </label>
+                                  </div>
+                                </div>
+
+                                {/* Configured Times & Add Time */}
+                                <div className="p-3 bg-dark-card rounded-xl border border-dark-border space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5 text-purple-400" />
+                                      <span>Configured Reminder Times for this Task</span>
+                                    </span>
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold">
+                                      {times.length} / 2 Times
+                                    </span>
+                                  </div>
+
+                                  {times.length === 0 ? (
+                                    <p className="text-xs text-zinc-500 italic">No reminder times configured for this task.</p>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-2">
+                                      {times.map((time: string) => (
+                                        <div
+                                          key={time}
+                                          className="inline-flex items-center gap-2 px-3 py-1.5 bg-dark-surface border border-purple-500/30 rounded-xl text-xs font-mono text-purple-300 shadow-sm"
+                                        >
+                                          <Clock className="w-3.5 h-3.5 text-purple-400" />
+                                          <span className="font-bold">{time}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveTaskReminderTime(task.id, time)}
+                                            title="Remove this reminder time"
+                                            className="p-0.5 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 rounded-md transition-colors"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {times.length < 2 ? (
+                                    <div className="pt-2 border-t border-dark-border/60">
+                                      <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+                                        Add Notification Time (HH:mm)
+                                      </label>
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="time"
+                                          value={newTaskReminderTime[task.id] || '09:00'}
+                                          onChange={(e) =>
+                                            setNewTaskReminderTime({
+                                              ...newTaskReminderTime,
+                                              [task.id]: e.target.value,
+                                            })
+                                          }
+                                          className="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 font-mono focus:outline-none focus:border-purple-500"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAddTaskReminderTime(task.id)}
+                                          className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                          <span>Add Time</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="p-2 bg-dark-surface/50 rounded-lg border border-dark-border/60 text-[11px] text-zinc-400">
+                                      Maximum 2 reminder times configured for this task.
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Save Button */}
+                                <div className="flex justify-end pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveTaskReminders(task.id, task.title)}
+                                    disabled={savingTaskId === task.id}
+                                    className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {savingTaskId === task.id ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Save Task Reminders</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 3: User Notification Delivery Channels & Triggers */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dark-border pb-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                            <Sliders className="w-4 h-4 text-emerald-400" />
+                            <span>Notification Delivery Channels & Triggers (Per-User)</span>
+                          </h4>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            Configure specifically which events trigger In-App updates and/or Email dispatches for @{selectedUserDetails?.username}.
+                          </p>
+                        </div>
+                        <div className="hidden sm:flex items-center gap-2 text-[11px] font-bold text-zinc-400">
+                          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-dark-surface border border-dark-border text-zinc-300">
+                            <Bell className="w-3.5 h-3.5 text-blue-400" /> In-App
+                          </span>
+                          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-dark-surface border border-dark-border text-zinc-300">
+                            <Mail className="w-3.5 h-3.5 text-flame-400" /> Email
+                          </span>
+                        </div>
+                      </div>
+
+                      {adminNotificationPreferences && (
+                        <div className="divide-y divide-dark-border">
+                          {/* 1. Overall Daily Streak Reminders */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Flame className="w-3.5 h-3.5 text-flame-500" />
+                                Overall Daily Streak Reminders
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Automated reminders for daily overall completion
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('overallStreakRemindersInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.overallStreakRemindersInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.overallStreakRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('overallStreakRemindersEmail')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.overallStreakRemindersEmail !== false
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.overallStreakRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 2. Task Reminders */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-purple-400" />
+                                Task Reminders
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Independent schedules for personal and group tasks
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('taskRemindersInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.taskRemindersInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.taskRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('taskRemindersEmail')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.taskRemindersEmail !== false
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.taskRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 3. Friend Overall Activity Alerts */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-blue-400" />
+                                Friend Overall Activity Alerts
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Alerts when an accepted friend finishes today's overall activity
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendOverallActivityInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendOverallActivityInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendOverallActivityAlerts')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendOverallActivityAlerts
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 4. Friend Matching Task Alerts */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                Friend Matching Task Alerts
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Alerts when an accepted friend finishes a matching habit
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendTaskActivityInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendTaskActivityInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendTaskActivityAlerts')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendTaskActivityAlerts
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 5. Friend Overall Streak Milestones */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Award className="w-3.5 h-3.5 text-purple-400" />
+                                Friend Overall Streak Milestones
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Milestones when a friend hits 5, 10, 25, 50, 100+ day streaks
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendOverallMilestonesInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendOverallMilestonesInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendOverallMilestones')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendOverallMilestones
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 6. Friend Task Streak Milestones */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Award className="w-3.5 h-3.5 text-purple-400" />
+                                Friend Task Streak Milestones
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Milestones when a friend reaches a streak on a matching task
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendTaskMilestonesInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendTaskMilestonesInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('friendTaskMilestones')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.friendTaskMilestones
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 7. My Own Streak Milestones */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <Flame className="w-3.5 h-3.5 text-flame-500" />
+                                My Own Streak Milestones
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Celebratory alerts for unlocking streak milestones
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('myMilestonesInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.myMilestonesInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.myMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('myMilestonesEmail')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.myMilestonesEmail
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.myMilestonesEmail ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 8. Streak Freeze & Status Alerts */}
+                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                                Streak Freeze & Status Alerts
+                              </span>
+                              <span className="text-[11px] text-zinc-400 block mt-0.5">
+                                Protection alerts when freeze saves a streak after a missed day
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('freezeStatusInApp')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.freezeStatusInApp !== false
+                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Bell className="w-3 h-3 text-blue-400" />
+                                <span>In-App</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.freezeStatusInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAdminTogglePref('freezeStatusNotifications')}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                  adminNotificationPreferences.freezeStatusNotifications
+                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                                }`}
+                              >
+                                <Mail className="w-3 h-3 text-flame-400" />
+                                <span>Email</span>
+                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.freezeStatusNotifications ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveAdminPreferences}
+                          disabled={isSavingPreferences || !adminNotificationPreferences}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2"
+                        >
+                          {isSavingPreferences ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Save Notification Channel Preferences</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4133,6 +5375,195 @@ export const AdminControlPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: GROUP DISCOVERABILITY & DIRECTORY           */}
+        {/* ======================================================== */}
+        {primaryTab === 'groups' && (
+          <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-5">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-extrabold text-zinc-100 tracking-tight flex items-center gap-2">
+                  <Compass className="w-4 h-4 text-flame-400" />
+                  <span>Group Discoverability & Directory Control</span>
+                </h2>
+                <p className="text-xs text-zinc-400">
+                  Search groups across the platform and toggle public discovery visibility. Non-discoverable groups are hidden from discover feeds but remain fully searchable by name or code and accessible to existing members.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loadAdminGroups()}
+                disabled={isLoadingAdminGroups}
+                className="px-3 py-1.5 bg-dark-surface hover:bg-dark-border text-zinc-300 border border-dark-border rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAdminGroups ? 'animate-spin text-flame-400' : ''}`} />
+                <span>Refresh Directory</span>
+              </button>
+            </div>
+
+            {/* Search Bar & Filter */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={groupSearchQuery}
+                  onChange={(e) => setGroupSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      loadAdminGroups(groupSearchQuery);
+                    }
+                  }}
+                  placeholder="Search groups by name, join code, or creator..."
+                  className="w-full pl-10 pr-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500 transition-colors"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => loadAdminGroups(groupSearchQuery)}
+                disabled={isLoadingAdminGroups}
+                className="px-4 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 shrink-0"
+              >
+                {isLoadingAdminGroups ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+                <span>Search</span>
+              </button>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 bg-dark-surface p-1 rounded-xl border border-dark-border">
+                {(['ALL', 'DISCOVERABLE', 'NON_DISCOVERABLE'] as const).map((filterMode) => (
+                  <button
+                    key={filterMode}
+                    type="button"
+                    onClick={() => setGroupDiscoverFilter(filterMode)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                      groupDiscoverFilter === filterMode
+                        ? 'bg-dark-card text-zinc-100 shadow-sm border border-dark-border'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {filterMode === 'ALL'
+                      ? 'All Groups'
+                      : filterMode === 'DISCOVERABLE'
+                      ? 'Discoverable Only'
+                      : 'Non-Discoverable Only'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Groups Table / List */}
+            {isLoadingAdminGroups ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3 text-xs text-zinc-400">
+                <RefreshCw className="w-6 h-6 animate-spin text-flame-400" />
+                <span>Searching groups directory...</span>
+              </div>
+            ) : adminGroupsList.length === 0 ? (
+              <div className="py-12 text-center text-xs text-zinc-500 bg-dark-surface/30 rounded-xl border border-dashed border-dark-border">
+                No groups found matching your search.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-dark-border">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-dark-surface/80 border-b border-dark-border text-zinc-400 font-semibold">
+                      <th className="py-3 px-4">Group Name</th>
+                      <th className="py-3 px-3">Join Code</th>
+                      <th className="py-3 px-3">Creator / Owner</th>
+                      <th className="py-3 px-3">Members</th>
+                      <th className="py-3 px-3">Tasks</th>
+                      <th className="py-3 px-3">Discoverability Status</th>
+                      <th className="py-3 px-4 text-right">Admin Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-dark-border">
+                    {adminGroupsList
+                      .filter((g) => {
+                        if (groupDiscoverFilter === 'DISCOVERABLE') return g.isDiscoverable;
+                        if (groupDiscoverFilter === 'NON_DISCOVERABLE') return !g.isDiscoverable;
+                        return true;
+                      })
+                      .map((g) => (
+                        <tr key={g.id} className="hover:bg-dark-surface/40 transition-colors">
+                          <td className="py-3 px-4">
+                            <span className="font-bold text-zinc-100 block">{g.name}</span>
+                            {g.description && (
+                              <span className="text-[11px] text-zinc-500 line-clamp-1 max-w-xs block">
+                                {g.description}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono text-xs font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                              {g.joinCode}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-zinc-300">
+                            {g.owner ? (
+                              <span>
+                                {g.owner.name} <span className="text-zinc-500 font-mono">(@{g.owner.username})</span>
+                              </span>
+                            ) : (
+                              <span className="text-zinc-500">Unknown</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-zinc-300 font-medium">
+                            {g.memberCount ?? 0}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-zinc-300 font-medium">
+                            {g.taskCount ?? 0}
+                          </td>
+                          <td className="py-3 px-3">
+                            {g.isDiscoverable ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                <Eye className="w-3 h-3" />
+                                <span>Public Discoverable</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                                <EyeOff className="w-3 h-3" />
+                                <span>Non-Discoverable</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleGroupDiscoverability(g)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border inline-flex items-center gap-1.5 ${
+                                g.isDiscoverable
+                                  ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                              }`}
+                            >
+                              {g.isDiscoverable ? (
+                                <>
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                  <span>Make Non-Discoverable</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Make Discoverable</span>
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

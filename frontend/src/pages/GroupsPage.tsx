@@ -64,7 +64,6 @@ export const GroupsPage: React.FC = () => {
   const [isTopFive, setIsTopFive] = useState(true);
   const [discoverLimit, setDiscoverLimit] = useState(5);
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
 
   // Modal States
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -120,7 +119,6 @@ export const GroupsPage: React.FC = () => {
         if ((res as any).discoverLimit) {
           setDiscoverLimit((res as any).discoverLimit);
         }
-        setHasSearched(true);
       }
     } catch (err: any) {
       showFeedback(extractErrorMessage(err, 'Failed to search groups.'), 'error');
@@ -152,8 +150,10 @@ export const GroupsPage: React.FC = () => {
 
   // When switching to Discover or Requests tab
   useEffect(() => {
-    if (activeTab === 'discover' && !hasSearched) {
-      handleSearch('');
+    if (activeTab === 'discover') {
+      if (!searchQuery.trim()) {
+        handleSearch('');
+      }
     } else if (activeTab === 'requests') {
       loadRequestsAndInvitations();
     }

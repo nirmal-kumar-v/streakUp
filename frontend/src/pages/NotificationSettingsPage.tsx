@@ -30,7 +30,6 @@ import {
   Trophy,
   ShieldCheck,
   RotateCw,
-  Check,
 } from 'lucide-react';
 import { CustomSelect } from '../components/CustomSelect';
 import { useToast } from '../context/ToastContext';
@@ -41,6 +40,8 @@ export const NotificationSettingsPage: React.FC = () => {
   const [preferences, setPreferences] = useState<NotificationPreference | null>(null);
   const [defaultEmail, setDefaultEmail] = useState<string>('');
   const [timezone, setTimezone] = useState<string>('Asia/Kolkata');
+  const [isAccountEmailVerified, setIsAccountEmailVerified] = useState<boolean>(true);
+  const [maxOverallReminders, setMaxOverallReminders] = useState<number>(3);
 
   const [schedules, setSchedules] = useState<ReminderScheduleItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -115,10 +116,19 @@ export const NotificationSettingsPage: React.FC = () => {
         setPreferences(prefRes.preferences);
         setDefaultEmail(prefRes.defaultEmail);
         setTimezone(prefRes.timezone || 'Asia/Kolkata');
+        if (typeof prefRes.isEmailVerified === 'boolean') {
+          setIsAccountEmailVerified(prefRes.isEmailVerified);
+        }
+        if (prefRes.reminderLimit) {
+          setMaxOverallReminders(prefRes.reminderLimit);
+        }
       }
 
       if (schedRes.success) {
         setSchedules(schedRes.schedules);
+        if (schedRes.maxAllowed) {
+          setMaxOverallReminders(schedRes.maxAllowed);
+        }
       }
 
       if (tasksRes.success) {
@@ -459,29 +469,38 @@ export const NotificationSettingsPage: React.FC = () => {
                 Route habit reminders and friend updates to a specific inbox without changing your registered login email.
               </p>
             </div>
-            {preferences.customNotificationEmail && preferences.isCustomEmailVerified ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
-                <Check className="w-3 h-3" />
-                Verified Custom Inbox
+            {(preferences.customNotificationEmail ? preferences.isCustomEmailVerified : isAccountEmailVerified) ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm shrink-0">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                Verified
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
-                Default Account Email
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm shrink-0">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                Unverified
               </span>
             )}
           </div>
 
           {notifEmailStep === 'idle' ? (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-dark-surface/60 rounded-xl border border-dark-border gap-3">
-              <div className="text-xs text-zinc-300 min-w-0 flex-1 break-words">
-                Current destination:{' '}
+              <div className="text-xs text-zinc-300 min-w-0 flex-1 break-words flex flex-wrap items-center gap-2">
+                <span>Current destination:</span>
                 <strong className="font-mono text-zinc-100 break-all">
                   {preferences.customNotificationEmail && preferences.isCustomEmailVerified
                     ? preferences.customNotificationEmail
                     : defaultEmail}
                 </strong>
-                {!(preferences.customNotificationEmail && preferences.isCustomEmailVerified) && (
-                  <span className="text-[11px] text-zinc-500 ml-1.5 whitespace-nowrap">(Registered email)</span>
+                {(preferences.customNotificationEmail ? preferences.isCustomEmailVerified : isAccountEmailVerified) ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 shrink-0">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                    Verified
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 shrink-0">
+                    <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                    Unverified
+                  </span>
                 )}
               </div>
 
@@ -605,16 +624,16 @@ export const NotificationSettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 2: Daily Overall Streak Reminders (Max 3) */}
+      {/* SECTION 2: Daily Overall Streak Reminders */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-5">
         <div>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
               <Flame className="w-5 h-5 text-flame-500 shrink-0" />
-              Overall Streak Reminders (Max 3 Times)
+              Overall Streak Reminders (Max {maxOverallReminders} Times)
             </h3>
             <span className="text-xs font-mono font-bold text-flame-400 bg-flame-500/10 px-2.5 py-0.5 rounded-full border border-flame-500/20 shrink-0">
-              {overallSchedules.length} / 3 configured
+              {overallSchedules.length} / {maxOverallReminders} configured
             </span>
           </div>
           <p className="text-xs text-dark-muted mt-1">
@@ -649,7 +668,7 @@ export const NotificationSettingsPage: React.FC = () => {
         </div>
 
         {/* Add Overall Reminder Time Form */}
-        {overallSchedules.length < 3 && (
+        {overallSchedules.length < maxOverallReminders && (
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 pt-2 max-w-sm">
             <input
               type="time"
@@ -668,12 +687,12 @@ export const NotificationSettingsPage: React.FC = () => {
         )}
       </div>
 
-      {/* SECTION 3: Independent Recurring Task Reminders (Max 3 per task) */}
+      {/* SECTION 3: Independent Recurring Task Reminders (Max 2 per task) */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-5">
         <div>
           <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-400 shrink-0" />
-            Individual Task Reminders (Max 3 per Task)
+            Individual Task Reminders (Max 2 per Task)
           </h3>
           <p className="text-xs text-dark-muted mt-1">
             Configure independent reminder schedules for specific recurring habits (e.g. GATE Prep at 7:00 PM, Daily LeetCode at 9:00 PM).
@@ -739,7 +758,7 @@ export const NotificationSettingsPage: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-zinc-100 truncate">{task.title}</div>
                       <div className="text-[10px] text-dark-muted font-mono">
-                        {taskScheds.length} / 3 scheduled
+                        {taskScheds.length} / 2 scheduled
                       </div>
                     </div>
 
@@ -770,14 +789,26 @@ export const NotificationSettingsPage: React.FC = () => {
 
       {/* SECTION 4: Category Notification Toggles */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-4">
-        <h3 className="text-base font-bold text-zinc-100">Notification Types & Triggers</h3>
-        <p className="text-xs text-dark-muted">
-          Control which events trigger in-app updates and emails.
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-dark-border pb-3">
+          <div>
+            <h3 className="text-base font-bold text-zinc-100">Notification Types & Triggers</h3>
+            <p className="text-xs text-dark-muted mt-0.5">
+              Choose specifically which delivery channels (In-App and/or Email) trigger for each notification event.
+            </p>
+          </div>
+          <div className="hidden sm:flex items-center gap-3 pr-1 text-[11px] font-bold text-zinc-400">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-dark-surface border border-dark-border text-zinc-300">
+              <Bell className="w-3.5 h-3.5 text-blue-400" /> In-App
+            </span>
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-dark-surface border border-dark-border text-zinc-300">
+              <Mail className="w-3.5 h-3.5 text-flame-400" /> Email
+            </span>
+          </div>
+        </div>
 
         <div className="divide-y divide-dark-border">
           {/* Friend Overall Activity */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <Users2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
@@ -787,22 +818,41 @@ export const NotificationSettingsPage: React.FC = () => {
                 Notify me when an accepted friend finishes today's overall activity and I haven't completed any task yet
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('friendOverallActivityAlerts')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.friendOverallActivityAlerts ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.friendOverallActivityAlerts ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendOverallActivityInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendOverallActivityInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.friendOverallActivityInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallActivityInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendOverallActivityAlerts')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendOverallActivityAlerts
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.friendOverallActivityAlerts ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallActivityAlerts ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
 
           {/* Friend Task Activity */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -812,22 +862,41 @@ export const NotificationSettingsPage: React.FC = () => {
                 Notify me when an accepted friend finishes a matching habit and I haven't finished mine today
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('friendTaskActivityAlerts')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.friendTaskActivityAlerts ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.friendTaskActivityAlerts ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendTaskActivityInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendTaskActivityInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.friendTaskActivityInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskActivityInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendTaskActivityAlerts')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendTaskActivityAlerts
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.friendTaskActivityAlerts ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskActivityAlerts ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
 
           {/* Friend Overall Milestones */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <Trophy className="w-3.5 h-3.5 text-purple-400 shrink-0" />
@@ -837,22 +906,41 @@ export const NotificationSettingsPage: React.FC = () => {
                 Notify me when a friend hits 5, 10, 25, 50, 100+ day overall milestones
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('friendOverallMilestones')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.friendOverallMilestones ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.friendOverallMilestones ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendOverallMilestonesInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendOverallMilestonesInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.friendOverallMilestonesInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendOverallMilestones')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendOverallMilestones
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.friendOverallMilestones ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallMilestones ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
 
           {/* Friend Task Milestones */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <Trophy className="w-3.5 h-3.5 text-purple-400 shrink-0" />
@@ -862,47 +950,85 @@ export const NotificationSettingsPage: React.FC = () => {
                 Notify me when a friend reaches a streak milestone on a matching task
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('friendTaskMilestones')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.friendTaskMilestones ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.friendTaskMilestones ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendTaskMilestonesInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendTaskMilestonesInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.friendTaskMilestonesInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('friendTaskMilestones')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.friendTaskMilestones
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.friendTaskMilestones ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskMilestones ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
 
           {/* My Own Milestones */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <Flame className="w-3.5 h-3.5 text-flame-500 shrink-0" />
-                My Own Streak Milestone Emails
+                My Own Streak Milestones
               </div>
               <div className="text-[11px] text-dark-muted mt-0.5 break-words">
-                Send me a celebratory email whenever I unlock an overall or habit streak milestone
+                Receive celebratory alerts whenever you reach an overall or habit streak milestone
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('myMilestonesEmail')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.myMilestonesEmail ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.myMilestonesEmail ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('myMilestonesInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.myMilestonesInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.myMilestonesInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.myMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('myMilestonesEmail')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.myMilestonesEmail
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.myMilestonesEmail ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.myMilestonesEmail ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
 
           {/* Freeze and Streak Status Alerts */}
-          <div className="py-3.5 flex items-center justify-between gap-3">
+          <div className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 flex-1 pr-2 sm:pr-4">
               <div className="text-xs font-bold text-zinc-100 flex items-center gap-1.5 flex-wrap">
                 <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
@@ -912,18 +1038,37 @@ export const NotificationSettingsPage: React.FC = () => {
                 Receive notifications when an available freeze protects your streak after a missed day
               </div>
             </div>
-            <button
-              onClick={() => handleTogglePreference('freezeStatusNotifications')}
-              className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
-                preferences.freezeStatusNotifications ? 'bg-flame-500' : 'bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`w-4 h-4 rounded-full bg-zinc-950 absolute top-1 transition-transform ${
-                  preferences.freezeStatusNotifications ? 'right-1' : 'left-1'
+            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('freezeStatusInApp')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.freezeStatusInApp !== false
+                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40 hover:bg-blue-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
                 }`}
-              />
-            </button>
+                title="In-App notification channel"
+              >
+                <Bell className={`w-3.5 h-3.5 ${preferences.freezeStatusInApp !== false ? 'text-blue-400' : 'opacity-40'}`} />
+                <span>In-App</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.freezeStatusInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleTogglePreference('freezeStatusNotifications')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
+                  preferences.freezeStatusNotifications
+                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
+                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
+                }`}
+                title="Email notification channel"
+              >
+                <Mail className={`w-3.5 h-3.5 ${preferences.freezeStatusNotifications ? 'text-flame-400' : 'opacity-40'}`} />
+                <span>Email</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${preferences.freezeStatusNotifications ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

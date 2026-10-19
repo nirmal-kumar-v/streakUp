@@ -29,6 +29,11 @@ app.use(cors({
 app.use(express.json());
 
 import { runReminderCheck } from './services/reminderSchedulerService';
+import { loadUserAdminConfigsFromDb } from './services/adminConfigService';
+
+// Preload user admin configs from PostgreSQL into in-memory cache
+loadUserAdminConfigsFromDb().catch(() => {});
+
 
 // Health & Info endpoint (accessible at both /api/health and /health)
 const handleHealth = (_req: Request, res: Response) => {

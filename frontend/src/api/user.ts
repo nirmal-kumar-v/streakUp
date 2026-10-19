@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { compressProfileImage } from '../utils/imageCompressor';
 
 export interface PublicProfile {
   id: string;
@@ -31,20 +32,25 @@ export async function updateProfileSettings(data: {
   profileImage?: string | null;
   timezone?: string;
 }) {
+  const payload = { ...data };
+  if (payload.profileImage && payload.profileImage.startsWith('data:image/')) {
+    payload.profileImage = await compressProfileImage(payload.profileImage);
+  }
   const res = await apiClient.put<{ success: boolean; user: any; message: string }>(
     '/users/profile',
-    data
+    payload
   );
   return res.data;
 }
 
 export async function uploadProfileImage(imageBase64: string) {
+  const compressed = await compressProfileImage(imageBase64);
   const res = await apiClient.post<{
     success: boolean;
     message: string;
     profileImage: string;
     user: any;
-  }>('/users/profile-image', { imageBase64 });
+  }>('/users/profile-image', { imageBase64: compressed });
   return res.data;
 }
 

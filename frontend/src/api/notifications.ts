@@ -42,13 +42,21 @@ export interface NotificationPreference {
   emailNotificationsEnabled: boolean;
   inAppNotificationsEnabled: boolean;
   overallStreakRemindersEmail: boolean;
+  overallStreakRemindersInApp?: boolean;
   taskRemindersEmail: boolean;
+  taskRemindersInApp?: boolean;
   friendOverallActivityAlerts: boolean;
+  friendOverallActivityInApp?: boolean;
   friendTaskActivityAlerts: boolean;
+  friendTaskActivityInApp?: boolean;
   friendOverallMilestones: boolean;
+  friendOverallMilestonesInApp?: boolean;
   friendTaskMilestones: boolean;
+  friendTaskMilestonesInApp?: boolean;
   myMilestonesEmail: boolean;
+  myMilestonesInApp?: boolean;
   freezeStatusNotifications: boolean;
+  freezeStatusInApp?: boolean;
   customNotificationEmail?: string | null;
   isCustomEmailVerified: boolean;
 }
@@ -114,7 +122,9 @@ export async function fetchNotificationPreferences() {
     preferences: NotificationPreference;
     defaultEmail: string;
     timezone: string;
-    isSmtpConfigured: boolean;
+    isEmailVerified?: boolean;
+    isSmtpConfigured?: boolean;
+    reminderLimit?: number;
   };
 }
 
@@ -132,6 +142,7 @@ export async function fetchReminderSchedules() {
   return res.data as {
     success: boolean;
     schedules: ReminderScheduleItem[];
+    maxAllowed?: number;
   };
 }
 

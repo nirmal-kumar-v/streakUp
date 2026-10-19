@@ -579,7 +579,7 @@ export const SettingsPage: React.FC = () => {
                 </span>
               </div>
               <div className="text-xs text-dark-muted mt-0.5">
-                Configure up to 3 daily reminder times, friend alerts, and custom destination email
+                Configure daily reminder times, friend alerts, and destination email
               </div>
             </div>
           </div>
