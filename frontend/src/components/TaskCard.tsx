@@ -8,7 +8,6 @@ import {
   Archive,
   Trash2,
   Repeat,
-  Sparkles,
   Flame,
 } from 'lucide-react';
 import { isLinkedInName } from '../utils/linkedin';
@@ -33,7 +32,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   canTick = true,
 }) => {
   const navigate = useNavigate();
-  const [isToggling, setIsToggling] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
   const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));

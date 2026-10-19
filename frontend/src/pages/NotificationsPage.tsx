@@ -20,7 +20,6 @@ import {
   Zap,
   Users2,
   Trophy,
-  Info,
   ArrowRight,
   Star,
 } from 'lucide-react';

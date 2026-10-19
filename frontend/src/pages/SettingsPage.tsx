@@ -40,9 +40,12 @@ import {
   ChevronRight,
   HelpCircle,
   Crop,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { useAppLock } from '../context/AppLockContext';
+import { submitUserRequest, UserRequestCategory } from '../api/userRequests';
 import { DEFAULT_SECURITY_QUESTIONS } from '../utils/pinSecurity';
 import { ImageCropModal } from '../components/ImageCropModal';
 import { useBodyScrollLock } from '../utils/scrollLock';
@@ -70,6 +73,40 @@ export const SettingsPage: React.FC = () => {
   const [appLockModalError, setAppLockModalError] = useState('');
   const [appLockModalLoading, setAppLockModalLoading] = useState(false);
   const [appLockSuccessMsg, setAppLockSuccessMsg] = useState('');
+
+  // Requests & Feedback State
+  const [feedbackCategory, setFeedbackCategory] = useState<UserRequestCategory>('FEATURE_REQUEST');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState('');
+  const [feedbackError, setFeedbackError] = useState('');
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackMessage.trim() || feedbackMessage.trim().length < 5) {
+      setFeedbackError('Please enter a message with at least 5 characters.');
+      return;
+    }
+    setIsSubmittingFeedback(true);
+    setFeedbackSuccess('');
+    setFeedbackError('');
+    try {
+      const res = await submitUserRequest({
+        category: feedbackCategory,
+        message: feedbackMessage.trim(),
+      });
+      if (res.success) {
+        setFeedbackMessage('');
+        setFeedbackSuccess('Your request has been submitted. Thank you for your feedback.');
+        setTimeout(() => setFeedbackSuccess(''), 5000);
+      }
+    } catch (err: any) {
+      // Preserve the user's message on failure as explicitly required!
+      setFeedbackError(extractErrorMessage(err, 'Failed to submit request. Please try again.'));
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
 
   const handleOpenSetupModal = () => {
     setAppLockPin('');
@@ -1249,6 +1286,89 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
+
+      {/* SECTION: REQUESTS & FEEDBACK */}
+      <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5">
+        <div>
+          <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-flame-500" />
+            <span>Requests & Feedback</span>
+          </h2>
+          <p className="text-xs text-dark-muted mt-0.5">
+            Share feature suggestions, report bugs, or send us your feedback.
+          </p>
+        </div>
+
+        {feedbackSuccess && (
+          <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold rounded-xl">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{feedbackSuccess}</span>
+          </div>
+        )}
+
+        {feedbackError && (
+          <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-semibold rounded-xl">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{feedbackError}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleFeedbackSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+              Category
+            </label>
+            <select
+              value={feedbackCategory}
+              onChange={(e) => setFeedbackCategory(e.target.value as UserRequestCategory)}
+              disabled={isSubmittingFeedback}
+              className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 font-medium focus:outline-none focus:border-flame-500/80 transition-colors"
+            >
+              <option value="FEATURE_REQUEST">Feature Request</option>
+              <option value="BUG_REPORT">Bug Report</option>
+              <option value="ACCOUNT_SUPPORT">Account Support</option>
+              <option value="GENERAL_FEEDBACK">General Feedback</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-zinc-300">
+                Your Message
+              </label>
+              <span className="text-[11px] text-dark-muted font-mono">
+                {feedbackMessage.length} / 3000
+              </span>
+            </div>
+            <textarea
+              rows={4}
+              value={feedbackMessage}
+              onChange={(e) => setFeedbackMessage(e.target.value)}
+              placeholder="Describe your suggestion, issue, or feedback in detail..."
+              disabled={isSubmittingFeedback}
+              maxLength={3000}
+              required
+              className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 font-normal focus:outline-none focus:border-flame-500/80 transition-colors placeholder:text-zinc-600 resize-y min-h-[96px]"
+            />
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSubmittingFeedback || feedbackMessage.trim().length < 5}
+              className="px-5 py-2.5 bg-flame-500 hover:bg-flame-600 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-950 font-bold text-xs rounded-xl shadow-md shadow-flame-500/20 flex items-center gap-2 transition-all active:scale-95"
+            >
+              {isSubmittingFeedback ? (
+                <div className="w-3.5 h-3.5 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              <span>{isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}</span>
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* SECTION: LEGAL & PRIVACY */}

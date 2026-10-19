@@ -220,9 +220,6 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadNotificationsCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-flame-500 ring-2 ring-dark-bg" />
-                  )}
                 </Link>
 
                 {/* Current Streak Indicator: Flame Vector + Numeric Value Only */}
@@ -244,18 +241,25 @@ export const Navbar: React.FC = () => {
                   <span>{user.currentStreak}</span>
                 </div>
 
-                {/* Profile Pill */}
+                {/* Profile Pill with Notifications Count Indicator */}
                 <Link
                   to={`/profile/${user.username}`}
                   title="Profile & Settings"
                   aria-label="Profile & Settings"
-                  className="flex items-center gap-2 pl-1.5 pr-3 py-1 bg-dark-surface border border-dark-border rounded-xl hover:border-zinc-700 transition-colors group"
+                  className="flex items-center gap-2 pl-1.5 pr-3 py-1 bg-dark-surface border border-dark-border rounded-xl hover:border-zinc-700 transition-colors group relative"
                 >
-                  <InitialsAvatar
-                    name={user.name}
-                    image={user.profileImage}
-                    size="sm"
-                  />
+                  <div className="relative">
+                    <InitialsAvatar
+                      name={user.name}
+                      image={user.profileImage}
+                      size="sm"
+                    />
+                    {unreadNotificationsCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-flame-500 text-zinc-950 font-black text-[10px] flex items-center justify-center ring-2 ring-dark-bg shadow-sm">
+                        {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs font-semibold text-zinc-200 group-hover:text-flame-400 transition-colors">
                     {user.name.split(' ')[0]}
                   </span>
@@ -319,9 +323,6 @@ export const Navbar: React.FC = () => {
                   }`}
                 >
                   <Bell className="w-4 h-4" />
-                  {unreadNotificationsCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-flame-500 ring-2 ring-dark-bg" />
-                  )}
                 </Link>
 
                 {/* Mobile Streak Display: Flame Vector + Numeric Value Only */}
@@ -406,13 +407,20 @@ export const Navbar: React.FC = () => {
               <Link
                 to={`/profile/${user.username}`}
                 onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 px-4 py-3 text-sm font-semibold text-zinc-200 hover:text-flame-400 hover:bg-dark-hover rounded-xl transition-colors bg-dark-surface/50 border border-dark-border"
+                className="flex items-center justify-between px-4 py-3 text-sm font-semibold text-zinc-200 hover:text-flame-400 hover:bg-dark-hover rounded-xl transition-colors bg-dark-surface/50 border border-dark-border"
               >
-                <InitialsAvatar name={user.name} image={user.profileImage} size="xs" />
-                <div className="flex flex-col">
-                  <span className="font-semibold text-zinc-100">{user.name}</span>
-                  <span className="text-[11px] text-dark-muted font-mono">@{user.username}</span>
+                <div className="flex items-center gap-3">
+                  <InitialsAvatar name={user.name} image={user.profileImage} size="xs" />
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-zinc-100">{user.name}</span>
+                    <span className="text-[11px] text-dark-muted font-mono">@{user.username}</span>
+                  </div>
                 </div>
+                {unreadNotificationsCount > 0 && (
+                  <span className="bg-flame-500 text-zinc-950 text-xs font-black px-2 py-0.5 rounded-full shadow-sm">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
               </Link>
               <button
                 onClick={() => {

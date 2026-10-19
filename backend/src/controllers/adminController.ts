@@ -32,6 +32,17 @@ import {
   normalizeGameId,
   setGameCommitment,
 } from '../services/linkedInGameService';
+import {
+  getAllManagers,
+  grantManagerAccess,
+  revokeManagerAccess,
+  updateManagerEmailPreference,
+} from '../services/managerService';
+import {
+  sendAdminMessageToUser,
+  getAdminMessageLogs,
+  DeliveryChannel,
+} from '../services/adminMessageService';
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
@@ -3722,6 +3733,174 @@ export async function adminSetLinkedInGameCommitment(req: AdminAuthenticatedRequ
     return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game commitment.' });
   }
 }
+
+/**
+ * GET /api/admin/managers - List all current managers
+ */
+export async function getManagersAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const managers = await getAllManagers();
+    return res.json({ success: true, managers });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch managers.' });
+  }
+}
+
+/**
+ * POST /api/admin/managers - Grant Manager access to a user
+ */
+export async function grantManagerAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, emailNotificationsEnabled = true } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'User ID is required.' });
+    }
+
+    const manager = await grantManagerAccess({
+      userId,
+      grantedBy: req.admin?.username || 'admin',
+      emailNotificationsEnabled: Boolean(emailNotificationsEnabled),
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'GRANT_MANAGER_ACCESS',
+      targetUserId: userId,
+      targetUser: `@${manager.username}`,
+      reason: 'Admin granted Manager access',
+      afterState: manager,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `Manager access granted to @${manager.username}.`,
+      manager,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to grant manager access.' });
+  }
+}
+
+/**
+ * DELETE /api/admin/managers/:userId - Revoke Manager access from a user
+ */
+export async function revokeManagerAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'User ID is required.' });
+    }
+
+    await revokeManagerAccess(userId);
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'REVOKE_MANAGER_ACCESS',
+      targetUserId: userId,
+      reason: 'Admin revoked Manager access',
+    });
+
+    return res.json({
+      success: true,
+      message: 'Manager access revoked successfully.',
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to revoke manager access.' });
+  }
+}
+
+/**
+ * PATCH /api/admin/managers/:userId/email - Toggle email notifications delivery preference for a manager
+ */
+export async function updateManagerEmailAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { emailNotificationsEnabled } = req.body;
+
+    if (typeof emailNotificationsEnabled !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'emailNotificationsEnabled boolean is required.' });
+    }
+
+    const updated = await updateManagerEmailPreference({
+      userId,
+      emailNotificationsEnabled,
+    });
+
+    return res.json({
+      success: true,
+      message: `Manager email delivery ${emailNotificationsEnabled ? 'enabled' : 'disabled'}.`,
+      manager: updated,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to update manager preferences.' });
+  }
+}
+
+/**
+ * POST /api/admin/send-message - Send administrative message to a user via In-App, Email, or Both
+ */
+export async function sendAdminMessage(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { recipientUserId, title, message, channel } = req.body;
+
+    if (!recipientUserId || !title || !message || !channel) {
+      return res.status(400).json({
+        success: false,
+        error: 'recipientUserId, title, message, and channel are required.',
+      });
+    }
+
+    const validChannels: DeliveryChannel[] = ['IN_APP', 'EMAIL', 'BOTH'];
+    if (!validChannels.includes(channel)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid delivery channel. Must be IN_APP, EMAIL, or BOTH.',
+      });
+    }
+
+    const logRecord = await sendAdminMessageToUser({
+      adminUsername: req.admin!.username,
+      recipientUserId,
+      title,
+      message,
+      channel,
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'ADMIN_SEND_MESSAGE',
+      targetUserId: recipientUserId,
+      targetUser: `@${logRecord.recipientUsername}`,
+      reason: `Admin message sent via ${channel}`,
+      afterState: {
+        channel,
+        inAppStatus: logRecord.inAppStatus,
+        emailStatus: logRecord.emailStatus,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Administrative message processed.',
+      delivery: logRecord,
+    });
+  } catch (err: any) {
+    return res.status(400).json({ success: false, error: err.message || 'Failed to send message.' });
+  }
+}
+
+/**
+ * GET /api/admin/messages - Get recent admin message logs
+ */
+export async function getAdminMessageLogsController(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const logs = await getAdminMessageLogs(50);
+    return res.json({ success: true, logs });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to fetch message logs.' });
+  }
+}
+
 
 
 

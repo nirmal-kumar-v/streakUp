@@ -821,6 +821,141 @@ export async function adminSetLinkedInGameCommitment(
   return res.data;
 }
 
+// ==================== User Requests & Feedback ====================
+
+export interface AdminUserRequest {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  email: string;
+  category: 'FEATURE_REQUEST' | 'BUG_REPORT' | 'ACCOUNT_SUPPORT' | 'GENERAL_FEEDBACK' | 'OTHER';
+  message: string;
+  status: 'PENDING' | 'UNDER_REVIEW' | 'RESOLVED';
+  adminNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchAdminUserRequests(params?: {
+  status?: string;
+  category?: string;
+  search?: string;
+}) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    requests: AdminUserRequest[];
+    count: number;
+  }>('/admin/requests', { params });
+  return res.data;
+}
+
+export async function updateAdminUserRequestStatus(
+  requestId: string,
+  data: { status: 'PENDING' | 'UNDER_REVIEW' | 'RESOLVED'; adminNotes?: string }
+) {
+  const res = await adminApiClient.patch<{
+    success: boolean;
+    message: string;
+    request: AdminUserRequest;
+  }>(`/admin/requests/${requestId}/status`, data);
+  return res.data;
+}
+
+// ==================== Manager Access ====================
+
+export interface AdminManager {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  email: string;
+  emailNotificationsEnabled: boolean;
+  grantedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchAdminManagers() {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    managers: AdminManager[];
+  }>('/admin/managers');
+  return res.data;
+}
+
+export async function grantAdminManager(data: {
+  userId: string;
+  emailNotificationsEnabled?: boolean;
+}) {
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    manager: AdminManager;
+  }>('/admin/managers', data);
+  return res.data;
+}
+
+export async function revokeAdminManager(userId: string) {
+  const res = await adminApiClient.delete<{
+    success: boolean;
+    message: string;
+  }>(`/admin/managers/${userId}`);
+  return res.data;
+}
+
+export async function updateAdminManagerEmail(
+  userId: string,
+  emailNotificationsEnabled: boolean
+) {
+  const res = await adminApiClient.patch<{
+    success: boolean;
+    message: string;
+    manager: AdminManager;
+  }>(`/admin/managers/${userId}/email`, { emailNotificationsEnabled });
+  return res.data;
+}
+
+// ==================== Admin Direct Messaging ====================
+
+export interface AdminMessageLog {
+  id: string;
+  adminUsername: string;
+  recipientUserId: string;
+  recipientUsername: string;
+  recipientEmail: string;
+  title: string;
+  message: string;
+  channel: 'IN_APP' | 'EMAIL' | 'BOTH';
+  inAppStatus: 'SENT' | 'SKIPPED' | 'FAILED';
+  emailStatus: 'SENT' | 'SKIPPED' | 'FAILED';
+  deliveryNote?: string;
+  createdAt: string;
+}
+
+export async function sendAdminMessage(data: {
+  recipientUserId: string;
+  title: string;
+  message: string;
+  channel: 'IN_APP' | 'EMAIL' | 'BOTH';
+}) {
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    delivery: AdminMessageLog;
+  }>('/admin/send-message', data);
+  return res.data;
+}
+
+export async function fetchAdminMessageLogs() {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    logs: AdminMessageLog[];
+  }>('/admin/messages');
+  return res.data;
+}
+
+
 
 
 

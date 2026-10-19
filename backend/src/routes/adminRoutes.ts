@@ -45,7 +45,14 @@ import {
   adminGrantLinkedInGameDate,
   adminFreezeLinkedInGameDate,
   adminSetLinkedInGameCommitment,
+  getManagersAdmin,
+  grantManagerAdmin,
+  revokeManagerAdmin,
+  updateManagerEmailAdmin,
+  sendAdminMessage,
+  getAdminMessageLogsController,
 } from '../controllers/adminController';
+import { getAdminRequests, updateRequestStatus } from '../controllers/userRequestController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
 const router = Router();
@@ -115,6 +122,20 @@ router.post('/completions/:completionId/moderate', adminModerateStudyNote);
 
 // High-Risk Sensitive Operations (Requires Sensitive PIN confirmation)
 router.delete('/users/:userId', requireSensitiveAuth, deleteUserAccountByAdmin);
+
+// User Requests & Feedback Management
+router.get('/requests', getAdminRequests);
+router.patch('/requests/:id/status', updateRequestStatus);
+
+// Manager Access Management
+router.get('/managers', getManagersAdmin);
+router.post('/managers', grantManagerAdmin);
+router.delete('/managers/:userId', revokeManagerAdmin);
+router.patch('/managers/:userId/email', updateManagerEmailAdmin);
+
+// Admin Direct Messaging to Users
+router.post('/send-message', sendAdminMessage);
+router.get('/messages', getAdminMessageLogsController);
 
 export default router;
 

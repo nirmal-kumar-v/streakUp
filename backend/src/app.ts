@@ -10,6 +10,7 @@ import notificationRoutes from './routes/notificationRoutes';
 import groupRoutes from './routes/groupRoutes';
 import reactionRoutes from './routes/reactionRoutes';
 import adminRoutes from './routes/adminRoutes';
+import userRequestRoutes from './routes/userRequestRoutes';
 import { getLocalTimeInfo } from './services/timezoneService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from './utils/dbError';
 
@@ -82,6 +83,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/reactions', reactionRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/requests', userRequestRoutes);
 
 // Also mount routes without /api prefix (fallback for serverless rewrites)
 app.use('/auth', authRoutes);
@@ -93,6 +95,7 @@ app.use('/notifications', notificationRoutes);
 app.use('/groups', groupRoutes);
 app.use('/reactions', reactionRoutes);
 app.use('/admin', adminRoutes);
+app.use('/requests', userRequestRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

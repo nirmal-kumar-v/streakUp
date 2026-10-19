@@ -18,6 +18,7 @@ import {
   Award,
   UserMinus,
   Users,
+  Bell,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -26,7 +27,7 @@ import { extractErrorMessage } from '../utils/error';
 export const PublicProfilePage: React.FC = () => {
   const { username } = useParams<{ username: string }>();
   const { isAuthenticated } = useAuth();
-  const { decrementFriendRequests } = useBadges();
+  const { decrementFriendRequests, unreadNotificationsCount } = useBadges();
   const toast = useToast();
 
   const [profile, setProfile] = useState<PublicProfile | null>(null);
@@ -207,12 +208,26 @@ export const PublicProfilePage: React.FC = () => {
             {/* Friend Action Button */}
             <div className="mt-5">
               {profile.relationshipStatus === 'SELF' ? (
-                <Link
-                  to="/settings"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-dark-surface border border-dark-border text-xs font-semibold text-zinc-300 rounded-xl hover:text-zinc-100"
-                >
-                  Edit Your Profile
-                </Link>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                  <Link
+                    to="/settings"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-dark-surface border border-dark-border text-xs font-semibold text-zinc-300 rounded-xl hover:text-zinc-100 hover:border-zinc-700 transition-colors"
+                  >
+                    Edit Your Profile
+                  </Link>
+                  <Link
+                    to="/notifications"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-dark-surface border border-dark-border text-xs font-semibold text-zinc-300 rounded-xl hover:text-flame-400 hover:border-flame-500/30 transition-colors"
+                  >
+                    <Bell className="w-3.5 h-3.5 text-flame-500" />
+                    <span>Notifications</span>
+                    {unreadNotificationsCount > 0 && (
+                      <span className="bg-flame-500 text-zinc-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                        {unreadNotificationsCount}
+                      </span>
+                    )}
+                  </Link>
+                </div>
               ) : profile.relationshipStatus === 'FRIENDS' ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold">

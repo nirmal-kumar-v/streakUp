@@ -94,6 +94,9 @@ import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { AdminLogin } from '../components/AdminLogin';
 import { isLinkedInName, LINKEDIN_GAMES_LIST } from '../utils/linkedin';
+import { AdminUserRequestsTab } from '../components/admin/AdminUserRequestsTab';
+import { AdminManagersTab } from '../components/admin/AdminManagersTab';
+import { AdminSendMessageTab } from '../components/admin/AdminSendMessageTab';
 
 export const AdminControlPage: React.FC = () => {
   const toast = useToast();
@@ -105,9 +108,11 @@ export const AdminControlPage: React.FC = () => {
   const [activeAdmin, setActiveAdmin] = useState<any>(null);
 
   // ------------------------------------------
-  // Primary Tabs: users | groups | audit | security
+  // Primary Tabs: users | groups | requests | managers | messages | audit | security
   // ------------------------------------------
-  const [primaryTab, setPrimaryTab] = useState<'users' | 'groups' | 'audit' | 'security'>('users');
+  const [primaryTab, setPrimaryTab] = useState<
+    'users' | 'groups' | 'requests' | 'managers' | 'messages' | 'audit' | 'security'
+  >('users');
 
   // ------------------------------------------
   // User Search & Selected User State
@@ -2356,6 +2361,42 @@ export const AdminControlPage: React.FC = () => {
           >
             <Compass className="w-4 h-4" />
             <span>Group Discoverability & Directory</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrimaryTab('requests')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'requests'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>User Requests</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrimaryTab('managers')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'managers'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Manager Access</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrimaryTab('messages')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'messages'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            <span>Send Message</span>
           </button>
           <button
             type="button"
@@ -6395,6 +6436,29 @@ export const AdminControlPage: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: USER REQUESTS & FEEDBACK                    */}
+        {/* ======================================================== */}
+        {primaryTab === 'requests' && (
+          <AdminUserRequestsTab
+            onSelectUserForInspection={(userId) => {
+              setSelectedUserId(userId);
+              setPrimaryTab('users');
+              setUserTab('overview');
+            }}
+          />
+        )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: MANAGER ACCESS                              */}
+        {/* ======================================================== */}
+        {primaryTab === 'managers' && <AdminManagersTab />}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: SEND MESSAGE                                */}
+        {/* ======================================================== */}
+        {primaryTab === 'messages' && <AdminSendMessageTab />}
 
         {/* ======================================================== */}
         {/* PRIMARY TAB 2: AUDIT LEDGER TRAIL                        */}
