@@ -506,6 +506,29 @@ async function forgotPassword(req, res) {
             where: { email: cleanEmail },
         });
         if (user && user.isEmailVerified) {
+            const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+            const delInfo = isAccountDeleted(user.id);
+            if (delInfo.isDeleted) {
+                // Send deleted account guidance email
+                const { buildDeletedAccountNoticeEmail } = await Promise.resolve().then(() => __importStar(require('../services/emailService')));
+                const noticeEmail = buildDeletedAccountNoticeEmail({
+                    name: user.name,
+                    username: user.username,
+                    daysRemaining: delInfo.daysRemaining,
+                });
+                await (0, emailService_1.sendEmail)({
+                    userId: user.id,
+                    recipientEmail: user.email,
+                    category: client_1.NotificationCategory.SYSTEM,
+                    subject: noticeEmail.subject,
+                    text: noticeEmail.text,
+                    idempotencyKey: `DELETED_NOTICE:${user.id}:${Date.now()}`,
+                });
+                return res.json({
+                    success: true,
+                    message: 'If an account exists with this email, you will receive instructions shortly.',
+                });
+            }
             const otpResult = await (0, otpService_1.createEmailOtp)({
                 email: cleanEmail,
                 purpose: client_1.OtpPurpose.PASSWORD_RESET,
@@ -653,6 +676,14 @@ async function resetPassword(req, res) {
         }
         else {
             return res.status(400).json({ success: false, error: 'Email and 6-digit verification code are required.' });
+        }
+        const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+        if (isAccountDeleted(targetUserId).isDeleted) {
+            return res.status(403).json({
+                success: false,
+                error: 'This account was deleted. Please contact an administrator to recover your account.',
+                isDeletedAccount: true,
+            });
         }
         // Hash new password securely
         const salt = await bcryptjs_1.default.genSalt(10);

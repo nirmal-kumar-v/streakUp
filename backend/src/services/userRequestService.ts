@@ -402,3 +402,52 @@ export async function updateUserRequestStatus(params: {
 
   return all[index];
 }
+
+/**
+  * Automatically resolves any pending recovery requests for a restored user
+  */
+export async function resolveRecoveryRequestsForUser(
+  userId: string,
+  email: string,
+  note: string
+): Promise<number> {
+  await initUserRequestsTable();
+  const all = loadAllRequests();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  let resolvedCount = 0;
+
+  for (const req of all) {
+    if (
+      req.category === 'ACCOUNT_RECOVERY' &&
+      (req.userId === userId || (cleanEmail && req.email.toLowerCase() === cleanEmail)) &&
+      req.status !== 'RESOLVED'
+    ) {
+      req.status = 'RESOLVED';
+      req.adminNotes = note;
+      req.updatedAt = new Date().toISOString();
+      resolvedCount++;
+    }
+  }
+
+  if (resolvedCount > 0) {
+    saveAllRequests(all);
+    try {
+      await prisma.$executeRawUnsafe(
+        `
+        UPDATE "user_requests"
+        SET "status" = 'RESOLVED',
+            "admin_notes" = $1,
+            "updated_at" = NOW()
+        WHERE "category" = 'ACCOUNT_RECOVERY'
+          AND ("user_id" = $2 OR LOWER("email") = $3)
+          AND "status" != 'RESOLVED'
+        `,
+        note,
+        userId,
+        cleanEmail
+      );
+    } catch {}
+  }
+
+  return resolvedCount;
+}

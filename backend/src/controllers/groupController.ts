@@ -721,8 +721,10 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       });
     }
 
-    // Filter out members who hid current user (the count will match visible members)
-    const visibleGroupMembers = group.members.filter((m) => {
+    // Filter out soft-deleted accounts and members who hid current user
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const activeMembers = group.members.filter((m) => !isAccountDeleted(m.userId).isDeleted);
+    const visibleGroupMembers = activeMembers.filter((m) => {
       if (m.userId === userId) return true; // always show self
       const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
       if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {

@@ -533,6 +533,33 @@ export async function forgotPassword(req: Request, res: Response) {
     });
 
     if (user && user.isEmailVerified) {
+      const { isAccountDeleted } = await import('../services/deletedAccountService');
+      const delInfo = isAccountDeleted(user.id);
+
+      if (delInfo.isDeleted) {
+        // Send deleted account guidance email
+        const { buildDeletedAccountNoticeEmail } = await import('../services/emailService');
+        const noticeEmail = buildDeletedAccountNoticeEmail({
+          name: user.name,
+          username: user.username,
+          daysRemaining: delInfo.daysRemaining,
+        });
+
+        await sendEmail({
+          userId: user.id,
+          recipientEmail: user.email,
+          category: NotificationCategory.SYSTEM,
+          subject: noticeEmail.subject,
+          text: noticeEmail.text,
+          idempotencyKey: `DELETED_NOTICE:${user.id}:${Date.now()}`,
+        });
+
+        return res.json({
+          success: true,
+          message: 'If an account exists with this email, you will receive instructions shortly.',
+        });
+      }
+
       const otpResult = await createEmailOtp({
         email: cleanEmail,
         purpose: OtpPurpose.PASSWORD_RESET,
@@ -692,6 +719,15 @@ export async function resetPassword(req: Request, res: Response) {
       await markPasswordResetTokenUsed(verification.tokenId);
     } else {
       return res.status(400).json({ success: false, error: 'Email and 6-digit verification code are required.' });
+    }
+
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    if (isAccountDeleted(targetUserId).isDeleted) {
+      return res.status(403).json({
+        success: false,
+        error: 'This account was deleted. Please contact an administrator to recover your account.',
+        isDeletedAccount: true,
+      });
     }
 
     // Hash new password securely

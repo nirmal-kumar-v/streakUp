@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -150,6 +183,14 @@ async function grantManagerAccess(params) {
             await prisma_1.default.$executeRawUnsafe(`UPDATE "manager_roles" SET "email_notifications_enabled" = $1, "updated_at" = NOW() WHERE "user_id" = $2`, emailNotificationsEnabled, userId);
         }
         catch { }
+        await (0, notificationService_1.createNotification)({
+            userId: user.id,
+            category: client_1.NotificationCategory.SYSTEM,
+            title: 'Manager Access Granted',
+            message: 'The StreakUp admin has granted you Manager access.',
+            eventKey: `MGR_GRANT:${user.id}:${Date.now()}`,
+            actionUrl: '/notifications',
+        });
         return all[existingIndex];
     }
     const id = crypto_1.default.randomUUID();
@@ -239,7 +280,11 @@ async function notifyManagersOfNewRequest(request) {
     };
     const catLabel = categoryLabels[request.category] || request.category;
     const preview = request.message.length > 120 ? `${request.message.slice(0, 120)}...` : request.message;
-    for (const manager of managers) {
+    const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('./deletedAccountService')));
+    const activeManagers = managers.filter((m) => !isAccountDeleted(m.userId).isDeleted);
+    if (activeManagers.length === 0)
+        return;
+    for (const manager of activeManagers) {
         // 1. In-App notification
         await (0, notificationService_1.createNotification)({
             userId: manager.userId,

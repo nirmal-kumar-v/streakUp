@@ -22,6 +22,8 @@ exports.buildVerifyNotificationEmailOtpEmail = buildVerifyNotificationEmailOtpEm
 exports.buildPasswordResetOtpEmail = buildPasswordResetOtpEmail;
 exports.buildPasswordResetLinkEmail = buildPasswordResetLinkEmail;
 exports.buildPasswordChangedConfirmationEmail = buildPasswordChangedConfirmationEmail;
+exports.buildAccountRestoredEmail = buildAccountRestoredEmail;
+exports.buildDeletedAccountNoticeEmail = buildDeletedAccountNoticeEmail;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const dns_1 = __importDefault(require("dns"));
 const prisma_1 = __importDefault(require("../config/prisma"));
@@ -588,6 +590,53 @@ function buildPasswordChangedConfirmationEmail(data) {
         '',
         `—`,
         `StreakUp Security`,
+    ].join('\n');
+    return { subject, text };
+}
+/**
+ * Plain-text account restored confirmation email
+ */
+function buildAccountRestoredEmail(data) {
+    const loginUrl = `${getAppBaseUrl()}/login`;
+    const subject = `Your StreakUp account (@${data.username}) has been restored`;
+    const text = [
+        `Hi ${data.name},`,
+        '',
+        `Good news! Your StreakUp account (@${data.username}) has been successfully restored by our administrative team.`,
+        '',
+        `All your daily habit streaks, study notes, points, and group memberships are fully preserved and active again.`,
+        '',
+        `You can log in now at:`,
+        `${loginUrl}`,
+        '',
+        `Keep your streak blazing!`,
+        '',
+        `—`,
+        `StreakUp Admin & Support Team`,
+    ].join('\n');
+    return { subject, text };
+}
+/**
+ * Plain-text notice email for deleted accounts attempting password reset
+ */
+function buildDeletedAccountNoticeEmail(data) {
+    const loginUrl = `${getAppBaseUrl()}/login`;
+    const subject = 'Notice regarding your StreakUp account';
+    const daysText = data.daysRemaining !== undefined
+        ? `${data.daysRemaining} days remaining in your 10-day recovery window.`
+        : 'You can request account recovery within 10 days of deletion.';
+    const text = [
+        `Hi ${data.name},`,
+        '',
+        `We received a request regarding your StreakUp account. However, this account is currently deleted (${daysText}).`,
+        '',
+        `If you would like to restore your account and resume your streaks, please submit an account recovery request from our portal:`,
+        `${loginUrl}`,
+        '',
+        `If you did not make this request or intend to keep your account deleted, no further action is needed.`,
+        '',
+        `—`,
+        `StreakUp Support`,
     ].join('\n');
     return { subject, text };
 }

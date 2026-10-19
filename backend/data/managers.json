@@ -1,5 +1,16 @@
 [
   {
+    "id": "4e909692-9b7c-4b58-84b3-a7de6f065982",
+    "userId": "test-mgr-user-2",
+    "username": "mgrcandidate",
+    "name": "Manager Candidate",
+    "email": "mgrcandidate@example.com",
+    "emailNotificationsEnabled": true,
+    "grantedBy": "admin",
+    "createdAt": "2026-10-19T19:54:15.269Z",
+    "updatedAt": "2026-10-19T19:54:15.269Z"
+  },
+  {
     "id": "1b4d6699-a025-4b18-b35f-b9b021d96014",
     "userId": "6e94bdc8-bb78-4775-8964-f9432a8faa16",
     "username": "nithish_22",
@@ -9,17 +20,6 @@
     "grantedBy": "admin",
     "createdAt": "2026-10-19T15:39:24.667Z",
     "updatedAt": "2026-10-19T15:39:24.667Z"
-  },
-  {
-    "id": "c8feb1d8-4aa2-401a-a7d2-9112071830d1",
-    "userId": "test-mgr-user-2",
-    "username": "mgrcandidate",
-    "name": "Manager Candidate",
-    "email": "mgrcandidate@example.com",
-    "emailNotificationsEnabled": true,
-    "grantedBy": "admin",
-    "createdAt": "2026-10-19T14:56:19.059Z",
-    "updatedAt": "2026-10-19T15:27:20.598Z"
   },
   {
     "id": "133dbe7a-a2c2-4e59-ae96-42ad94c7b3e0",

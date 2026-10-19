@@ -39,6 +39,7 @@ import {
   Plus,
   Gamepad2,
   Trophy,
+  Download,
 } from 'lucide-react';
 import {
   fetchAdminProfile,
@@ -85,6 +86,7 @@ import {
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
   adminSetLinkedInGameCommitment,
+  fetchAdminUserRequests,
   AdminUser,
   AdminAuditLogItem,
   AdminGroupItem,
@@ -537,17 +539,35 @@ export const AdminControlPage: React.FC = () => {
     }
   }, [isAdminAuth, primaryTab, auditFilterAction]);
 
-  useEffect(() => {
-    if (isAdminAuth && primaryTab === 'groups') {
-      loadAdminGroups();
+  // ------------------------------------------
+  // Pending User Requests Counter
+  // ------------------------------------------
+  const [pendingRequestsCount, setPendingRequestsCount] = useState<number>(0);
+
+  const loadPendingRequestsCount = useCallback(async () => {
+    try {
+      const res = await fetchAdminUserRequests({ status: 'PENDING' });
+      if (res.success) {
+        setPendingRequestsCount(res.count ?? (res.requests ? res.requests.length : 0));
+      }
+    } catch {
+      // background polling safe fallback
     }
-  }, [isAdminAuth, primaryTab]);
+  }, []);
 
   useEffect(() => {
-    if (isAdminAuth && userTab === 'reminders' && selectedUserId) {
-      loadUserReminders(selectedUserId);
+    if (isAdminAuth) {
+      loadPendingRequestsCount();
+      const interval = setInterval(loadPendingRequestsCount, 30000);
+      return () => clearInterval(interval);
     }
-  }, [isAdminAuth, userTab, selectedUserId]);
+  }, [isAdminAuth, loadPendingRequestsCount]);
+
+  useEffect(() => {
+    if (isAdminAuth && primaryTab === 'requests') {
+      loadPendingRequestsCount();
+    }
+  }, [isAdminAuth, primaryTab, loadPendingRequestsCount]);
 
   // ------------------------------------------
   // PIN Confirmation Execution Helper
@@ -1944,6 +1964,83 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
+  // CSV Export for Audit Trail
+  const handleExportAuditLogsCsv = () => {
+    if (!auditLogs || auditLogs.length === 0) {
+      toast.error('No audit records available in current view to export.');
+      return;
+    }
+    const headers = ['Timestamp', 'Admin', 'Action', 'Target User', 'Target User ID', 'Reason'];
+    const rows = auditLogs.map((log) => [
+      `"${new Date(log.createdAt).toISOString()}"`,
+      `"${log.adminUsername || ''}"`,
+      `"${log.action || ''}"`,
+      `"${(log.targetUser || '').replace(/"/g, '""')}"`,
+      `"${log.targetUserId || ''}"`,
+      `"${(log.reason || '').replace(/"/g, '""')}"`,
+    ]);
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute(
+      'download',
+      `streakup_audit_logs_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success(`Exported ${auditLogs.length} audit log entries as CSV.`);
+  };
+
+  // CSV Export for User Directory
+  const handleExportUsersCsv = () => {
+    if (!searchResults || searchResults.length === 0) {
+      toast.error('No users in current view to export.');
+      return;
+    }
+    const headers = [
+      'User ID',
+      'Name',
+      'Username',
+      'Email',
+      'Verified',
+      'Current Streak',
+      'Longest Streak',
+      'Points',
+      'Status',
+      'Created At',
+    ];
+    const rows = searchResults.map((u) => [
+      `"${u.id}"`,
+      `"${(u.name || '').replace(/"/g, '""')}"`,
+      `"${u.username}"`,
+      `"${u.email}"`,
+      `"${u.isEmailVerified ? 'YES' : 'NO'}"`,
+      `"${u.currentStreak || 0}"`,
+      `"${u.longestStreak || 0}"`,
+      `"${u.points || 0}"`,
+      `"${u.isDeleted ? 'DELETED' : 'ACTIVE'}"`,
+      `"${u.createdAt || ''}"`,
+    ]);
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute(
+      'download',
+      `streakup_users_${userFilterTab}_${new Date().toISOString().slice(0, 10)}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success(`Exported ${searchResults.length} users to CSV.`);
+  };
+
   // I. Reset Nudge Cooldown
   const handleResetNudgeCooldown = async () => {
     if (!selectedUserId) return;
@@ -2386,6 +2483,11 @@ export const AdminControlPage: React.FC = () => {
           >
             <MessageSquare className="w-4 h-4" />
             <span>User Requests</span>
+            {pendingRequestsCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-zinc-950 shadow-sm animate-pulse">
+                {pendingRequestsCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -2500,6 +2602,17 @@ export const AdminControlPage: React.FC = () => {
                 >
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Deleted Accounts (Recovery Window)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportUsersCsv}
+                  disabled={searchResults.length === 0}
+                  className="ml-auto px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-bold text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                  title="Export Current Users View as CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-flame-400" />
+                  <span>Export Users CSV</span>
                 </button>
               </div>
             </div>
@@ -6511,6 +6624,7 @@ export const AdminControlPage: React.FC = () => {
               setPrimaryTab('users');
               setUserTab('overview');
             }}
+            onRequestResolved={loadPendingRequestsCount}
           />
         )}
 
@@ -6555,6 +6669,7 @@ export const AdminControlPage: React.FC = () => {
                   className="px-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-200 focus:outline-none"
                 >
                   <option value="">All Action Types</option>
+                  <option value="RECOVER_ACCOUNT">Account Recovery</option>
                   <option value="USERNAME_COOLDOWN_OVERRIDE">Username Override</option>
                   <option value="EMAIL_COOLDOWN_OVERRIDE">Email Override</option>
                   <option value="OVERALL_STREAK_CORRECTION">Overall Streak</option>
@@ -6572,9 +6687,20 @@ export const AdminControlPage: React.FC = () => {
 
                 <button
                   type="button"
+                  onClick={handleExportAuditLogsCsv}
+                  disabled={auditLogs.length === 0}
+                  className="px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-zinc-300 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-colors"
+                  title="Export Current Audit Logs as CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-flame-400" />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => loadAuditLogs(auditPage)}
                   disabled={isLoadingLogs}
-                  className="p-2 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-xl text-zinc-300 text-xs"
+                  className="p-2 bg-dark-surface hover:bg-dark-border border border-dark-border rounded-xl text-zinc-300 text-xs cursor-pointer"
                   title="Refresh Audit Logs"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />

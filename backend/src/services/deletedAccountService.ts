@@ -270,9 +270,52 @@ export async function recoverAccount(
     );
   } catch {}
 
+  // Post-recovery background actions: notify user and resolve requests
+  setImmediate(async () => {
+    try {
+      // 1. Automatically resolve any pending recovery requests submitted by this user
+      const { resolveRecoveryRequestsForUser } = await import('./userRequestService');
+      await resolveRecoveryRequestsForUser(
+        userId,
+        record.email,
+        `Account successfully restored by Super Admin @${adminUsername}`
+      );
+
+      // 2. Dispatch restoration email to the user
+      const { sendEmail, buildAccountRestoredEmail } = await import('./emailService');
+      const emailContent = buildAccountRestoredEmail({
+        name: record.name,
+        username: record.username,
+      });
+
+      const { NotificationCategory } = await import('@prisma/client');
+      await sendEmail({
+        userId,
+        recipientEmail: record.email,
+        category: NotificationCategory.SYSTEM,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        idempotencyKey: `ACCOUNT_RESTORED:${userId}:${now.getTime()}`,
+      });
+
+      // 3. Create welcoming in-app notification for when the user logs back in
+      const { createNotification } = await import('./notificationService');
+      await createNotification({
+        userId,
+        category: NotificationCategory.SYSTEM,
+        title: 'Welcome Back!',
+        message: 'Your account, daily streaks, and group memberships have been fully restored by admin.',
+        actionUrl: '/dashboard',
+        eventKey: `RESTORED_WELCOME:${userId}:${now.getTime()}`,
+      });
+    } catch (postErr) {
+      console.error('[deletedAccountService] Post-recovery notification error:', postErr);
+    }
+  });
+
   return {
     success: true,
-    message: `Account for @${record.username} has been recovered. The user can now simply log in again.`,
+    message: `Account for @${record.username} has been recovered. The user has been notified via email and can now log in.`,
     record,
   };
 }

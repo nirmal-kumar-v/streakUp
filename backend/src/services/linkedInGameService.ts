@@ -710,13 +710,10 @@ export async function getLinkedInDashboardStreak(
   const games = await getAllGamesForMember(groupId, userId, userTimezone);
   const committedGames = games.filter((g) => g.isCommitted);
 
-  // Highest current streak of any of the LinkedIn games
-  const candidateGames = committedGames.length > 0 ? committedGames : games;
-  const currentStreak = candidateGames.length > 0 ? Math.max(0, ...candidateGames.map((g) => g.currentStreak)) : 0;
-  const longestStreak = candidateGames.length > 0 ? Math.max(0, ...candidateGames.map((g) => g.longestStreak)) : 0;
-  const completedToday = committedGames.length > 0
-    ? committedGames.every((g) => g.completedToday)
-    : games.some((g) => g.completedToday);
+  // Highest current streak of any of the committed LinkedIn games
+  const currentStreak = committedGames.length > 0 ? Math.max(0, ...committedGames.map((g) => g.currentStreak)) : 0;
+  const longestStreak = committedGames.length > 0 ? Math.max(0, ...committedGames.map((g) => g.longestStreak)) : 0;
+  const completedToday = committedGames.length > 0 && committedGames.every((g) => g.completedToday);
 
   return {
     currentStreak,

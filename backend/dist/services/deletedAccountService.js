@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -210,9 +243,45 @@ async function recoverAccount(userId, adminUsername) {
       `, adminUsername, userId);
     }
     catch { }
+    // Post-recovery background actions: notify user and resolve requests
+    setImmediate(async () => {
+        try {
+            // 1. Automatically resolve any pending recovery requests submitted by this user
+            const { resolveRecoveryRequestsForUser } = await Promise.resolve().then(() => __importStar(require('./userRequestService')));
+            await resolveRecoveryRequestsForUser(userId, record.email, `Account successfully restored by Super Admin @${adminUsername}`);
+            // 2. Dispatch restoration email to the user
+            const { sendEmail, buildAccountRestoredEmail } = await Promise.resolve().then(() => __importStar(require('./emailService')));
+            const emailContent = buildAccountRestoredEmail({
+                name: record.name,
+                username: record.username,
+            });
+            const { NotificationCategory } = await Promise.resolve().then(() => __importStar(require('@prisma/client')));
+            await sendEmail({
+                userId,
+                recipientEmail: record.email,
+                category: NotificationCategory.SYSTEM,
+                subject: emailContent.subject,
+                text: emailContent.text,
+                idempotencyKey: `ACCOUNT_RESTORED:${userId}:${now.getTime()}`,
+            });
+            // 3. Create welcoming in-app notification for when the user logs back in
+            const { createNotification } = await Promise.resolve().then(() => __importStar(require('./notificationService')));
+            await createNotification({
+                userId,
+                category: NotificationCategory.SYSTEM,
+                title: 'Welcome Back!',
+                message: 'Your account, daily streaks, and group memberships have been fully restored by admin.',
+                actionUrl: '/dashboard',
+                eventKey: `RESTORED_WELCOME:${userId}:${now.getTime()}`,
+            });
+        }
+        catch (postErr) {
+            console.error('[deletedAccountService] Post-recovery notification error:', postErr);
+        }
+    });
     return {
         success: true,
-        message: `Account for @${record.username} has been recovered. The user can now simply log in again.`,
+        message: `Account for @${record.username} has been recovered. The user has been notified via email and can now log in.`,
         record,
     };
 }

@@ -40,6 +40,7 @@ exports.initUserRequestsTable = initUserRequestsTable;
 exports.submitUserRequest = submitUserRequest;
 exports.getAllUserRequests = getAllUserRequests;
 exports.updateUserRequestStatus = updateUserRequestStatus;
+exports.resolveRecoveryRequestsForUser = resolveRecoveryRequestsForUser;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto_1 = __importDefault(require("crypto"));
@@ -348,4 +349,39 @@ async function updateUserRequestStatus(params) {
         // File store updated
     }
     return all[index];
+}
+/**
+  * Automatically resolves any pending recovery requests for a restored user
+  */
+async function resolveRecoveryRequestsForUser(userId, email, note) {
+    await initUserRequestsTable();
+    const all = loadAllRequests();
+    const cleanEmail = (email || '').trim().toLowerCase();
+    let resolvedCount = 0;
+    for (const req of all) {
+        if (req.category === 'ACCOUNT_RECOVERY' &&
+            (req.userId === userId || (cleanEmail && req.email.toLowerCase() === cleanEmail)) &&
+            req.status !== 'RESOLVED') {
+            req.status = 'RESOLVED';
+            req.adminNotes = note;
+            req.updatedAt = new Date().toISOString();
+            resolvedCount++;
+        }
+    }
+    if (resolvedCount > 0) {
+        saveAllRequests(all);
+        try {
+            await prisma_1.default.$executeRawUnsafe(`
+        UPDATE "user_requests"
+        SET "status" = 'RESOLVED',
+            "admin_notes" = $1,
+            "updated_at" = NOW()
+        WHERE "category" = 'ACCOUNT_RECOVERY'
+          AND ("user_id" = $2 OR LOWER("email") = $3)
+          AND "status" != 'RESOLVED'
+        `, note, userId, cleanEmail);
+        }
+        catch { }
+    }
+    return resolvedCount;
 }

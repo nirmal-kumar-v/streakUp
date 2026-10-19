@@ -173,6 +173,15 @@ export async function grantManagerAccess(params: {
       );
     } catch {}
 
+    await createNotification({
+      userId: user.id,
+      category: NotificationCategory.SYSTEM,
+      title: 'Manager Access Granted',
+      message: 'The StreakUp admin has granted you Manager access.',
+      eventKey: `MGR_GRANT:${user.id}:${Date.now()}`,
+      actionUrl: '/notifications',
+    });
+
     return all[existingIndex];
   }
 
@@ -294,8 +303,11 @@ export async function notifyManagersOfNewRequest(request: UserRequestRecord) {
 
   const catLabel = categoryLabels[request.category] || request.category;
   const preview = request.message.length > 120 ? `${request.message.slice(0, 120)}...` : request.message;
+  const { isAccountDeleted } = await import('./deletedAccountService');
+  const activeManagers = managers.filter((m) => !isAccountDeleted(m.userId).isDeleted);
+  if (activeManagers.length === 0) return;
 
-  for (const manager of managers) {
+  for (const manager of activeManagers) {
     // 1. In-App notification
     await createNotification({
       userId: manager.userId,

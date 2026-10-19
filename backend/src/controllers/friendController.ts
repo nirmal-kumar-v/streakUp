@@ -258,11 +258,15 @@ export async function getFriendRequests(req: AuthenticatedRequest, res: Response
       })
     ]);
 
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const activeReceived = received.filter((r) => !isAccountDeleted(r.sender.id).isDeleted);
+    const activeSent = sent.filter((s) => !isAccountDeleted(s.receiver.id).isDeleted);
+
     return res.json({
       success: true,
-      received,
-      sent,
-      pendingCount: received.length
+      received: activeReceived,
+      sent: activeSent,
+      pendingCount: activeReceived.length
     });
   } catch (err: any) {
     console.error('getFriendRequests error:', err);
@@ -409,10 +413,11 @@ export async function getFriendsList(req: AuthenticatedRequest, res: Response) {
       }
     });
 
-    // Map to friend objects (excluding current user)
-    const friends = friendships.map(f => {
-      return f.user1Id === userId ? f.user2 : f.user1;
-    });
+    // Map to friend objects (excluding current user and soft-deleted accounts)
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const friends = friendships
+      .map(f => (f.user1Id === userId ? f.user2 : f.user1))
+      .filter(f => !isAccountDeleted(f.id).isDeleted);
 
     // Attach today's task completion count for each friend
     const friendsWithTodayStats = await Promise.all(
