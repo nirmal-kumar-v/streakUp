@@ -73,6 +73,12 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
   const [isUsernameReadOnly, setIsUsernameReadOnly] = useState<boolean>(true);
   const [isPasswordReadOnly, setIsPasswordReadOnly] = useState<boolean>(true);
 
+  // Dynamic random field names generated once per component mount.
+  // Browsers store autofill history keyed by (domain, field_name).
+  // A randomized unique field name guarantees zero prior suggestion history.
+  const [usernameFieldName] = useState<string>(() => 'usr_q_' + Math.random().toString(36).substring(2, 10));
+  const [passwordFieldName] = useState<string>(() => 'tok_k_' + Math.random().toString(36).substring(2, 10));
+
   // Direct DOM Input Node References for Security Sanitation
   const usernameInputRef = useRef<HTMLInputElement | null>(null);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
@@ -194,15 +200,6 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
           </div>
         )}
 
-        {/* Honeypot Decoys: Divert aggressive browser autofill crawlers away from real fields */}
-        <div
-          aria-hidden="true"
-          style={{ position: 'absolute', opacity: 0, height: 0, width: 0, zIndex: -1, pointerEvents: 'none' }}
-        >
-          <input type="text" tabIndex={-1} name="decoy_un" autoComplete="off" />
-          <input type="password" tabIndex={-1} name="decoy_pw" autoComplete="off" />
-        </div>
-
         {/* Security Hardened Formless Container */}
         <div className="space-y-4">
           <div>
@@ -212,7 +209,8 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
             <input
               ref={usernameInputRef}
               type="text"
-              name="adm_session_client_ref"
+              name={usernameFieldName}
+              id={usernameFieldName}
               value={username}
               readOnly={isUsernameReadOnly}
               onFocus={unlockInputs}
@@ -221,7 +219,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
               onChange={(e) => setUsername(e.target.value)}
               onKeyDown={handleInputKeyDown}
               placeholder="Enter admin username"
-              autoComplete="one-time-code"
+              autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck="false"
@@ -241,7 +239,8 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
               <input
                 ref={passwordInputRef}
                 type="text"
-                name="adm_session_auth_token"
+                name={passwordFieldName}
+                id={passwordFieldName}
                 value={password}
                 readOnly={isPasswordReadOnly}
                 onFocus={unlockInputs}
@@ -250,7 +249,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onSuccess, redirectPath 
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={handleInputKeyDown}
                 placeholder="••••••••"
-                autoComplete="one-time-code"
+                autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck="false"
