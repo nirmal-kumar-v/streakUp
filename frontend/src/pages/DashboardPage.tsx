@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchDashboardSummary,
@@ -31,6 +32,7 @@ import {
   Zap,
   Award,
   Calendar,
+  Archive,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
@@ -565,13 +567,30 @@ export const DashboardPage: React.FC = () => {
 
       {/* Today's Checklist Section (Primary Task Completion Interface) */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2.5">
             <ListTodo className="w-5 h-5 text-flame-400" />
             <h2 className="text-base sm:text-lg font-bold text-zinc-100">Today's Checklist</h2>
             <span className="text-xs bg-dark-surface text-dark-muted px-2.5 py-0.5 rounded-full border border-dark-border font-mono">
               {completedCount}/{totalCount}
             </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/tasks?status=ARCHIVED"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-400 hover:text-amber-400 bg-dark-surface hover:bg-amber-500/10 border border-dark-border hover:border-amber-500/30 transition-all duration-200"
+              title="View your archived habits and past tasks"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Archived Habits</span>
+            </Link>
+            <Link
+              to="/tasks"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white bg-dark-surface hover:bg-dark-border/50 border border-dark-border transition-all duration-200"
+            >
+              Manage Habits &rarr;
+            </Link>
           </div>
         </div>
 

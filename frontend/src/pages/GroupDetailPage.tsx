@@ -654,7 +654,7 @@ export const GroupDetailPage: React.FC = () => {
 
   const inFlightReactionsRef = useRef<Set<string>>(new Set());
 
-  const handleReaction = async (completionId: string, emoji: EmojiType) => {
+  const handleReaction = async (completionId: string, _emoji?: EmojiType) => {
     if (inFlightReactionsRef.current.has(completionId)) return;
     inFlightReactionsRef.current.add(completionId);
 
@@ -664,21 +664,34 @@ export const GroupDetailPage: React.FC = () => {
       return;
     }
 
-    const previousNote = { ...targetNote };
-    const hadLiked = targetNote.userReactions?.includes(emoji) || false;
-    const currentCount = targetNote.reactionCounts?.[emoji] || 0;
-    const nextCount = hadLiked ? Math.max(0, currentCount - 1) : currentCount + 1;
-    const nextUserReactions = hadLiked
-      ? (targetNote.userReactions || []).filter((e) => e !== emoji)
-      : [...(targetNote.userReactions || []), emoji];
+    const hadLiked =
+      targetNote.userReactions?.includes('LIKE') ||
+      (targetNote.userReactions && targetNote.userReactions.length > 0) ||
+      false;
 
-    // 1. Instant 0ms optimistic UI update (completely eliminates click/unclick delay)
+    const currentCount =
+      (targetNote.reactionCounts?.LIKE || 0) +
+      (targetNote.reactionCounts?.FIRE || 0) +
+      (targetNote.reactionCounts?.STRONG || 0) +
+      (targetNote.reactionCounts?.CLAP || 0) +
+      (targetNote.reactionCounts?.CELEBRATE || 0);
+
+    const nextCount = hadLiked ? Math.max(0, currentCount - 1) : currentCount + 1;
+    const nextUserReactions = hadLiked ? [] : ['LIKE'];
+
+    // 1. Instant 0ms optimistic UI update (completely eliminates click/unclick delay and wrong numbers)
     setNotes((prev) =>
       prev.map((n) =>
         n.id === completionId
           ? {
               ...n,
-              reactionCounts: { ...n.reactionCounts, [emoji]: nextCount },
+              reactionCounts: {
+                FIRE: 0,
+                STRONG: 0,
+                CLAP: 0,
+                CELEBRATE: 0,
+                LIKE: nextCount,
+              },
               userReactions: nextUserReactions,
             }
           : n
@@ -687,14 +700,20 @@ export const GroupDetailPage: React.FC = () => {
 
     // 2. Background sync
     try {
-      const res = await toggleStudyNoteReaction(completionId, emoji);
+      const res = await toggleStudyNoteReaction(completionId, 'LIKE');
       if (res.success) {
         setNotes((prev) =>
           prev.map((n) =>
             n.id === completionId
               ? {
                   ...n,
-                  reactionCounts: res.counts || res.reactions || n.reactionCounts,
+                  reactionCounts: res.counts || {
+                    FIRE: 0,
+                    STRONG: 0,
+                    CLAP: 0,
+                    CELEBRATE: 0,
+                    LIKE: res.totalCount ?? ((res.counts as any)?.LIKE || 0),
+                  },
                   userReactions: res.userReactions || [],
                 }
               : n
@@ -704,7 +723,7 @@ export const GroupDetailPage: React.FC = () => {
     } catch (err: any) {
       // Rollback on network failure
       setNotes((prev) =>
-        prev.map((n) => (n.id === completionId ? previousNote : n))
+        prev.map((n) => (n.id === completionId ? targetNote : n))
       );
       toast.error(extractErrorMessage(err, 'Failed to update reaction.'));
     } finally {

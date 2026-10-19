@@ -18,6 +18,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
 import { PublicFeedbackModal } from './components/PublicFeedbackModal';
+import { resetAllScrollLocks } from './utils/scrollLock';
 
 // Resilient lazy-loader that transparently auto-recovers from Vite/Webpack
 // dynamic chunk load failures without showing crash screens to the user.
@@ -152,7 +153,14 @@ const AdminSecretRoute: React.FC = () => {
 export const AppContent: React.FC = () => {
   useAllDevicesDisableZoom();
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
   const [publicFeedbackOpen, setPublicFeedbackOpen] = React.useState(false);
+
+  // Auto-reset any scroll locks whenever navigating between pages
+  React.useEffect(() => {
+    resetAllScrollLocks();
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   // Periodically trigger serverless reminder check while user is active (every 5 minutes)
   React.useEffect(() => {

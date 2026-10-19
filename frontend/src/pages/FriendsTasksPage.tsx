@@ -123,13 +123,21 @@ export const FriendsTasksPage: React.FC = () => {
     const nextUserReactions = hadLiked ? [] : ['LIKE'];
 
     // 1. Instant optimistic state update
+    const cleanReactions = {
+      FIRE: 0,
+      STRONG: 0,
+      CLAP: 0,
+      CELEBRATE: 0,
+      LIKE: nextLikes,
+    };
+
     setActivity((prev) =>
       prev.map((item) => {
         if (item.id !== completionId) return item;
         return {
           ...item,
-          reactionCounts: { ...item.reactionCounts, LIKE: nextLikes },
-          reactions: { ...item.reactions, LIKE: nextLikes },
+          reactionCounts: cleanReactions,
+          reactions: cleanReactions,
           userReactions: nextUserReactions,
           totalReactions: nextLikes,
         };
@@ -140,7 +148,13 @@ export const FriendsTasksPage: React.FC = () => {
     try {
       const res = await toggleStudyNoteReaction(completionId, 'LIKE');
       if (res.success) {
-        const nextCounts = res.counts || res.reactions;
+        const nextCounts = res.counts || {
+          FIRE: 0,
+          STRONG: 0,
+          CLAP: 0,
+          CELEBRATE: 0,
+          LIKE: res.totalCount ?? ((res.counts as any)?.LIKE || 0),
+        };
         setActivity((prev) =>
           prev.map((item) => {
             if (item.id !== completionId) return item;
@@ -149,6 +163,7 @@ export const FriendsTasksPage: React.FC = () => {
               reactionCounts: nextCounts,
               reactions: nextCounts,
               userReactions: res.userReactions || [],
+              totalReactions: res.totalCount ?? nextLikes,
             };
           })
         );

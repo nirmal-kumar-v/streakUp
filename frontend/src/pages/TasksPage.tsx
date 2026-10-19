@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   fetchTasks,
   createTask,
@@ -29,6 +30,7 @@ import {
   Clock,
   Layers,
   Calendar,
+  Archive,
 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
@@ -38,12 +40,18 @@ import { isLinkedInName } from '../utils/linkedin';
 export const TasksPage: React.FC = () => {
   const { user, updateUser } = useAuth();
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const urlStatus = searchParams.get('status') || searchParams.get('tab');
+  const initialStatus: 'ACTIVE' | 'ARCHIVED' =
+    urlStatus?.toUpperCase() === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE';
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [counts, setCounts] = useState<{ active: number; archived: number }>({ active: 0, archived: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
   // Filters & Sorting state
-  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
+  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED'>(initialStatus);
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<string>('createdAt');
@@ -56,8 +64,25 @@ export const TasksPage: React.FC = () => {
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
-
   const hasLoadedRef = React.useRef(false);
+
+  // Sync state if URL query param changes
+  useEffect(() => {
+    const currentParam = searchParams.get('status') || searchParams.get('tab');
+    if (currentParam?.toUpperCase() === 'ARCHIVED' && statusFilter !== 'ARCHIVED') {
+      setStatusFilter('ARCHIVED');
+      hasLoadedRef.current = false;
+    } else if (currentParam?.toUpperCase() === 'ACTIVE' && statusFilter !== 'ACTIVE') {
+      setStatusFilter('ACTIVE');
+      hasLoadedRef.current = false;
+    }
+  }, [searchParams]);
+
+  const handleStatusChange = (newStatus: 'ACTIVE' | 'ARCHIVED') => {
+    setStatusFilter(newStatus);
+    hasLoadedRef.current = false;
+    setSearchParams(newStatus === 'ARCHIVED' ? { status: 'ARCHIVED' } : {});
+  };
 
   const loadTasks = useCallback(async () => {
     if (!hasLoadedRef.current) {
@@ -74,6 +99,9 @@ export const TasksPage: React.FC = () => {
 
       if (res.success) {
         setTasks(res.tasks || []);
+        if (typeof res.activeCount === 'number' && typeof res.archivedCount === 'number') {
+          setCounts({ active: res.activeCount, archived: res.archivedCount });
+        }
         hasLoadedRef.current = true;
       }
     } catch (err) {
@@ -214,10 +242,16 @@ export const TasksPage: React.FC = () => {
   const handleArchiveToggle = async (task: Task) => {
     const isNowArchived = task.status !== 'ARCHIVED';
     const previousTasks = [...tasks];
+    const previousCounts = { ...counts };
 
     // Optimistic toggle: if on ACTIVE tab and archiving, remove from list; if restoring, remove from ARCHIVED tab list
     setTasks((prev) => prev.filter((t) => t.id !== task.id));
-    toast.info(isNowArchived ? 'Habit archived' : 'Habit restored');
+    setCounts((prev) => ({
+      active: isNowArchived ? Math.max(0, prev.active - 1) : prev.active + 1,
+      archived: isNowArchived ? prev.archived + 1 : Math.max(0, prev.archived - 1),
+    }));
+
+    toast.info(isNowArchived ? 'Habit moved to Archived' : 'Habit restored to Active checklist');
 
     try {
       const res = await toggleArchiveTask(task.id);
@@ -226,15 +260,22 @@ export const TasksPage: React.FC = () => {
     } catch (err: any) {
       // Rollback
       setTasks(previousTasks);
+      setCounts(previousCounts);
       toast.error(extractErrorMessage(err, 'Failed to update habit status.'));
     }
   };
 
   const handleDeleteTask = async (task: Task) => {
     const previousTasks = [...tasks];
+    const previousCounts = { ...counts };
 
     // Optimistic remove
     setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    if (task.status === 'ARCHIVED') {
+      setCounts((prev) => ({ ...prev, archived: Math.max(0, prev.archived - 1) }));
+    } else {
+      setCounts((prev) => ({ ...prev, active: Math.max(0, prev.active - 1) }));
+    }
     toast.info('Habit removed');
 
     try {
@@ -244,6 +285,7 @@ export const TasksPage: React.FC = () => {
     } catch (err: any) {
       // Rollback
       setTasks(previousTasks);
+      setCounts(previousCounts);
       toast.error(extractErrorMessage(err, 'Failed to delete habit.'));
     }
   };
@@ -321,24 +363,39 @@ export const TasksPage: React.FC = () => {
           {/* Status Tabs */}
           <div className="flex bg-dark-surface p-1 rounded-xl border border-dark-border">
             <button
-              onClick={() => setStatusFilter('ACTIVE')}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              onClick={() => handleStatusChange('ACTIVE')}
+              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                 statusFilter === 'ACTIVE'
                   ? 'bg-flame-500/20 text-flame-400 border border-flame-500/30'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              Active
+              <span>Active</span>
+              {counts.active > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  statusFilter === 'ACTIVE' ? 'bg-flame-500/30 text-flame-300' : 'bg-dark-card text-zinc-500'
+                }`}>
+                  {counts.active}
+                </span>
+              )}
             </button>
             <button
-              onClick={() => setStatusFilter('ARCHIVED')}
-              className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              onClick={() => handleStatusChange('ARCHIVED')}
+              className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                 statusFilter === 'ARCHIVED'
-                  ? 'bg-zinc-700 text-zinc-200 border border-zinc-600'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              Archived
+              <Archive className="w-3.5 h-3.5" />
+              <span>Archived</span>
+              {counts.archived > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                  statusFilter === 'ARCHIVED' ? 'bg-amber-500/30 text-amber-200' : 'bg-dark-card text-zinc-500'
+                }`}>
+                  {counts.archived}
+                </span>
+              )}
             </button>
           </div>
 
@@ -408,6 +465,61 @@ export const TasksPage: React.FC = () => {
             <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
             Loading tasks...
           </div>
+        </div>
+      ) : statusFilter === 'ARCHIVED' ? (
+        <div className="space-y-6">
+          {/* Informational Guidance Banner */}
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-500/10 via-dark-card to-dark-card rounded-2xl border border-amber-500/25 flex items-start gap-3.5 shadow-panel">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+              <Archive className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                Archived Habits & Tasks
+                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {filteredTasks.length} {filteredTasks.length === 1 ? 'habit' : 'habits'}
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                These habits are inactive and won't affect your daily checklist or break your streaks. All historical completions, notes, and records are safely preserved. Click the restore icon on any card to bring it back to active.
+              </p>
+            </div>
+          </div>
+
+          {filteredTasks.length === 0 ? (
+            <div className="py-20 text-center bg-dark-card border border-dashed border-dark-border rounded-2xl p-8">
+              <div className="w-12 h-12 rounded-2xl bg-dark-surface border border-dark-border flex items-center justify-center mx-auto mb-3 text-dark-muted">
+                <Archive className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-zinc-200">No archived habits</h3>
+              <p className="text-xs text-dark-muted mt-1 max-w-sm mx-auto">
+                When you pause or archive a habit, it safely sleeps here until you choose to restore it.
+              </p>
+              <button
+                onClick={() => handleStatusChange('ACTIVE')}
+                className="mt-4 px-4 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-200 font-bold text-xs rounded-xl transition-all"
+              >
+                View Active Habits
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {filteredTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  canTick={false}
+                  onViewDetails={(t) => setDetailTaskId(t.id)}
+                  onEdit={(t) => {
+                    setEditingTask(t);
+                    setIsModalOpen(true);
+                  }}
+                  onArchiveToggle={handleArchiveToggle}
+                  onDelete={handleDeleteTask}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ) : filteredTasks.length === 0 ? (
         <div className="py-20 text-center bg-dark-card border border-dashed border-dark-border rounded-2xl p-8">

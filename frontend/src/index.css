@@ -11,6 +11,7 @@ html, body {
   padding: 0;
   width: 100%;
   min-width: 320px;
+  min-height: 100%;
   overflow-x: hidden;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   background-color: #09090b;
@@ -19,17 +20,6 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
-
-  /* Native App Feel: uncopiable text on drag/touch */
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-
-  /* Exclusive PWA feel: disable browser pull-to-refresh bounce */
-  overscroll-behavior-y: none;
-  overscroll-behavior-x: none;
 }
 
 /* Standalone PWA adjustments for iOS / Android notch safe areas */

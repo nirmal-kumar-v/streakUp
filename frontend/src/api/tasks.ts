@@ -162,6 +162,8 @@ export async function fetchTasks(params?: {
   const res = await apiClient.get<{
     success: boolean;
     tasks: Task[];
+    activeCount?: number;
+    archivedCount?: number;
     todayDateStr: string;
     timezone: string;
   }>('/tasks', { params });

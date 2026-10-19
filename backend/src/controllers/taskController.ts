@@ -133,9 +133,17 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
       })
     );
 
+    // Fetch counts for both active and archived tasks for quick tabs overview
+    const [activeCount, archivedCount] = await Promise.all([
+      prisma.task.count({ where: { userId, status: 'ACTIVE' } }),
+      prisma.task.count({ where: { userId, status: 'ARCHIVED' } }),
+    ]);
+
     return res.json({
       success: true,
       tasks: formattedTasks,
+      activeCount,
+      archivedCount,
       todayDateStr,
       timezone
     });

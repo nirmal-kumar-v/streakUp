@@ -96,29 +96,31 @@ export async function toggleReaction(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    // Check if reaction of this type already exists for this user on this completion
-    const existing = await prisma.studyNoteReaction.findUnique({
+    // Check if user has ANY existing reaction on this completion
+    const existingReactions = await prisma.studyNoteReaction.findMany({
       where: {
-        userId_completionId_emoji: {
-          userId,
-          completionId,
-          emoji
-        }
+        userId,
+        completionId,
       }
     });
 
-    if (existing) {
-      // Toggle off: remove reaction
-      await prisma.studyNoteReaction.delete({
-        where: { id: existing.id }
+    const alreadyReacted = existingReactions.length > 0;
+
+    if (alreadyReacted) {
+      // Toggle off: remove all reactions for this user on this note
+      await prisma.studyNoteReaction.deleteMany({
+        where: {
+          userId,
+          completionId,
+        }
       });
     } else {
-      // Add reaction
+      // Add single LIKE reaction
       await prisma.studyNoteReaction.create({
         data: {
           userId,
           completionId,
-          emoji
+          emoji: 'LIKE'
         }
       });
     }
@@ -133,7 +135,7 @@ export async function toggleReaction(req: AuthenticatedRequest, res: Response) {
 
     return res.json({
       success: true,
-      message: existing ? 'Reaction removed.' : 'Reaction added.',
+      message: alreadyReacted ? 'Reaction removed.' : 'Reaction added.',
       completionId,
       ...formatted
     });
