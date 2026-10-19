@@ -854,33 +854,31 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
     const todayDateStr = getLocalDateString(timezone);
     const clockInfo = getLocalTimeInfo(timezone);
 
-    // Reconcile missed points for user asynchronously to keep points accurate
-    await reconcileMissedPointsForUser(prisma, userId, timezone).catch((e) =>
+    // Reconcile missed points for user asynchronously in background to keep dashboard loads instant
+    reconcileMissedPointsForUser(prisma, userId, timezone).catch((e) =>
       console.error('Missed points reconcile error:', e)
     );
 
-    // Fetch points summary stats
-    const pointsStats = await getUserPointsStats(prisma, userId);
-
-    // Fetch overall freeze logs for recent protected dates
-    const overallFreezeLogs = await prisma.freezeLog.findMany({
-      where: { userId, scope: 'OVERALL' },
-      orderBy: { protectedDate: 'desc' },
-      take: 10,
-      select: { protectedDate: true }
-    });
-
-    // Fetch active tasks
-    const activeTasks = await prisma.task.findMany({
-      where: { userId, status: 'ACTIVE' },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
-      include: {
-        completions: {
-          where: { completionDate: todayDateStr },
-          select: { id: true, studyNote: true }
+    // Concurrently fetch points stats, overall freeze logs, and active tasks
+    const [pointsStats, overallFreezeLogs, activeTasks] = await Promise.all([
+      getUserPointsStats(prisma, userId),
+      prisma.freezeLog.findMany({
+        where: { userId, scope: 'OVERALL' },
+        orderBy: { protectedDate: 'desc' },
+        take: 10,
+        select: { protectedDate: true }
+      }),
+      prisma.task.findMany({
+        where: { userId, status: 'ACTIVE' },
+        orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          completions: {
+            where: { completionDate: todayDateStr },
+            select: { id: true, studyNote: true }
+          }
         }
-      }
-    });
+      })
+    ]);
 
     // Calculate completed vs pending today
     const tasksWithStatus = await Promise.all(

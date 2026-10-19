@@ -82,7 +82,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               onClick={handleCheck}
               disabled={isToggling}
               aria-label={task.completedToday ? 'Mark task as incomplete' : 'Mark task as complete'}
-              className={`flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center border transition-all duration-200 ${
+              className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-200 ${
                 task.completedToday
                   ? 'bg-emerald-500 border-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/30 ring-2 ring-emerald-500/20'
                   : 'border-zinc-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'

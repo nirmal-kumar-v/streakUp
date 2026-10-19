@@ -149,6 +149,7 @@ function saveAllRecords(records: Record<string, StoredGameRecord>) {
 // Ensure the PostgreSQL backing table exists without relying on Prisma generator renames
 export async function initDatabaseTable() {
   if (isDbTableInitialized) return;
+  isDbTableInitialized = true;
   try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "linkedin_game_records" (
@@ -168,35 +169,37 @@ export async function initDatabaseTable() {
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "idx_linkedin_game_records_user" ON "linkedin_game_records" ("user_id")
     `);
-    isDbTableInitialized = true;
   } catch (err) {
     // If raw query fails (e.g. permission or network), fallback gracefully to file store
   }
 }
 
 async function syncRecordToDb(record: StoredGameRecord) {
-  try {
-    await initDatabaseTable();
-    const id = getRecordKey(record.groupId, record.userId, record.gameId);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
-       ON CONFLICT ("id") DO UPDATE
-       SET "manual_current_streak" = EXCLUDED."manual_current_streak",
-           "manual_longest_streak" = EXCLUDED."manual_longest_streak",
-           "data" = EXCLUDED."data",
-           "updated_at" = NOW()`,
-      id,
-      record.groupId,
-      record.userId,
-      record.gameId,
-      record.manualCurrentStreak ?? null,
-      record.manualLongestStreak ?? null,
-      JSON.stringify(record)
-    );
-  } catch (err) {
-    // Silent failover to file store
-  }
+  // Execute database synchronization in the background without blocking execution
+  setImmediate(async () => {
+    try {
+      await initDatabaseTable();
+      const id = getRecordKey(record.groupId, record.userId, record.gameId);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+         ON CONFLICT ("id") DO UPDATE
+         SET "manual_current_streak" = EXCLUDED."manual_current_streak",
+             "manual_longest_streak" = EXCLUDED."manual_longest_streak",
+             "data" = EXCLUDED."data",
+             "updated_at" = NOW()`,
+        id,
+        record.groupId,
+        record.userId,
+        record.gameId,
+        record.manualCurrentStreak ?? null,
+        record.manualLongestStreak ?? null,
+        JSON.stringify(record)
+      );
+    } catch (err) {
+      // Silent failover to file store
+    }
+  });
 }
 
 export function getRawGameRecord(groupId: string, userId: string, gameId: string): StoredGameRecord {
@@ -373,6 +376,7 @@ export async function completeMemberGame(
   records[key] = record;
   saveAllRecords(records);
   syncRecordToDb(record).catch(() => {});
+  invalidateGameLeaderboardCache(groupId, normalized);
 
   return computeGameDataForUser(record, userTimezone);
 }
@@ -392,6 +396,31 @@ export interface GameLeaderboardEntry {
   lastCompletedDate: string | null;
 }
 
+// In-memory cache for game leaderboard to eliminate lag on switching games (15s TTL)
+interface CachedLeaderboard {
+  timestamp: number;
+  data: GameLeaderboardEntry[];
+}
+const leaderboardCache = new Map<string, CachedLeaderboard>();
+const LEADERBOARD_CACHE_TTL_MS = 15000;
+
+export function invalidateGameLeaderboardCache(groupId?: string, gameId?: string) {
+  if (!groupId) {
+    leaderboardCache.clear();
+    return;
+  }
+  if (!gameId) {
+    for (const key of leaderboardCache.keys()) {
+      if (key.startsWith(`${groupId}:`)) {
+        leaderboardCache.delete(key);
+      }
+    }
+    return;
+  }
+  const normalized = normalizeGameId(gameId) || gameId;
+  leaderboardCache.delete(`${groupId}:${normalized}`);
+}
+
 /**
  * Generates an independent leaderboard for a specific game across all accepted group members
  */
@@ -402,6 +431,12 @@ export async function getGameLeaderboard(
   const normalized = normalizeGameId(gameId);
   if (!normalized) {
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
+  }
+
+  const cacheKey = `${groupId}:${normalized}`;
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < LEADERBOARD_CACHE_TTL_MS) {
+    return cached.data;
   }
 
   // 1. Fetch all accepted members of this group
@@ -469,6 +504,7 @@ export async function getGameLeaderboard(
     };
   });
 
+  leaderboardCache.set(cacheKey, { timestamp: Date.now(), data: ranked });
   return ranked;
 }
 
@@ -498,6 +534,7 @@ export async function adminCorrectGameStreak(
   records[key] = record;
   saveAllRecords(records);
   syncRecordToDb(record).catch(() => {});
+  invalidateGameLeaderboardCache(groupId, normalized);
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
@@ -540,6 +577,7 @@ export async function adminGrantGameDate(
   records[key] = record;
   saveAllRecords(records);
   syncRecordToDb(record).catch(() => {});
+  invalidateGameLeaderboardCache(groupId, normalized);
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
@@ -582,6 +620,7 @@ export async function adminFreezeGameDate(
   records[key] = record;
   saveAllRecords(records);
   syncRecordToDb(record).catch(() => {});
+  invalidateGameLeaderboardCache(groupId, normalized);
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
@@ -742,6 +781,7 @@ export async function uncompleteCommittedGamesForDashboard(
     syncRecordToDb(raw).catch(() => {});
   }
   saveAllRecords(records);
+  invalidateGameLeaderboardCache(groupId);
 
   const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
   return {

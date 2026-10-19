@@ -76,17 +76,24 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   // Load summary for all 8 games
   const loadAllGames = useCallback(async () => {
     try {
-      setIsLoadingAll(true);
       const res = await fetchLinkedInGames(groupId);
       if (res.success && res.games) {
         setGames(res.games);
+        // Instant warm-up of active game
+        const currentActive = res.games.find((g) => g.gameId === selectedGameId) || res.games[0];
+        if (currentActive) {
+          setActiveGameData((prev) => prev && prev.gameId === currentActive.gameId ? { ...currentActive, ...prev } : currentActive);
+          if (currentActive.todayNote) {
+            setStudyNote(currentActive.todayNote);
+          }
+        }
       }
     } catch (err: any) {
       toastRef.current.error(extractErrorMessage(err, 'Failed to load LinkedIn games.'));
     } finally {
       setIsLoadingAll(false);
     }
-  }, [groupId]);
+  }, [groupId, selectedGameId]);
 
   // Load detailed game data + independent leaderboard for the selected game
   const loadGameDetails = useCallback(
@@ -95,13 +102,16 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
         setIsLoadingDetails(true);
         const res = await fetchSingleLinkedInGame(groupId, gameId);
         if (res.success && res.game) {
+          // Sync authoritative state
           setActiveGameData(res.game);
           setLeaderboard(res.leaderboard || []);
           if (res.game.todayNote) {
             setStudyNote(res.game.todayNote);
-          } else {
-            setStudyNote('');
           }
+          // Update game in local list
+          setGames((prev) =>
+            prev.map((g) => (g.gameId === gameId ? res.game : g))
+          );
         }
       } catch (err: any) {
         toastRef.current.error(extractErrorMessage(err, 'Failed to load game details.'));
@@ -122,14 +132,47 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     }
   }, [selectedGameId, loadGameDetails]);
 
+  // Instant game selection: immediately switches active state from local cache (0ms lag, no stale completion)
   const handleSelectGame = (gameId: string) => {
+    if (gameId === selectedGameId) return;
     setSelectedGameId(gameId);
     setShowNoteInput(false);
+
+    const cachedGame = games.find((g) => g.gameId === gameId);
+    if (cachedGame) {
+      setActiveGameData(cachedGame);
+      setStudyNote(cachedGame.todayNote || '');
+    }
   };
 
+  // Instant optimistic game completion: zero processing visible to user
   const handleCompleteGame = async () => {
-    if (isSubmitting || !selectedGameId) return;
+    if (isSubmitting || !selectedGameId || !activeGameData) return;
     setIsSubmitting(true);
+
+    const prevActive = { ...activeGameData };
+    const prevGames = [...games];
+    const newStreak = (prevActive.currentStreak || 0) + 1;
+    const newLongest = Math.max(prevActive.longestStreak || 0, newStreak);
+
+    // 1. Instant optimistic UI update: user sees completion immediately!
+    const optimisticGame: LinkedInGameItem = {
+      ...prevActive,
+      completedToday: true,
+      currentStreak: newStreak,
+      longestStreak: newLongest,
+      todayNote: studyNote.trim() || null,
+      totalCompletions: (prevActive.totalCompletions || 0) + 1,
+    };
+
+    setActiveGameData(optimisticGame);
+    setGames((prev) =>
+      prev.map((g) => (g.gameId === selectedGameId ? optimisticGame : g))
+    );
+    setShowNoteInput(false);
+    toast.success(`${optimisticGame.name} completed! Streak: ${newStreak}d 🔥`);
+
+    // 2. Background API sync
     try {
       const res = await completeLinkedInGame(groupId, selectedGameId, {
         studyNote: studyNote.trim() || undefined,
@@ -137,14 +180,14 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       if (res.success && res.game) {
         setActiveGameData(res.game);
         setLeaderboard(res.leaderboard || []);
-        // Update games list locally so streak badge updates immediately
         setGames((prev) =>
           prev.map((g) => (g.gameId === selectedGameId ? res.game : g))
         );
-        toast.success(`${res.game.name} completed! Current streak: ${res.game.currentStreak} days 🔥`);
-        setShowNoteInput(false);
       }
     } catch (err: any) {
+      // Rollback only on actual failure
+      setActiveGameData(prevActive);
+      setGames(prevGames);
       toast.error(extractErrorMessage(err, 'Failed to complete game.'));
     } finally {
       setIsSubmitting(false);
@@ -381,7 +424,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                       ? 'Committed: Included in your daily LinkedIn dashboard tick. Click to uncommit (streak & history are preserved).'
                       : 'Uncommitted: Click to commit and include in your daily LinkedIn dashboard tick.'
                   }
-                  className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 min-w-[105px] ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-all active:scale-95 min-w-[105px] ${
                     activeGameData.isCommitted
                       ? 'bg-emerald-500/10 hover:bg-rose-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/30'
                       : 'bg-dark-surface hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 border-dark-border hover:border-emerald-500/30'
@@ -403,7 +446,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 </button>
 
                 {activeGameData.completedToday ? (
-                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Completed Today</span>
                   </div>
@@ -412,7 +455,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     type="button"
                     onClick={handleCompleteGame}
                     disabled={isSubmitting}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-sky-500 hover:bg-sky-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-sky-500/20 transition-all"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 min-h-[44px] bg-sky-500 hover:bg-sky-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-sky-500/20 transition-all"
                   >
                     {isSubmitting ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -426,7 +469,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowNoteInput((prev) => !prev)}
-                  className="px-3 py-2.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors text-center"
+                  className="px-3.5 py-2.5 min-h-[44px] bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors text-center"
                 >
                   {showNoteInput ? 'Close Note' : activeGameData.todayNote ? 'Edit Note' : '+ Note'}
                 </button>
@@ -549,13 +592,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     return (
                       <div
                         key={m.userId}
-                        className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 text-xs ${
+                        className={`p-3 sm:p-3.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 sm:gap-3 text-xs ${
                           isCurrentUser
                             ? 'bg-sky-500/10 border-sky-500/40 text-zinc-100 ring-1 ring-sky-500/20'
                             : 'bg-dark-surface/80 border-dark-border hover:border-zinc-700 text-zinc-300'
                         }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                           {getRankBadge(m.rank)}
 
                           <InitialsAvatar
@@ -565,17 +608,17 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                             className="shrink-0"
                           />
 
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                               <span className="font-bold text-zinc-100 truncate">
                                 {m.name}
                               </span>
                               {isCurrentUser && (
-                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold">
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold shrink-0">
                                   YOU
                                 </span>
                               )}
-                              <span className="text-[10px] text-zinc-400 font-mono">
+                              <span className="text-[10px] text-zinc-400 font-mono truncate">
                                 @{m.username}
                               </span>
                             </div>
@@ -587,14 +630,14 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
                             <div className="flex items-center gap-1 font-mono font-bold text-sm text-flame-400 justify-end">
                               <Flame className="w-3.5 h-3.5 fill-flame-400 shrink-0" />
                               <span>{m.currentStreak}d</span>
                             </div>
-                            <div className="text-[10px] text-dark-muted font-mono">
-                              Best: {m.longestStreak}d • Total: {m.totalCompletions}
+                            <div className="text-[10px] text-dark-muted font-mono whitespace-nowrap">
+                              <span className="hidden sm:inline">Best: {m.longestStreak}d • </span>Total: {m.totalCompletions}
                             </div>
                           </div>
                         </div>

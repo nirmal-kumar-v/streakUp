@@ -39,24 +39,57 @@ import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
 
+const DASHBOARD_CACHE_KEY = 'streakup_dashboard_summary_cache';
+
+interface CachedDashboardData {
+  timestamp: number;
+  data: any;
+}
+
+function getCachedDashboard(): any | null {
+  try {
+    const raw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed: CachedDashboardData = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp < 180000) {
+      return parsed.data;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
+function setCachedDashboard(data: any) {
+  try {
+    sessionStorage.setItem(
+      DASHBOARD_CACHE_KEY,
+      JSON.stringify({ timestamp: Date.now(), data })
+    );
+  } catch (e) {
+    // ignore
+  }
+}
+
 export const DashboardPage: React.FC = () => {
   const { user, updateUser } = useAuth();
   const toast = useToast();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [cachedInitial] = useState(() => getCachedDashboard());
+  const [tasks, setTasks] = useState<Task[]>(() => cachedInitial?.todayTasks || []);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !cachedInitial);
   const [pointsStats, setPointsStats] = useState<{
     totalPoints: number;
     completedCount: number;
     missedCount: number;
     netCompletedPoints: number;
     netMissedPoints: number;
-  } | null>(null);
+  } | null>(() => cachedInitial?.pointsStats || null);
 
   // Freeze & Protected dates
-  const [overallFreezeBalance, setOverallFreezeBalance] = useState<number>(0);
-  const [overallFreezeRechargeDays, setOverallFreezeRechargeDays] = useState<number>(0);
-  const [recentProtectedDates, setRecentProtectedDates] = useState<string[]>([]);
+  const [overallFreezeBalance, setOverallFreezeBalance] = useState<number>(() => cachedInitial?.user?.overallFreezeBalance || 0);
+  const [overallFreezeRechargeDays, setOverallFreezeRechargeDays] = useState<number>(() => cachedInitial?.user?.overallFreezeRechargeDays || 0);
+  const [recentProtectedDates, setRecentProtectedDates] = useState<string[]>(() => cachedInitial?.user?.protectedDates || []);
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,6 +102,7 @@ export const DashboardPage: React.FC = () => {
       const sumRes = await fetchDashboardSummary();
 
       if (sumRes.success) {
+        setCachedDashboard(sumRes);
         setTasks(sumRes.todayTasks || []);
         if (sumRes.pointsStats) {
           setPointsStats(sumRes.pointsStats);
@@ -126,6 +160,21 @@ export const DashboardPage: React.FC = () => {
       // If LinkedIn task, complete immediately without requesting a study note
       const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
       if (isLinkedIn) {
+        const prevTasks = [...tasks];
+        const nextStreak = (task.currentStreak || 0) + 1;
+        // Optimistic complete immediately: user perceives 0ms completion!
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === task.id
+              ? { ...t, completedToday: true, currentStreak: nextStreak }
+              : t
+          )
+        );
+        triggerStreakCelebration({
+          newStreak: nextStreak,
+        });
+        toast.success('Committed LinkedIn games completed!');
+
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');
           if (res.success) {
@@ -142,13 +191,10 @@ export const DashboardPage: React.FC = () => {
                 longestStreak: res.streak.longestStreak,
               });
             }
-            triggerStreakCelebration({
-              newStreak: res.streak?.currentStreak,
-            });
-            await loadDashboard();
-            toast.success('Committed LinkedIn games completed!');
+            loadDashboard();
           }
         } catch (err: any) {
+          setTasks(prevTasks);
           toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
         }
         return;
@@ -161,37 +207,44 @@ export const DashboardPage: React.FC = () => {
 
   const handleCompleteSubmit = async (studyNote: string) => {
     if (!completingTask || !studyNote) return;
+    const taskToComplete = completingTask;
+    const prevTasks = [...tasks];
+    const nextStreak = (taskToComplete.currentStreak || 0) + 1;
+
+    // Immediately close modal and optimistically update habit list for 0ms lag
+    setCompletingTask(null);
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskToComplete.id
+          ? { ...t, completedToday: true, todayStudyNote: studyNote || null, currentStreak: nextStreak }
+          : t
+      )
+    );
+
+    // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
+    triggerStreakCelebration({
+      newStreak: nextStreak,
+    });
+
+    // 2. Compact, clean friend accountability nudge reminder
+    triggerPostCompletionNudge({
+      taskId: taskToComplete.id,
+      taskTitle: taskToComplete.title,
+    });
+
     try {
-      const res = await completeTask(completingTask.id, studyNote);
+      const res = await completeTask(taskToComplete.id, studyNote);
       if (res.success) {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === completingTask.id
-              ? { ...t, completedToday: true, todayStudyNote: studyNote || null }
-              : t
-          )
-        );
         if (res.streak) {
           updateUser({
             currentStreak: res.streak.currentStreak,
             longestStreak: res.streak.longestStreak,
           });
         }
-
-        // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
-        triggerStreakCelebration({
-          newStreak: res.streak?.currentStreak,
-        });
-
-        // 2. Compact, clean friend accountability nudge reminder
-        triggerPostCompletionNudge({
-          taskId: completingTask.id,
-          taskTitle: completingTask.title,
-        });
-
-        await loadDashboard();
+        loadDashboard();
       }
     } catch (err: any) {
+      setTasks(prevTasks);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
     }
   };
