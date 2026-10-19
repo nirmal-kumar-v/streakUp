@@ -229,5 +229,29 @@ describe('LinkedIn Group Games & Independent Streaks', () => {
     expect(repeatTick.newlyCompletedCount ?? repeatTick.completedGamesCount).toBe(0);
     expect(repeatTick.alreadyCompletedCount).toBe(6);
   });
+
+  it('11. Member can uncomplete/un-tick an individual game inside the group hub', async () => {
+    const userUntick = `user-untick-${Date.now()}`;
+    const {
+      completeMemberGame,
+      uncompleteMemberGame,
+      getSingleGameForMember,
+    } = await import('../src/services/linkedInGameService');
+
+    // 1. Complete Queens
+    const completed = await completeMemberGame(testGroupId, userUntick, 'queens', timezone);
+    expect(completed.completedToday).toBe(true);
+    expect(completed.currentStreak).toBe(1);
+
+    // 2. Uncomplete Queens
+    const uncompleted = await uncompleteMemberGame(testGroupId, userUntick, 'queens', timezone);
+    expect(uncompleted.completedToday).toBe(false);
+    expect(uncompleted.currentStreak).toBe(0);
+
+    // 3. Verify single game query confirms uncompleted state
+    const fetched = await getSingleGameForMember(testGroupId, userUntick, 'queens', timezone);
+    expect(fetched?.completedToday).toBe(false);
+    expect(fetched?.currentStreak).toBe(0);
+  });
 });
 

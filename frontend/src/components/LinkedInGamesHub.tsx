@@ -3,6 +3,7 @@ import {
   fetchLinkedInGames,
   fetchSingleLinkedInGame,
   completeLinkedInGame,
+  uncompleteLinkedInGame,
   updateLinkedInGameCommitment,
   LinkedInGameItem,
   LinkedInGameLeaderboardEntry,
@@ -194,6 +195,52 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     }
   };
 
+  // Instant optimistic game uncomplete (undo tick inside group)
+  const handleUncompleteGame = async () => {
+    if (isSubmitting || !selectedGameId || !activeGameData) return;
+    setIsSubmitting(true);
+
+    const prevActive = { ...activeGameData };
+    const prevGames = [...games];
+    const newStreak = Math.max(0, (prevActive.currentStreak || 1) - 1);
+
+    // 1. Instant optimistic UI update
+    const optimisticGame: LinkedInGameItem = {
+      ...prevActive,
+      completedToday: false,
+      currentStreak: newStreak,
+      todayNote: null,
+      totalCompletions: Math.max(0, (prevActive.totalCompletions || 1) - 1),
+      completionsHistory: (prevActive.completionsHistory || []).slice(1),
+    };
+
+    setActiveGameData(optimisticGame);
+    setGames((prev) =>
+      prev.map((g) => (g.gameId === selectedGameId ? optimisticGame : g))
+    );
+    setShowNoteInput(false);
+    toast.info(`${optimisticGame.name} undone`);
+
+    // 2. Background API sync
+    try {
+      const res = await uncompleteLinkedInGame(groupId, selectedGameId);
+      if (res.success && res.game) {
+        setActiveGameData(res.game);
+        setLeaderboard(res.leaderboard || []);
+        setGames((prev) =>
+          prev.map((g) => (g.gameId === selectedGameId ? res.game : g))
+        );
+      }
+    } catch (err: any) {
+      // Rollback on error
+      setActiveGameData(prevActive);
+      setGames(prevGames);
+      toast.error(extractErrorMessage(err, 'Failed to undo game completion.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Toggle game commitment status
   const handleToggleCommitment = async (gameId: string, targetCommitment: boolean) => {
     if (isTogglingCommitment) return;
@@ -270,24 +317,21 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Header Card */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/25 flex items-center justify-center text-sky-400 shrink-0">
-              <Gamepad2 className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-dark-surface border border-dark-border flex items-center justify-center text-zinc-300 shrink-0">
+              <Gamepad2 className="w-5 h-5 text-flame-400" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-bold text-zinc-100">
-                  LinkedIn Games Hub
+                  LinkedIn Games
                 </h2>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/25 font-bold">
-                  {groupName} • 8 Games
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-dark-surface text-zinc-400 border border-dark-border font-bold">
+                  {groupName}
                 </span>
               </div>
-              <p className="text-xs text-dark-muted mt-0.5">
-                Play daily games, maintain separate streaks, and climb independent leaderboards with your group.
-              </p>
             </div>
           </div>
           <button
@@ -296,20 +340,21 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
               if (selectedGameId) loadGameDetails(selectedGameId);
             }}
             disabled={isLoadingAll || isLoadingDetails}
-            className="self-start sm:self-center px-3 py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5"
-            title="Refresh game streaks and leaderboards"
+            className="p-2 sm:px-3 sm:py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 shrink-0"
+            title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${
                 isLoadingAll || isLoadingDetails ? 'animate-spin text-flame-400' : ''
               }`}
             />
-            <span>Refresh</span>
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </div>
 
-      {/* 8 Games Navigation Tabs (Horizontal Scroll / Grid) */}
+      {/* 8 Games Navigation Tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
         {games.map((g) => {
           const Icon = GAME_ICONS[g.gameId] || Gamepad2;
@@ -320,38 +365,31 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
               key={g.gameId}
               type="button"
               onClick={() => handleSelectGame(g.gameId)}
-              className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between min-h-[78px] ${
+              className={`p-2.5 sm:p-3 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between min-h-[74px] active:scale-[0.98] ${
                 isSelected
-                  ? 'bg-sky-500/10 border-sky-500/40 text-zinc-100 shadow-md shadow-sky-500/10 ring-1 ring-sky-500/30'
-                  : 'bg-dark-card border-dark-border hover:border-zinc-700 text-zinc-300 hover:bg-dark-surface'
+                  ? 'bg-dark-surface border-zinc-500 text-zinc-100 shadow-sm ring-1 ring-white/10'
+                  : 'bg-dark-card border-dark-border hover:border-zinc-700 text-zinc-300 hover:bg-dark-surface/60'
               }`}
             >
               <div className="flex items-center justify-between gap-1 w-full">
                 <Icon
                   className={`w-4 h-4 shrink-0 ${
-                    isSelected ? 'text-sky-400' : 'text-zinc-400'
+                    isSelected ? 'text-flame-400' : 'text-zinc-500'
                   }`}
                 />
                 <div className="flex items-center gap-1">
-                  {g.isCommitted ? (
+                  {g.isCommitted && (
                     <span
-                      className="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20"
-                      title="Committed to game"
+                      className="text-[9px] font-mono font-bold text-zinc-300 bg-dark-surface px-1 py-0.2 rounded border border-dark-border"
+                      title="Committed"
                     >
                       ✓
                     </span>
-                  ) : (
-                    <span
-                      className="text-[9px] font-mono text-zinc-500 bg-dark-surface px-1 py-0.2 rounded border border-dark-border"
-                      title="Uncommitted"
-                    >
-                      off
-                    </span>
                   )}
                   {g.completedToday ? (
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-400/20" title="Completed Today" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" title="Completed" />
                   ) : (
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" title="Pending Today" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-700" title="Pending" />
                   )}
                 </div>
               </div>
@@ -373,68 +411,56 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       {/* Selected Game Detailed View */}
       {isLoadingDetails && !activeGameData ? (
         <div className="py-20 text-center text-xs text-dark-muted flex flex-col items-center gap-2 bg-dark-card border border-dark-border rounded-2xl">
-          <RefreshCw className="w-5 h-5 animate-spin text-sky-400" />
-          <span>Loading {selectedGameId} details...</span>
+          <RefreshCw className="w-5 h-5 animate-spin text-flame-400" />
+          <span>Loading {selectedGameId}...</span>
         </div>
       ) : activeGameData ? (
         <div className="space-y-6">
           {/* Active Game Banner & Action */}
-          <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0 shadow-sm">
-                    <ActiveIcon className="w-6 h-6" />
+          <div className="bg-dark-card border border-dark-border rounded-2xl p-5 sm:p-6 shadow-panel">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-dark-surface border border-dark-border flex items-center justify-center text-zinc-200 shrink-0 shadow-sm">
+                  <ActiveIcon className="w-5 h-5 text-flame-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-lg sm:text-xl font-bold text-zinc-100 tracking-tight">
+                      {activeGameData.name}
+                    </h3>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-dark-surface border border-dark-border text-zinc-400 font-medium">
+                      {activeGameData.tagline}
+                    </span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <h3 className="text-xl font-black text-zinc-100 tracking-tight">
-                        {activeGameData.name}
-                      </h3>
-                      <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-dark-surface border border-dark-border text-zinc-300 font-medium">
-                        {activeGameData.tagline}
-                      </span>
-                      {activeGameData.isCommitted ? (
-                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 font-bold flex items-center gap-1">
-                          <Check className="w-3 h-3 stroke-[2.5]" />
-                          <span>Committed</span>
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 font-medium">
-                          Uncommitted
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-dark-muted mt-0.5">
-                      {activeGameData.description}
-                    </p>
-                  </div>
+                  <p className="text-xs text-dark-muted mt-0.5">
+                    {activeGameData.description}
+                  </p>
                 </div>
               </div>
 
               {/* Actions: Commitment Toggle & Completion Action */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
-                {/* Minimal, Premium Commit / Committed Toggle */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+                {/* Commit / Committed Toggle with icon */}
                 <button
                   type="button"
                   onClick={() => handleToggleCommitment(activeGameData.gameId, !activeGameData.isCommitted)}
                   disabled={isTogglingCommitment}
                   title={
                     activeGameData.isCommitted
-                      ? 'Committed: Included in your daily LinkedIn dashboard tick. Click to uncommit (streak & history are preserved).'
-                      : 'Uncommitted: Click to commit and include in your daily LinkedIn dashboard tick.'
+                      ? 'Committed. Click to uncommit.'
+                      : 'Uncommitted. Click to commit.'
                   }
-                  className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold border transition-all active:scale-95 min-w-[105px] ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-semibold border transition-all active:scale-95 ${
                     activeGameData.isCommitted
-                      ? 'bg-emerald-500/10 hover:bg-rose-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/30'
-                      : 'bg-dark-surface hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 border-dark-border hover:border-emerald-500/30'
+                      ? 'bg-dark-surface hover:bg-rose-500/10 text-zinc-300 hover:text-rose-400 border-dark-border hover:border-rose-500/30'
+                      : 'bg-dark-surface hover:bg-dark-hover text-zinc-500 hover:text-zinc-300 border-dark-border'
                   }`}
                 >
                   {isTogglingCommitment ? (
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   ) : activeGameData.isCommitted ? (
                     <>
-                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
                       <span>Committed</span>
                     </>
                   ) : (
@@ -445,36 +471,45 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                   )}
                 </button>
 
+                {/* Tick / Un-tick Completion Button */}
                 {activeGameData.completedToday ? (
-                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Completed Today</span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUncompleteGame}
+                    disabled={isSubmitting}
+                    title="Click to un-tick and mark incomplete"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-xl bg-dark-surface hover:bg-rose-500/10 border border-emerald-500/40 hover:border-rose-500/30 text-emerald-400 hover:text-rose-400 text-xs font-semibold transition-all active:scale-95 group"
+                  >
+                    <CheckCircle2 className="w-4 h-4 stroke-[2.5] group-hover:hidden" />
+                    <X className="w-4 h-4 stroke-[2.5] hidden group-hover:block" />
+                    <span className="group-hover:hidden">Completed</span>
+                    <span className="hidden group-hover:inline">Undo Tick</span>
+                  </button>
                 ) : (
                   <button
                     type="button"
                     onClick={handleCompleteGame}
                     disabled={isSubmitting}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 min-h-[44px] bg-sky-500 hover:bg-sky-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-sky-500/20 transition-all"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2 min-h-[44px] bg-flame-500 hover:bg-flame-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
                   >
                     {isSubmitting ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
                     )}
-                    <span>Mark {activeGameData.name} Completed</span>
+                    <span>Mark Done</span>
                   </button>
                 )}
 
                 <button
                   type="button"
                   onClick={() => setShowNoteInput((prev) => !prev)}
-                  className="px-3.5 py-2.5 min-h-[44px] bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors text-center"
+                  className="px-3 py-2 min-h-[44px] bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-xl transition-colors text-center"
+                  title="Note"
                 >
-                  {showNoteInput ? 'Close Note' : activeGameData.todayNote ? 'Edit Note' : '+ Note'}
+                  {showNoteInput ? <X className="w-3.5 h-3.5" /> : activeGameData.todayNote ? 'Note' : '+ Note'}
                 </button>
               </div>
-
             </div>
 
             {/* Optional Study/Game Note input */}
@@ -489,13 +524,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     value={studyNote}
                     onChange={(e) => setStudyNote(e.target.value)}
                     placeholder="e.g. Solved with 0 mistakes in 2m 14s!"
-                    className="flex-1 px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-sky-500"
+                    className="flex-1 px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500"
                   />
                   <button
                     type="button"
                     onClick={handleCompleteGame}
                     disabled={isSubmitting}
-                    className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs rounded-xl transition-all shrink-0"
+                    className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl transition-all shrink-0"
                   >
                     Save Note
                   </button>
@@ -506,8 +541,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
             {/* Display existing todayNote if available */}
             {activeGameData.todayNote && !showNoteInput && (
               <div className="mt-4 pt-3 border-t border-dark-border/60 text-xs text-zinc-300 flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                <span className="text-dark-muted font-medium">Today's Note:</span>
+                <Sparkles className="w-3.5 h-3.5 text-flame-400 shrink-0" />
+                <span className="text-dark-muted font-medium">Today:</span>
                 <span className="italic">"{activeGameData.todayNote}"</span>
               </div>
             )}
@@ -594,7 +629,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                         key={m.userId}
                         className={`p-3 sm:p-3.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 sm:gap-3 text-xs ${
                           isCurrentUser
-                            ? 'bg-sky-500/10 border-sky-500/40 text-zinc-100 ring-1 ring-sky-500/20'
+                            ? 'bg-dark-surface border-zinc-600 text-zinc-100 ring-1 ring-white/10'
                             : 'bg-dark-surface/80 border-dark-border hover:border-zinc-700 text-zinc-300'
                         }`}
                       >
@@ -614,7 +649,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                                 {m.name}
                               </span>
                               {isCurrentUser && (
-                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold shrink-0">
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-flame-500/15 text-flame-400 font-bold shrink-0 border border-flame-500/20">
                                   YOU
                                 </span>
                               )}

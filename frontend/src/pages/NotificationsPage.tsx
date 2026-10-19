@@ -216,35 +216,35 @@ export const NotificationsPage: React.FC = () => {
     switch (category) {
       case 'OVERALL_REMINDER':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-flame-500/15 text-flame-400 border border-flame-500/30">
-            <Flame className="w-3 h-3 fill-flame-500" /> Overall Reminder
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-flame-500/15 text-flame-400 border border-flame-500/30">
+            <Flame className="w-3 h-3 fill-flame-500" /> Reminder
           </span>
         );
       case 'TASK_REMINDER':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
-            <Zap className="w-3 h-3 fill-amber-400" /> Task Reminder
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-dark-surface text-zinc-300 border border-dark-border">
+            <Zap className="w-3 h-3 text-amber-400 fill-amber-400" /> Reminder
           </span>
         );
       case 'FRIEND_OVERALL_ACTIVITY':
       case 'FRIEND_TASK_ACTIVITY':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
-            <Users2 className="w-3 h-3" /> Friend Alert
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-dark-surface text-zinc-300 border border-dark-border">
+            <Users2 className="w-3 h-3 text-zinc-400" /> Friend
           </span>
         );
       case 'FRIEND_OVERALL_MILESTONE':
       case 'FRIEND_TASK_MILESTONE':
       case 'MY_MILESTONE':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
-            <Trophy className="w-3 h-3 text-purple-400" /> Milestone
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-dark-surface text-amber-300 border border-dark-border">
+            <Trophy className="w-3 h-3 text-amber-400" /> Milestone
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-zinc-700/30 text-zinc-300 border border-zinc-700">
-            <Info className="w-3 h-3" /> System
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-dark-surface text-zinc-400 border border-dark-border">
+            <Bell className="w-3 h-3" /> Update
           </span>
         );
     }
@@ -253,22 +253,17 @@ export const NotificationsPage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-24">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5">
-              <Bell className="w-7 h-7 text-flame-500" />
-              Notification Center
-            </h1>
-            {unreadCount > 0 && (
-              <span className="px-2.5 py-0.5 text-xs font-black bg-flame-500 text-zinc-950 rounded-full shadow-sm shadow-flame-500/30 animate-pulse">
-                {unreadCount} unread
-              </span>
-            )}
-          </div>
-          <p className="text-xs sm:text-sm text-dark-muted mt-1">
-            Stay on top of reminders, friend streak activity, and milestone celebrations
-          </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-zinc-100 tracking-tight flex items-center gap-2.5">
+            <Bell className="w-5 h-5 text-flame-500" />
+            Notifications
+          </h1>
+          {unreadCount > 0 && (
+            <span className="px-2 py-0.5 text-xs font-bold bg-flame-500 text-zinc-950 rounded-full">
+              {unreadCount}
+            </span>
+          )}
         </div>
 
         {/* Global Action Buttons */}
@@ -276,19 +271,20 @@ export const NotificationsPage: React.FC = () => {
           {unreadCount > 0 && (
             <button
               onClick={handleMarkAllRead}
-              className="px-3.5 py-2 bg-dark-card hover:bg-dark-hover border border-dark-border text-xs font-bold text-zinc-200 rounded-xl inline-flex items-center gap-1.5 transition-colors shadow-sm"
+              className="px-3 py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-xs font-semibold text-zinc-200 rounded-xl inline-flex items-center gap-1.5 transition-colors shadow-sm"
             >
-              <CheckCheck className="w-4 h-4 text-emerald-400" />
-              Mark all read
+              <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Mark all read</span>
             </button>
           )}
 
           <Link
             to="/settings/notifications"
-            className="px-3.5 py-2 bg-flame-500/15 hover:bg-flame-500/25 border border-flame-500/30 text-xs font-bold text-flame-400 rounded-xl inline-flex items-center gap-1.5 transition-colors shadow-sm"
+            className="p-2 sm:px-3 sm:py-1.5 bg-dark-card hover:bg-dark-hover border border-dark-border text-xs font-semibold text-zinc-300 rounded-xl inline-flex items-center gap-1.5 transition-colors shadow-sm"
+            title="Settings"
           >
-            <Settings className="w-4 h-4 text-flame-400" />
-            Preferences
+            <Settings className="w-3.5 h-3.5 text-zinc-400" />
+            <span className="hidden sm:inline">Settings</span>
           </Link>
         </div>
       </div>
@@ -362,7 +358,7 @@ export const NotificationsPage: React.FC = () => {
           }`}
         >
           <Users2 className="w-3.5 h-3.5" />
-          Friend Alerts
+          Friends
         </button>
 
         <button

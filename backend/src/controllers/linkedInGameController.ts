@@ -5,6 +5,7 @@ import {
   getAllGamesForMember,
   getSingleGameForMember,
   completeMemberGame,
+  uncompleteMemberGame,
   getGameLeaderboard,
   isLinkedInName,
   normalizeGameId,
@@ -187,6 +188,54 @@ export async function completeLinkedInGame(req: AuthenticatedRequest, res: Respo
   } catch (err: any) {
     console.error('[completeLinkedInGame] Error:', err);
     return res.status(500).json({ success: false, error: 'Failed to record game completion.' });
+  }
+}
+
+/**
+ * POST /api/groups/:id/linkedin-games/:gameId/uncomplete
+ * Uncomplete a specific LinkedIn game for today
+ */
+export async function uncompleteLinkedInGame(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { id: groupId, gameId } = req.params;
+    const userId = req.user!.userId;
+    const { completionDate } = req.body || {};
+
+    const validation = await validateGroupMembership(groupId, userId);
+    if ('error' in validation) {
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    const tz = user?.timezone || DEFAULT_TIMEZONE;
+
+    const updatedGame = await uncompleteMemberGame(
+      groupId,
+      userId,
+      normalizedGameId,
+      tz,
+      completionDate
+    );
+
+    const leaderboard = await getGameLeaderboard(groupId, normalizedGameId);
+
+    return res.json({
+      success: true,
+      message: `${updatedGame.name} completion undone.`,
+      game: updatedGame,
+      leaderboard,
+    });
+  } catch (err: any) {
+    console.error('[uncompleteLinkedInGame] Error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to undo game completion.' });
   }
 }
 

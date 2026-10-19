@@ -949,7 +949,7 @@ export const GroupDetailPage: React.FC = () => {
           }`}
         >
           <CheckSquare className="w-3.5 h-3.5" />
-          <span>Shared Task</span>
+          <span>Habit</span>
         </button>
 
         <button
@@ -961,7 +961,7 @@ export const GroupDetailPage: React.FC = () => {
           }`}
         >
           <Trophy className="w-3.5 h-3.5" />
-          <span>Leaderboards</span>
+          <span>Leaderboard</span>
         </button>
 
         <button
@@ -973,7 +973,7 @@ export const GroupDetailPage: React.FC = () => {
           }`}
         >
           <MessageSquare className="w-3.5 h-3.5" />
-          <span>Task Notes & Likes</span>
+          <span>Notes</span>
         </button>
 
         {isAdmin && (
@@ -986,7 +986,7 @@ export const GroupDetailPage: React.FC = () => {
             }`}
           >
             <Shield className="w-3.5 h-3.5" />
-            <span>Manage & Requests</span>
+            <span>Manage</span>
             {(group.pendingRequestsCount ?? 0) > 0 && (
               <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-zinc-950 text-[10px] font-bold">
                 {group.pendingRequestsCount}

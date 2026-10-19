@@ -398,6 +398,20 @@ export async function completeLinkedInGame(
   return res.data;
 }
 
+export async function uncompleteLinkedInGame(
+  groupId: string,
+  gameId: string,
+  data?: { completionDate?: string }
+): Promise<{
+  success: boolean;
+  message: string;
+  game: LinkedInGameItem;
+  leaderboard: LinkedInGameLeaderboardEntry[];
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/linkedin-games/${gameId}/uncomplete`, data || {});
+  return res.data;
+}
+
 export async function fetchLinkedInGameLeaderboard(
   groupId: string,
   gameId: string

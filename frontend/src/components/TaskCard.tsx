@@ -46,18 +46,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     }
   };
 
-  const handleCheck = async () => {
-    if (isToggling || !onToggleComplete || !canTick) return;
-    setIsToggling(true);
-    try {
-      await onToggleComplete(task);
-    } finally {
-      setIsToggling(false);
-    }
+  const handleCheck = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onToggleComplete || !canTick) return;
+    onToggleComplete(task);
   };
 
   const getScheduleLabel = (days?: number[]) => {
-    if (!days || days.length === 0 || days.length === 7) return 'Every day';
+    if (!days || days.length === 0 || days.length === 7) return 'Daily';
     const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const isWeekdays = days.length === 5 && [1, 2, 3, 4, 5].every((d) => days.includes(d));
     if (isWeekdays) return 'Weekdays';
@@ -70,7 +66,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     <div
       className={`group relative bg-dark-card border rounded-2xl p-4 transition-all duration-200 ${
         task.completedToday
-          ? 'border-emerald-500/30 bg-emerald-950/10 shadow-sm'
+          ? 'border-dark-border/60 bg-dark-surface/40 shadow-none'
           : 'border-dark-border hover:border-zinc-700 shadow-panel'
       }`}
     >
@@ -80,26 +76,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {canTick && onToggleComplete ? (
             <button
               onClick={handleCheck}
-              disabled={isToggling}
-              aria-label={task.completedToday ? 'Mark task as incomplete' : 'Mark task as complete'}
-              className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-200 ${
+              type="button"
+              aria-label={task.completedToday ? 'Mark incomplete' : 'Mark complete'}
+              className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-150 active:scale-90 ${
                 task.completedToday
-                  ? 'bg-emerald-500 border-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/30 ring-2 ring-emerald-500/20'
+                  ? 'bg-emerald-500 border-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/20'
                   : 'border-zinc-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'
-              } ${isToggling ? 'opacity-50 scale-95' : 'hover:scale-105 active:scale-95'}`}
+              }`}
             >
-              <Check className={`w-4 h-4 stroke-[3] transition-transform ${task.completedToday ? 'scale-100' : 'scale-50'}`} />
+              <Check className={`w-4 h-4 stroke-[3] transition-transform duration-150 ${task.completedToday ? 'scale-100' : 'scale-50'}`} />
             </button>
           ) : (
             <div
               title={`Scheduled for ${getScheduleLabel(task.scheduledDays)}`}
-              className="flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center border border-dark-border bg-dark-surface/80 text-zinc-500"
+              className="flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border border-dark-border bg-dark-surface/80 text-zinc-500"
             >
               <Calendar className="w-3.5 h-3.5 text-zinc-400" />
             </div>
           )}
 
-          {/* Task Name & Streak Only (Clicking name or card opens LinkedIn games hub / task details) */}
+          {/* Task Name & Streak Only */}
           <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
             <h3
               onClick={() => {
@@ -109,7 +105,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                   onViewDetails(task);
                 }
               }}
-              title={isLinkedIn ? 'Click to open LinkedIn Games Hub' : 'Click to view details & streak calendar'}
+              title={isLinkedIn ? 'Click to open LinkedIn Games Hub' : 'Click to view details'}
               className={`text-sm sm:text-base font-semibold tracking-tight transition-colors truncate cursor-pointer hover:text-flame-400 ${
                 task.completedToday ? 'text-zinc-400 line-through' : 'text-zinc-100'
               }`}
@@ -117,7 +113,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.title}
             </h3>
 
-            {/* Task Streak Badge (Highest streak among committed games for LinkedIn task) */}
+            {/* Task Streak Badge */}
             {task.recurrence === 'DAILY' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-flame-400 bg-flame-500/10 px-2 py-0.5 rounded-full border border-flame-500/20 shrink-0">
                 <Flame className="w-3 h-3 fill-flame-500" />
@@ -125,17 +121,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               </span>
             )}
 
-            {/* For other scheduled days (when canTick is false), show schedule label */}
+            {/* Non-today schedule badge */}
             {!canTick && (
               <span className="inline-flex items-center gap-1 text-[11px] font-mono text-zinc-400 bg-dark-surface px-2 py-0.5 rounded-md border border-dark-border shrink-0">
                 <Repeat className="w-3 h-3 text-flame-400" />
                 <span>{getScheduleLabel(task.scheduledDays)}</span>
-              </span>
-            )}
-
-            {task.completedToday && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 shrink-0">
-                <Sparkles className="w-3 h-3" /> Done
               </span>
             )}
           </div>

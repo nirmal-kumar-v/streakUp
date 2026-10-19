@@ -173,7 +173,7 @@ export const DashboardPage: React.FC = () => {
         triggerStreakCelebration({
           newStreak: nextStreak,
         });
-        toast.success('Committed LinkedIn games completed!');
+        toast.success('Done! 🔥');
 
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');

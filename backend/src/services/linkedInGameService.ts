@@ -381,6 +381,39 @@ export async function completeMemberGame(
   return computeGameDataForUser(record, userTimezone);
 }
 
+/**
+ * Reverses/uncompletes a specific LinkedIn game for a member on a local date
+ */
+export async function uncompleteMemberGame(
+  groupId: string,
+  userId: string,
+  gameId: string,
+  userTimezone: string = DEFAULT_TIMEZONE,
+  completionDate?: string
+): Promise<ComputedGameData> {
+  const normalized = normalizeGameId(gameId);
+  if (!normalized) {
+    throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
+  }
+
+  const targetDate = completionDate || getTodayInTimezone(userTimezone);
+  const records = loadAllRecords();
+  const key = getRecordKey(groupId, userId, normalized);
+  const record = getRawGameRecord(groupId, userId, normalized);
+
+  record.completions = record.completions.filter((c) => c.completionDate !== targetDate);
+  record.manualCurrentStreak = null;
+  record.manualLongestStreak = null;
+  record.updatedAt = new Date().toISOString();
+
+  records[key] = record;
+  saveAllRecords(records);
+  syncRecordToDb(record).catch(() => {});
+  invalidateGameLeaderboardCache(groupId, normalized);
+
+  return computeGameDataForUser(record, userTimezone);
+}
+
 export interface GameLeaderboardEntry {
   rank: number;
   userId: string;

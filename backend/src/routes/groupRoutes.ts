@@ -26,6 +26,7 @@ import {
   getLinkedInGames,
   getSingleLinkedInGame,
   completeLinkedInGame,
+  uncompleteLinkedInGame,
   getLinkedInGameLeaderboard,
   setLinkedInGameCommitment,
 } from '../controllers/linkedInGameController';
@@ -64,6 +65,7 @@ router.get('/:id/notes', getGroupNotes);
 router.get('/:id/linkedin-games', getLinkedInGames);
 router.get('/:id/linkedin-games/:gameId', getSingleLinkedInGame);
 router.post('/:id/linkedin-games/:gameId/complete', completeLinkedInGame);
+router.post('/:id/linkedin-games/:gameId/uncomplete', uncompleteLinkedInGame);
 router.put('/:id/linkedin-games/:gameId/commitment', setLinkedInGameCommitment);
 router.get('/:id/linkedin-games/:gameId/leaderboard', getLinkedInGameLeaderboard);
 
