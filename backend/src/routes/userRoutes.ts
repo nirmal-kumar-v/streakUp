@@ -7,6 +7,7 @@ import {
   removeProfileImage,
   changePassword,
   changeUsername,
+  getUsernameStatus,
   getEmailChangeStatus,
   requestChangeEmail,
   verifyChangeEmail,
@@ -31,6 +32,7 @@ router.delete('/profile-image', requireAuth, removeProfileImage);
 
 // Account security updates
 router.post('/change-password', requireAuth, changePassword);
+router.get('/username-status', requireAuth, getUsernameStatus);
 router.post('/change-username', requireAuth, changeUsername);
 
 // 14-day rate limited registered email change

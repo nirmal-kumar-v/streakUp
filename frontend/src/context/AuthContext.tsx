@@ -8,7 +8,7 @@ export interface AuthContextType {
   isLoading: boolean;
   login: (token: string, user: User) => void;
   logout: () => Promise<void>;
-  updateUser: (updatedFields: Partial<User>) => void;
+  updateUser: (updatedFields: Partial<User>, newToken?: string) => void;
   refreshUser: () => Promise<void>;
 }
 
@@ -98,7 +98,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const updateUser = useCallback((updatedFields: Partial<User>) => {
+  const updateUser = useCallback((updatedFields: Partial<User>, newToken?: string) => {
+    if (newToken) {
+      localStorage.setItem('streakup_token', newToken);
+      setToken(newToken);
+    }
     setUser((prevUser) => {
       if (!prevUser) return null;
       const merged = { ...prevUser, ...updatedFields };

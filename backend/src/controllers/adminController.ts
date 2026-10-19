@@ -1602,6 +1602,15 @@ export async function overrideEmailCooldown(req: AdminAuthenticatedRequest, res:
         },
         select: { id: true, email: true, emailLastChangedAt: true },
       });
+
+      // Clear customNotificationEmail so notifications route to the newly assigned email
+      await prisma.notificationPreference.updateMany({
+        where: { userId },
+        data: {
+          customNotificationEmail: null,
+          isCustomEmailVerified: false,
+        },
+      });
     }
 
     const changesSummary = resetCooldownOnly

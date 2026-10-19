@@ -1,5 +1,109 @@
 [
   {
+    "id": "33a0eb32-1b40-4c2f-acc2-781d7e11039b",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "FEATURE_REQUEST",
+    "message": "Can we have customizable streak notifications?",
+    "status": "UNDER_REVIEW",
+    "adminNotes": "Manager @mgrcandidate: We are evaluating this feature for the next sprint!",
+    "createdAt": "2026-10-19T20:48:24.300Z",
+    "updatedAt": "2026-10-19T20:48:24.639Z"
+  },
+  {
+    "id": "08c0ada0-bed8-422b-8325-8926382ed48b",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "OTHER",
+    "message": "Inquiry regarding streak pause rules.",
+    "status": "RESOLVED",
+    "adminNotes": "Examining user logs for context.",
+    "createdAt": "2026-10-19T20:48:18.005Z",
+    "updatedAt": "2026-10-19T20:48:18.231Z"
+  },
+  {
+    "id": "0285ef34-f56c-4712-848d-3ceb953e947e",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "BUG_REPORT",
+    "message": "Discovered a tiny alignment quirk on mobile screen.",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T20:48:20.679Z",
+    "updatedAt": "2026-10-19T20:48:20.679Z"
+  },
+  {
+    "id": "b312cde7-1192-495b-9e35-a2d65520ebfd",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "FEATURE_REQUEST",
+    "message": "Could we please add dark mode contrast controls?",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T20:48:19.474Z",
+    "updatedAt": "2026-10-19T20:48:19.474Z"
+  },
+  {
+    "id": "a76d2fc7-2b96-4173-9d7b-0a63a8c3f903",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "FEATURE_REQUEST",
+    "message": "Can we have customizable streak notifications?",
+    "status": "UNDER_REVIEW",
+    "adminNotes": "Manager @mgrcandidate: We are evaluating this feature for the next sprint!",
+    "createdAt": "2026-10-19T20:40:42.597Z",
+    "updatedAt": "2026-10-19T20:40:42.934Z"
+  },
+  {
+    "id": "a49c3708-d605-4479-a4f0-596f2a6f8056",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "OTHER",
+    "message": "Inquiry regarding streak pause rules.",
+    "status": "RESOLVED",
+    "adminNotes": "Examining user logs for context.",
+    "createdAt": "2026-10-19T20:40:35.164Z",
+    "updatedAt": "2026-10-19T20:40:35.519Z"
+  },
+  {
+    "id": "56722077-3b89-4b9a-9065-1d885e7122cd",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "BUG_REPORT",
+    "message": "Discovered a tiny alignment quirk on mobile screen.",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T20:40:33.842Z",
+    "updatedAt": "2026-10-19T20:40:33.842Z"
+  },
+  {
+    "id": "df86c93c-41a7-49a4-a581-8d61413923a1",
+    "userId": "test-req-user-1",
+    "username": "reqtester",
+    "name": "Request Tester",
+    "email": "reqtester@example.com",
+    "category": "FEATURE_REQUEST",
+    "message": "Could we please add dark mode contrast controls?",
+    "status": "PENDING",
+    "adminNotes": null,
+    "createdAt": "2026-10-19T20:40:31.460Z",
+    "updatedAt": "2026-10-19T20:40:31.460Z"
+  },
+  {
     "id": "ff87ca6d-8b6f-42d5-b6f4-af7879cc2811",
     "userId": "test-req-user-1",
     "username": "reqtester",
@@ -9,8 +113,8 @@
     "message": "Can we have customizable streak notifications?",
     "status": "UNDER_REVIEW",
     "adminNotes": "Manager @mgrcandidate: We are evaluating this feature for the next sprint!",
-    "createdAt": "2026-10-19T20:14:04.571Z",
-    "updatedAt": "2026-10-19T20:14:04.875Z"
+    "createdAt": "2026-10-19T20:14:08.334Z",
+    "updatedAt": "2026-10-19T20:14:08.679Z"
   },
   {
     "id": "73829fb0-26da-402d-836b-61f66b97f36c",
@@ -22,8 +126,8 @@
     "message": "Inquiry regarding streak pause rules.",
     "status": "RESOLVED",
     "adminNotes": "Examining user logs for context.",
-    "createdAt": "2026-10-19T20:13:55.171Z",
-    "updatedAt": "2026-10-19T20:13:55.450Z"
+    "createdAt": "2026-10-19T20:13:58.979Z",
+    "updatedAt": "2026-10-19T20:13:59.251Z"
   },
   {
     "id": "85896baa-b3a3-409c-99eb-5ea270f5522a",

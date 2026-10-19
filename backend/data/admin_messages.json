@@ -1,5 +1,57 @@
 [
   {
+    "id": "bbf03d04-4386-4703-901f-e8b6e64ec6f8",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Email Alert",
+    "message": "This is an alert regarding your streak performance.",
+    "channel": "EMAIL",
+    "inAppStatus": "SKIPPED",
+    "emailStatus": "SENT",
+    "createdAt": "2026-10-19T20:48:39.949Z"
+  },
+  {
+    "id": "c85b8550-07f3-4e69-be19-4f44254c5298",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Welcome to StreakUp Beta",
+    "message": "Thank you for testing our daily productivity platform!",
+    "channel": "IN_APP",
+    "inAppStatus": "SENT",
+    "emailStatus": "SKIPPED",
+    "createdAt": "2026-10-19T20:48:34.904Z"
+  },
+  {
+    "id": "33cf1456-82ca-4f7c-9ccb-39ec004c6718",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Email Alert",
+    "message": "This is an alert regarding your streak performance.",
+    "channel": "EMAIL",
+    "inAppStatus": "SKIPPED",
+    "emailStatus": "SENT",
+    "createdAt": "2026-10-19T20:40:51.339Z"
+  },
+  {
+    "id": "03a94cb9-2f64-4b0e-a135-d657f9eab673",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Welcome to StreakUp Beta",
+    "message": "Thank you for testing our daily productivity platform!",
+    "channel": "IN_APP",
+    "inAppStatus": "SENT",
+    "emailStatus": "SKIPPED",
+    "createdAt": "2026-10-19T20:40:47.749Z"
+  },
+  {
     "id": "ac9413e2-8bc9-46ca-b83e-1c8e9de4debe",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
@@ -76,57 +128,5 @@
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
     "createdAt": "2026-10-19T19:54:24.138Z"
-  },
-  {
-    "id": "5987cb9d-dba8-4e5a-ae0b-27165b569e5e",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Email Alert",
-    "message": "This is an alert regarding your streak performance.",
-    "channel": "EMAIL",
-    "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-19T19:52:05.923Z"
-  },
-  {
-    "id": "d76e296f-51f7-453d-b34b-d69dd70a3226",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Welcome to StreakUp Beta",
-    "message": "Thank you for testing our daily productivity platform!",
-    "channel": "IN_APP",
-    "inAppStatus": "SENT",
-    "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T19:52:01.438Z"
-  },
-  {
-    "id": "5f791b77-c422-4730-8816-0bc257a140b3",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Email Alert",
-    "message": "This is an alert regarding your streak performance.",
-    "channel": "EMAIL",
-    "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-19T14:56:29.979Z"
-  },
-  {
-    "id": "ea075980-8b24-4f19-bed3-75c442623d0d",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Welcome to StreakUp Beta",
-    "message": "Thank you for testing our daily productivity platform!",
-    "channel": "IN_APP",
-    "inAppStatus": "SENT",
-    "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T14:56:24.327Z"
   }
 ]

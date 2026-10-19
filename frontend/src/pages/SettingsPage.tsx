@@ -7,6 +7,7 @@ import {
   removeProfileImage,
   changePassword,
   changeUsername,
+  fetchUsernameStatus,
   fetchTimezones,
   fetchEmailChangeStatus,
   requestChangeEmailOtp,
@@ -269,6 +270,27 @@ export const SettingsPage: React.FC = () => {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
+  // Username Change (14-day restriction)
+  const [usernameStatus, setUsernameStatus] = useState<{
+    currentUsername: string;
+    lastUsernameChangeAt: string | null;
+    canChangeNow: boolean;
+    nextAllowedChangeDate: string | null;
+    daysRemaining: number;
+  } | null>(null);
+
+  const loadUsernameStatus = () => {
+    fetchUsernameStatus()
+      .then((res) => {
+        if (res.success) setUsernameStatus(res);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadUsernameStatus();
+  }, []);
+
   // Registered Email Change (14-day restriction & OTP)
   const [emailStatus, setEmailStatus] = useState<{
     currentEmail: string;
@@ -341,7 +363,13 @@ export const SettingsPage: React.FC = () => {
     try {
       const res = await verifyChangeEmailOtp(newEmailInput.trim(), emailOtpInput.trim());
       if (res.success && res.user) {
-        updateUser({ email: res.user.email });
+        updateUser(
+          {
+            email: res.user.email,
+            emailLastChangedAt: res.user.emailLastChangedAt,
+          },
+          res.token
+        );
         setEmailChangeSuccess('Registered login email updated successfully!');
         setEmailChangeStep('idle');
         setNewEmailInput('');
@@ -536,6 +564,10 @@ export const SettingsPage: React.FC = () => {
   const handleChangeUsername = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUsername.trim()) return;
+    if (usernameStatus && !usernameStatus.canChangeNow) {
+      setUsernameError(`Username can only be changed once every 14 days. You can next change it on ${new Date(usernameStatus.nextAllowedChangeDate || '').toLocaleDateString()}.`);
+      return;
+    }
     setIsChangingUsername(true);
     setUsernameSuccess('');
     setUsernameError('');
@@ -543,12 +575,20 @@ export const SettingsPage: React.FC = () => {
     try {
       const res = await changeUsername(newUsername.trim());
       if (res.success) {
-        updateUser({ username: res.user.username });
+        updateUser(
+          {
+            username: res.user.username,
+            lastUsernameChangeAt: res.user.lastUsernameChangeAt,
+          },
+          res.token
+        );
         setUsernameSuccess(`Username successfully updated to @${res.user.username}!`);
         setNewUsername('');
+        loadUsernameStatus();
       }
     } catch (err: any) {
       setUsernameError(extractErrorMessage(err, 'Failed to change username.'));
+      loadUsernameStatus();
     } finally {
       setIsChangingUsername(false);
     }
@@ -860,14 +900,27 @@ export const SettingsPage: React.FC = () => {
         onSubmit={handleChangeUsername}
         className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5"
       >
-        <div>
-          <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-            <AtSign className="w-4 h-4 text-flame-400" />
-            Change Username
-          </h2>
-          <p className="text-xs text-dark-muted mt-0.5">
-            Your unique handle. Can only be changed once every 14 days.
-          </p>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+              <AtSign className="w-4 h-4 text-flame-400" />
+              Change Username
+            </h2>
+            <p className="text-xs text-dark-muted mt-0.5">
+              Your unique handle. Can only be changed once every 14 days.
+            </p>
+          </div>
+          <span
+            className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+              usernameStatus?.canChangeNow
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+            }`}
+          >
+            {usernameStatus?.canChangeNow
+              ? 'Available to Change'
+              : `Cooldown Active (${usernameStatus?.daysRemaining}d left)`}
+          </span>
         </div>
 
         {usernameSuccess && (
@@ -887,6 +940,11 @@ export const SettingsPage: React.FC = () => {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-zinc-300 uppercase tracking-wider">
             <span>Current: @{user?.username}</span>
+            {usernameStatus?.nextAllowedChangeDate && !usernameStatus.canChangeNow && (
+              <span className="text-amber-400 normal-case font-medium">
+                Next change: {new Date(usernameStatus.nextAllowedChangeDate).toLocaleDateString()}
+              </span>
+            )}
           </div>
 
           <div className="relative">
@@ -896,11 +954,12 @@ export const SettingsPage: React.FC = () => {
             <input
               type="text"
               required
+              disabled={usernameStatus !== null && !usernameStatus.canChangeNow}
               value={newUsername}
               onChange={(e) => setNewUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-              placeholder="new_username"
+              placeholder={usernameStatus !== null && !usernameStatus.canChangeNow ? 'Cooldown active...' : 'new_username'}
               maxLength={30}
-              className="w-full pl-8 pr-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 font-mono focus:outline-none focus:border-flame-500/80"
+              className="w-full pl-8 pr-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 font-mono focus:outline-none focus:border-flame-500/80 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
@@ -915,8 +974,8 @@ export const SettingsPage: React.FC = () => {
         <div className="pt-2 border-t border-dark-border flex justify-end">
           <button
             type="submit"
-            disabled={isChangingUsername || !newUsername.trim()}
-            className="px-5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-100 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            disabled={isChangingUsername || !newUsername.trim() || (usernameStatus !== null && !usernameStatus.canChangeNow)}
+            className="px-5 py-2 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-100 rounded-xl text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isChangingUsername ? 'Updating...' : 'Update Username'}
           </button>

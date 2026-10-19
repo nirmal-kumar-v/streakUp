@@ -791,6 +791,7 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
         longestStreak: true,
         isEmailVerified: true,
         emailLastChangedAt: true,
+        lastUsernameChangeAt: true,
         createdAt: true,
         _count: {
           select: {

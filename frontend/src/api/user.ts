@@ -74,9 +74,30 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 export async function changeUsername(newUsername: string) {
-  const res = await apiClient.post<{ success: boolean; message: string; user: any }>('/users/change-username', {
+  const res = await apiClient.post<{
+    success: boolean;
+    message: string;
+    user: any;
+    token?: string;
+    nextAllowedChangeDate?: string;
+    daysRemaining?: number;
+    error?: string;
+  }>('/users/change-username', {
     newUsername,
   });
+  return res.data;
+}
+
+export async function fetchUsernameStatus() {
+  const res = await apiClient.get<{
+    success: boolean;
+    currentUsername: string;
+    lastUsernameChangeAt: string | null;
+    canChangeNow: boolean;
+    nextAllowedChangeDate: string | null;
+    daysRemaining: number;
+    error?: string;
+  }>('/users/username-status');
   return res.data;
 }
 
@@ -142,6 +163,7 @@ export async function verifyChangeEmailOtp(newEmail: string, otp: string) {
     success: boolean;
     message: string;
     user: any;
+    token?: string;
     error?: string;
   }>('/users/change-email/verify', { newEmail, otp });
   return res.data;

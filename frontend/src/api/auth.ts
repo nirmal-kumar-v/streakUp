@@ -13,6 +13,7 @@ export interface User {
   connectionsCount?: number;
   isEmailVerified?: boolean;
   emailLastChangedAt?: string | null;
+  lastUsernameChangeAt?: string | null;
   createdAt?: string;
 }
 
