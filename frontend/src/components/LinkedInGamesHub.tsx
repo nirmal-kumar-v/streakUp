@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchLinkedInGames,
   fetchSingleLinkedInGame,
@@ -53,6 +53,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
 }) => {
   const { user } = useAuth();
   const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
 
   const [games, setGames] = useState<LinkedInGameItem[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string>(initialGameId);
@@ -75,11 +77,11 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
         setGames(res.games);
       }
     } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Failed to load LinkedIn games.'));
+      toastRef.current.error(extractErrorMessage(err, 'Failed to load LinkedIn games.'));
     } finally {
       setIsLoadingAll(false);
     }
-  }, [groupId, toast]);
+  }, [groupId]);
 
   // Load detailed game data + independent leaderboard for the selected game
   const loadGameDetails = useCallback(
@@ -97,12 +99,12 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
           }
         }
       } catch (err: any) {
-        toast.error(extractErrorMessage(err, 'Failed to load game details.'));
+        toastRef.current.error(extractErrorMessage(err, 'Failed to load game details.'));
       } finally {
         setIsLoadingDetails(false);
       }
     },
-    [groupId, toast]
+    [groupId]
   );
 
   useEffect(() => {

@@ -12,11 +12,26 @@ import {
 } from '../services/linkedInGameService';
 import { DEFAULT_TIMEZONE } from '../services/timezoneService';
 
+interface ValidationSuccess {
+  group: any;
+  isMember: true;
+}
+
+interface ValidationFailure {
+  error: string;
+  status: number;
+}
+
+type ValidationResult = ValidationSuccess | ValidationFailure;
+
 /**
  * Validates whether the user is a valid member/owner of the group
  * and checks if the group is identified as LinkedIn.
  */
-async function validateGroupMembership(groupId: string, userId: string) {
+async function validateGroupMembership(
+  groupId: string,
+  userId: string
+): Promise<ValidationResult> {
   const group = await prisma.group.findUnique({
     where: { id: groupId },
     include: {
@@ -54,7 +69,7 @@ export async function getLinkedInGames(req: AuthenticatedRequest, res: Response)
 
     const validation = await validateGroupMembership(groupId, userId);
     if ('error' in validation) {
-      return res.status(validation.status).json({ success: false, error: validation.error });
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
     }
 
     const user = await prisma.user.findUnique({
@@ -89,7 +104,7 @@ export async function getSingleLinkedInGame(req: AuthenticatedRequest, res: Resp
 
     const validation = await validateGroupMembership(groupId, userId);
     if ('error' in validation) {
-      return res.status(validation.status).json({ success: false, error: validation.error });
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
     }
 
     const normalizedGameId = normalizeGameId(gameId);
@@ -137,7 +152,7 @@ export async function completeLinkedInGame(req: AuthenticatedRequest, res: Respo
 
     const validation = await validateGroupMembership(groupId, userId);
     if ('error' in validation) {
-      return res.status(validation.status).json({ success: false, error: validation.error });
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
     }
 
     const normalizedGameId = normalizeGameId(gameId);
@@ -185,7 +200,7 @@ export async function getLinkedInGameLeaderboard(req: AuthenticatedRequest, res:
 
     const validation = await validateGroupMembership(groupId, userId);
     if ('error' in validation) {
-      return res.status(validation.status).json({ success: false, error: validation.error });
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
     }
 
     const normalizedGameId = normalizeGameId(gameId);

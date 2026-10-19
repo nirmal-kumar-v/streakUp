@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   fetchGroupDetails,
   fetchGroupLeaderboard,
@@ -67,7 +67,6 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const GroupDetailPage: React.FC = () => {
   const { id: groupId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
   const [group, setGroup] = useState<GroupDetail | null>(null);
   const [activeMainTab, setActiveMainTab] = useState<'games' | 'task' | 'leaderboard' | 'notes' | 'admin'>('task');
@@ -522,7 +521,7 @@ export const GroupDetailPage: React.FC = () => {
       if (res.success && res.group) {
         setGroup(res.group);
         if (isLinkedInName(res.group.name)) {
-          const tabParam = searchParams.get('tab');
+          const tabParam = new URLSearchParams(window.location.search).get('tab');
           if (tabParam === 'games' || !tabParam) {
             setActiveMainTab('games');
           }
@@ -533,7 +532,7 @@ export const GroupDetailPage: React.FC = () => {
     } finally {
       setIsLoadingGroup(false);
     }
-  }, [groupId, searchParams]);
+  }, [groupId]);
 
   const loadLeaderboard = useCallback(async () => {
     if (!groupId) return;
