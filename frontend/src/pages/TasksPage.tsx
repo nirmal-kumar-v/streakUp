@@ -57,8 +57,10 @@ export const TasksPage: React.FC = () => {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
 
+  const hasLoadedRef = React.useRef(false);
+
   const loadTasks = useCallback(async () => {
-    if (tasks.length === 0) {
+    if (!hasLoadedRef.current) {
       setIsLoading(true);
     }
     try {
@@ -72,13 +74,14 @@ export const TasksPage: React.FC = () => {
 
       if (res.success) {
         setTasks(res.tasks || []);
+        hasLoadedRef.current = true;
       }
     } catch (err) {
       console.error('Failed to load tasks:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, priorityFilter, categoryFilter, sortBy, sortOrder, tasks.length]);
+  }, [statusFilter, priorityFilter, categoryFilter, sortBy, sortOrder]);
 
   useEffect(() => {
     loadTasks();

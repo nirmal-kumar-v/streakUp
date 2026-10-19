@@ -19,50 +19,70 @@ import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
 import { PublicFeedbackModal } from './components/PublicFeedbackModal';
 
-// Lazy loaded secondary routes for optimal initial bundle size and rapid FCP
-const ForgotPasswordPage = lazy(() =>
+// Resilient lazy-loader that transparently auto-recovers from Vite/Webpack
+// dynamic chunk load failures without showing crash screens to the user.
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+): React.LazyExoticComponent<T> {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (error) {
+      const hasRetried = sessionStorage.getItem('streakup_chunk_retry');
+      if (!hasRetried) {
+        sessionStorage.setItem('streakup_chunk_retry', 'true');
+        window.location.reload();
+        return new Promise(() => {});
+      }
+      sessionStorage.removeItem('streakup_chunk_retry');
+      throw error;
+    }
+  });
+}
+
+const ForgotPasswordPage = lazyWithRetry(() =>
   import('./pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage }))
 );
-const ResetPasswordPage = lazy(() =>
+const ResetPasswordPage = lazyWithRetry(() =>
   import('./pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage }))
 );
-const GlobalLeaderboardPage = lazy(() =>
+const GlobalLeaderboardPage = lazyWithRetry(() =>
   import('./pages/GlobalLeaderboardPage').then((m) => ({ default: m.GlobalLeaderboardPage }))
 );
-const FriendsLeaderboardPage = lazy(() =>
+const FriendsLeaderboardPage = lazyWithRetry(() =>
   import('./pages/FriendsLeaderboardPage').then((m) => ({ default: m.FriendsLeaderboardPage }))
 );
-const FriendsPage = lazy(() =>
+const FriendsPage = lazyWithRetry(() =>
   import('./pages/FriendsPage').then((m) => ({ default: m.FriendsPage }))
 );
-const FriendsTasksPage = lazy(() =>
+const FriendsTasksPage = lazyWithRetry(() =>
   import('./pages/FriendsTasksPage').then((m) => ({ default: m.FriendsTasksPage }))
 );
-const PublicProfilePage = lazy(() =>
+const PublicProfilePage = lazyWithRetry(() =>
   import('./pages/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage }))
 );
-const SettingsPage = lazy(() =>
+const SettingsPage = lazyWithRetry(() =>
   import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
-const NotificationsPage = lazy(() =>
+const NotificationsPage = lazyWithRetry(() =>
   import('./pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage }))
 );
-const NotificationSettingsPage = lazy(() =>
+const NotificationSettingsPage = lazyWithRetry(() =>
   import('./pages/NotificationSettingsPage').then((m) => ({ default: m.NotificationSettingsPage }))
 );
-const GroupsPage = lazy(() =>
+const GroupsPage = lazyWithRetry(() =>
   import('./pages/GroupsPage').then((m) => ({ default: m.GroupsPage }))
 );
-const GroupDetailPage = lazy(() =>
+const GroupDetailPage = lazyWithRetry(() =>
   import('./pages/GroupDetailPage').then((m) => ({ default: m.GroupDetailPage }))
 );
-const TermsPage = lazy(() =>
+const TermsPage = lazyWithRetry(() =>
   import('./pages/TermsPage').then((m) => ({ default: m.TermsPage }))
 );
-const PrivacyPolicyPage = lazy(() =>
+const PrivacyPolicyPage = lazyWithRetry(() =>
   import('./pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage }))
 );
-const AdminControlPage = lazy(() =>
+const AdminControlPage = lazyWithRetry(() =>
   import('./pages/AdminControlPage').then((m) => ({ default: m.AdminControlPage }))
 );
 

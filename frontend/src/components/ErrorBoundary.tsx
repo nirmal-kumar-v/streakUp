@@ -23,10 +23,22 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('StreakUp ErrorBoundary caught an unhandled component error:', error, errorInfo);
+    // If chunk load failed due to a new deployment, auto-reload once to fetch fresh assets
+    const isChunkError =
+      error?.name === 'ChunkLoadError' ||
+      /loading chunk/i.test(error?.message || '') ||
+      /failed to fetch dynamically imported module/i.test(error?.message || '');
+
+    if (isChunkError && !sessionStorage.getItem('streakup_chunk_boundary_reload')) {
+      sessionStorage.setItem('streakup_chunk_boundary_reload', 'true');
+      window.location.reload();
+    }
   }
 
   public handleReset = () => {
+    sessionStorage.removeItem('streakup_chunk_boundary_reload');
     this.setState({ hasError: false, error: null });
+    window.location.reload();
   };
 
   public render() {
@@ -39,11 +51,11 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
 
             <h2 className="text-xl font-black text-zinc-100 tracking-tight mb-2">
-              {this.props.fallbackTitle || 'Something went wrong'}
+              {this.props.fallbackTitle || 'Unable to Load Page'}
             </h2>
 
             <p className="text-xs text-dark-muted mb-6 leading-relaxed">
-              We encountered an unexpected interface issue. The page prevented a complete crash and your session data remains intact.
+              We encountered a temporary network or rendering delay. Your session and habits remain completely secure.
             </p>
 
             {this.state.error && (

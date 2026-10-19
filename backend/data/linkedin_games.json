@@ -4106,5 +4106,471 @@
     "completions": [],
     "freezeLogs": [],
     "updatedAt": "2026-10-19T20:07:51.188Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:pinpoint": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "pinpoint",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:46.674Z",
+        "studyNote": "Solved clue in 2 hints!"
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.674Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:crossclimb": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "crossclimb",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.669Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "queens",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.690Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.692Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:zip": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "zip",
+    "manualCurrentStreak": 14,
+    "manualLongestStreak": 20,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.762Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:mini-sudoku": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "mini-sudoku",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.698Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:patches": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "patches",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.600Z"
+  },
+  "group-linkedin-test-1792440826561:user-alice-101:wend": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-alice-101",
+    "gameId": "wend",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-15",
+        "completedAt": "2026-10-19T20:13:48.372Z",
+        "studyNote": "Verified word ladder"
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.372Z"
+  },
+  "group-linkedin-test-1792440826561:user-bob-102:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-bob-102",
+    "gameId": "queens",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-17",
+        "completedAt": "2026-10-19T20:13:46.710Z",
+        "studyNote": "Row 1 crown"
+      },
+      {
+        "completionDate": "2026-10-18",
+        "completedAt": "2026-10-19T20:13:46.715Z",
+        "studyNote": "Row 2 crown"
+      },
+      {
+        "completionDate": "2026-10-19",
+        "completedAt": "2026-10-19T20:13:46.726Z",
+        "studyNote": "Row 3 crown"
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.726Z"
+  },
+  "group-linkedin-test-1792440826561:user-bob-102:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-bob-102",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:46.758Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:pinpoint": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "pinpoint",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.670Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:crossclimb": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "crossclimb",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.672Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "queens",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.675Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.677Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:zip": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "zip",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.680Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:mini-sudoku": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "mini-sudoku",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.683Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:patches": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "patches",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.685Z"
+  },
+  "group-linkedin-test-1792440826561:user-commit-1792440828670:wend": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-commit-1792440828670",
+    "gameId": "wend",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.687Z"
+  },
+  "group-linkedin-test-1792440826561:user-toggle-1792440828690:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-toggle-1792440828690",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:48.695Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.701Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:pinpoint": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "pinpoint",
+    "manualCurrentStreak": 3,
+    "manualLongestStreak": 3,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.981Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:crossclimb": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "crossclimb",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.982Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "queens",
+    "manualCurrentStreak": 5,
+    "manualLongestStreak": 5,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.984Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.986Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:zip": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "zip",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.988Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:mini-sudoku": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "mini-sudoku",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.989Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:patches": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "patches",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.991Z"
+  },
+  "group-linkedin-test-1792440826561:user-dash-1792440828706:wend": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-dash-1792440828706",
+    "gameId": "wend",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:48.992Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:tango": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "tango",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.000Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:wend": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "wend",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": false,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.003Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:pinpoint": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "pinpoint",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.017Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.017Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:crossclimb": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "crossclimb",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.020Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.020Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "queens",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.022Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.022Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:zip": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "zip",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.024Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.024Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:mini-sudoku": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "mini-sudoku",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.025Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.025Z"
+  },
+  "group-linkedin-test-1792440826561:user-tick-1792440828998:patches": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-tick-1792440828998",
+    "gameId": "patches",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [
+      {
+        "completionDate": "2026-10-20",
+        "completedAt": "2026-10-19T20:13:49.028Z",
+        "studyNote": null
+      }
+    ],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.028Z"
+  },
+  "group-linkedin-test-1792440826561:user-untick-1792440829040:queens": {
+    "groupId": "group-linkedin-test-1792440826561",
+    "userId": "user-untick-1792440829040",
+    "gameId": "queens",
+    "manualCurrentStreak": null,
+    "manualLongestStreak": null,
+    "isCommitted": true,
+    "completions": [],
+    "freezeLogs": [],
+    "updatedAt": "2026-10-19T20:13:49.047Z"
   }
 }

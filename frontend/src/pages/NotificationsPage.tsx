@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   fetchNotifications,
@@ -83,9 +83,11 @@ export const NotificationsPage: React.FC = () => {
     }
   };
 
+  const hasLoadedRef = useRef(false);
+
   const loadNotifications = useCallback(async (targetPage = 1, filter = activeFilter) => {
     // Only set loading if we don't have notifications yet to avoid screen flash
-    if (notifications.length === 0) {
+    if (!hasLoadedRef.current) {
       setIsLoading(true);
     }
     try {
@@ -137,17 +139,18 @@ export const NotificationsPage: React.FC = () => {
         setPage(res.page);
         setTotalPages(res.totalPages);
         setUnreadNotificationsCount(res.unreadCount);
+        hasLoadedRef.current = true;
       }
     } catch (err) {
       console.error('Failed to load notifications:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [activeFilter, notifications.length, setUnreadNotificationsCount]);
+  }, [activeFilter, setUnreadNotificationsCount]);
 
   useEffect(() => {
     loadNotifications(1, activeFilter);
-  }, [activeFilter]);
+  }, [activeFilter, loadNotifications]);
 
   const handleToggleStar = async (id: string) => {
     const target = notifications.find((n) => n.id === id);
