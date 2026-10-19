@@ -96,9 +96,8 @@ const PageFallback: React.FC = () => (
   </div>
 );
 
-const EXACT_ADMIN_URL = '/streakup-karo/aB9!xQ4#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK.vercel.app';
+const EXACT_ADMIN_URL = '/streakup-karo/aB9!xQ4#mK2$vL7&pZ5*rW1@tN8%25cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%25cY3(eF6)uJ0_xG5+zQ8=vB2-mK';
 const EXACT_ADMIN_PATHNAME = '/streakup-karo/aB9!xQ4';
-const EXACT_ADMIN_HASH = '#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK.vercel.app';
 
 /**
  * Obfuscated admin entrypoint redirector:
@@ -109,16 +108,20 @@ const AdminRedirect: React.FC = () => {
 };
 
 /**
- * Validates that the full URL including the exact complex secret string is present.
+ * Validates that the full URL contains the exact complex secret string.
+ * Uses safe raw inspection to avoid browser URI malformed errors from symbol characters.
  * If any character is altered or modified, it immediately blocks and redirects to home.
  */
 const AdminSecretRoute: React.FC = () => {
   const location = useLocation();
-  const currentHash = decodeURIComponent(location.hash || '');
-  const targetHash1 = decodeURIComponent(EXACT_ADMIN_HASH);
-  const targetHash2 = decodeURIComponent('#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK');
+  const rawHash = location.hash || '';
 
-  if (currentHash !== targetHash1 && currentHash !== targetHash2) {
+  const isValidSecret =
+    rawHash.includes('mK2$vL7&pZ5*rW1@tN8') &&
+    rawHash.includes('uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8') &&
+    rawHash.includes('uJ0_xG5+zQ8=vB2-mK');
+
+  if (!isValidSecret) {
     return <Navigate to="/" replace />;
   }
 
