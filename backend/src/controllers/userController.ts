@@ -752,37 +752,15 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response) {
       }
     }
 
-    // Execute atomic cleanup
-    await prisma.$transaction(async (tx) => {
-      // 1. Handle owned groups safely:
-      // If group has other members, transfer ownership to the earliest joined member.
-      // If user was the sole member, delete the group.
-      for (const group of user.ownedGroups) {
-        if (group.members.length > 0) {
-          const nextOwner = group.members[0];
-          await tx.group.update({
-            where: { id: group.id },
-            data: { ownerId: nextOwner.userId }
-          });
-          await tx.groupMember.update({
-            where: { id: nextOwner.id },
-            data: { role: 'OWNER' }
-          });
-        } else {
-          await tx.group.delete({
-            where: { id: group.id }
-          });
-        }
-      }
-
-      // 2. Delete the user
-      // All relations with onDelete: Cascade will be permanently removed:
-      // Task, TaskCompletion, PointLedger, StudyNoteReaction, GroupMember,
-      // Friendship, FriendRequest, FreezeLog, Notification, NotificationPreference,
-      // ReminderSchedule, MilestoneEvent, EmailDelivery, EmailOtp, PasswordResetToken.
-      await tx.user.delete({
-        where: { id: userId }
-      });
+    // Soft-delete account: preserve records for 10-day admin recovery window
+    const { recordAccountDeletion } = await import('../services/deletedAccountService');
+    await recordAccountDeletion({
+      userId,
+      username: user.username,
+      name: user.name,
+      email: user.email,
+      deletedBy: 'USER',
+      reason: 'Deleted by user in settings',
     });
 
     // Clear any auth cookies if present
@@ -791,7 +769,7 @@ export async function deleteAccount(req: AuthenticatedRequest, res: Response) {
 
     return res.json({
       success: true,
-      message: 'Your account and all associated data have been permanently deleted.'
+      message: 'Your account has been deleted. An admin can recover your account within 10 days.',
     });
   } catch (err: any) {
     console.error('deleteAccount error:', err);

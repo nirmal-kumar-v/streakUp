@@ -62,6 +62,7 @@ import {
   adminRecoverGroupTask,
   adminModerateStudyNote,
   deleteUserAccountByAdmin,
+  recoverUserAccountByAdmin,
   adminUpdateTaskFull,
   adminUpdateGroupFull,
   unfreezeUserDate,
@@ -2083,6 +2084,32 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
+  // Recover User Account (Super Admin Action within 10-day recovery window)
+  const handleRecoverUserAccount = (targetUserId: string, targetUsername?: string) => {
+    const uname = targetUsername || selectedUserDetails?.username || 'user';
+    openPinPrompt(
+      `Recover Account for @${uname}`,
+      `This will reactivate the deleted account for @${uname} and restore the user's login access with all data intact.`,
+      async (pin: string) => {
+        try {
+          const res = await recoverUserAccountByAdmin(targetUserId, {
+            reason: 'Account recovered by Super Admin',
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            handleSearchUsers(searchQuery);
+            if (selectedUserId === targetUserId) {
+              refreshCurrentUser();
+            }
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to recover account.'));
+        }
+      }
+    );
+  };
+
   // O. Admin Security: Separated Login Password & Sensitive PIN Handlers
   const handleUpdateLoginPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2503,15 +2530,34 @@ export const AdminControlPage: React.FC = () => {
                               <p className="text-[11px] text-zinc-400 truncate">@{u.username}</p>
                             </div>
                           </div>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                              u.isEmailVerified !== false
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                            }`}
-                          >
-                            {u.isEmailVerified !== false ? 'Verified' : 'Unverified'}
-                          </span>
+                          {u.isDeleted ? (
+                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                                Deleted ({u.deletionDaysRemaining ?? 10}d left)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRecoverUserAccount(u.id, u.username);
+                                }}
+                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40 transition-all cursor-pointer shadow-sm"
+                                title="Recover this deleted user account"
+                              >
+                                Recover
+                              </button>
+                            </div>
+                          ) : (
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                u.isEmailVerified !== false
+                                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                              }`}
+                            >
+                              {u.isEmailVerified !== false ? 'Verified' : 'Unverified'}
+                            </span>
+                          )}
                         </div>
 
                         <p className="text-[11px] text-zinc-400 truncate">{u.email}</p>
@@ -2639,6 +2685,30 @@ export const AdminControlPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  {/* Account Deletion & Recovery Banner */}
+                  {selectedUserDetails?.isDeleted && (
+                    <div className="p-3.5 sm:p-4 rounded-xl bg-rose-500/15 border border-rose-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-panel">
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-rose-200">
+                            Account Deleted ({selectedUserDetails.deletionDaysRemaining ?? 10} days remaining in recovery window)
+                          </p>
+                          <p className="text-[11px] text-zinc-300">
+                            The user is locked out and cannot log in. You can recover this account to restore full login access with all data intact.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRecoverUserAccount(selectedUserDetails.id, selectedUserDetails.username)}
+                        className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all shrink-0 cursor-pointer self-start sm:self-auto"
+                      >
+                        Recover Account
+                      </button>
+                    </div>
+                  )}
 
                   {/* Quick Metric Pills */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-2 border-t border-dark-border">

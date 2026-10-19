@@ -379,6 +379,21 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
       const newTotalPoints = u?.points || 0;
 
+      // Trigger milestone checks and friend activity alerts (non-blocking)
+      checkAndTriggerMilestones({
+        userId,
+        scope: FreezeScope.OVERALL,
+        scopeId: 'OVERALL',
+        currentStreak: overallStreak.currentStreak,
+      }).catch((err) => console.error('[completeTask:LinkedIn] Milestone check error:', err));
+
+      checkAndTriggerFriendActivityAlerts({
+        completedUserId: userId,
+        completedTaskId: task.id,
+        completedTaskTitle: task.title,
+        studyNote: 'LinkedIn games completed',
+      }).catch((err) => console.error('[completeTask:LinkedIn] Friend activity alert error:', err));
+
       return res.json({
         success: true,
         message: 'Committed LinkedIn games completed!',

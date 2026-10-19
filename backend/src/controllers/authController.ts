@@ -424,6 +424,17 @@ export async function login(req: Request, res: Response) {
       });
     }
 
+    // Verify deleted account status: user cannot login if account is deleted
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const deletion = isAccountDeleted(user.id);
+    if (deletion.isDeleted) {
+      return res.status(403).json({
+        success: false,
+        error: 'This account was deleted. You cannot log in without admin approval. Please contact an administrator to recover your account.',
+        isDeletedAccount: true,
+      });
+    }
+
     // Require email verification before allowing login
     if (!user.isEmailVerified) {
       // Trigger new OTP if needed

@@ -1,5 +1,31 @@
 [
   {
+    "id": "5f791b77-c422-4730-8816-0bc257a140b3",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Email Alert",
+    "message": "This is an alert regarding your streak performance.",
+    "channel": "EMAIL",
+    "inAppStatus": "SKIPPED",
+    "emailStatus": "SENT",
+    "createdAt": "2026-10-19T14:56:29.979Z"
+  },
+  {
+    "id": "ea075980-8b24-4f19-bed3-75c442623d0d",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Welcome to StreakUp Beta",
+    "message": "Thank you for testing our daily productivity platform!",
+    "channel": "IN_APP",
+    "inAppStatus": "SENT",
+    "emailStatus": "SKIPPED",
+    "createdAt": "2026-10-19T14:56:24.327Z"
+  },
+  {
     "id": "a40ee2e8-3814-4063-af57-6156b9909b13",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
@@ -102,31 +128,5 @@
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
     "createdAt": "2026-10-19T14:17:44.133Z"
-  },
-  {
-    "id": "a71bd975-67d1-4670-a5cf-d5c176e335e7",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Email Alert",
-    "message": "This is an alert regarding your streak performance.",
-    "channel": "EMAIL",
-    "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-19T14:04:00.385Z"
-  },
-  {
-    "id": "a68c15e0-13a5-4144-85e5-14d1862a7b95",
-    "adminUsername": "admin",
-    "recipientUserId": "test-req-user-1",
-    "recipientUsername": "reqtester",
-    "recipientEmail": "reqtester@example.com",
-    "title": "Welcome to StreakUp Beta",
-    "message": "Thank you for testing our daily productivity platform!",
-    "channel": "IN_APP",
-    "inAppStatus": "SENT",
-    "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T14:03:56.373Z"
   }
 ]

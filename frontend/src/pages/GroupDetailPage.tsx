@@ -1015,7 +1015,14 @@ export const GroupDetailPage: React.FC = () => {
 
       {/* TAB 0: LINKEDIN GAMES VIEW */}
       {activeMainTab === 'games' && isLinkedIn && groupId && (
-        <LinkedInGamesHub groupId={groupId} groupName={group.name} />
+        <LinkedInGamesHub
+          groupId={groupId}
+          groupName={group.name}
+          hasActiveDashboardTask={group.hasActiveDashboardTask}
+          onMakeDashboardTask={handleMakeGroupTask}
+          onRemoveDashboardTask={handleRemoveFromDashboard}
+          isTogglingTask={isTogglingTask}
+        />
       )}
 
       {/* TAB 1: SHARED TASK VIEW */}

@@ -33,9 +33,9 @@ export function getSmtpConfig() {
     port = 465;
   }
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-  const user = process.env.SMTP_USER || '';
-  const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
-  const mailFrom = process.env.MAIL_FROM || user || 'no-reply@streakup.app';
+  const user = process.env.SMTP_USER || 'streakup.web@gmail.com';
+  const pass = (process.env.SMTP_PASS || 'ezmaeigrmnrnsomd').replace(/\s+/g, '');
+  const mailFrom = process.env.MAIL_FROM || user || 'streakup.web@gmail.com';
   const mailFromName = process.env.MAIL_FROM_NAME || 'StreakUp';
 
   return { host, port, secure, user, pass, mailFrom, mailFromName };

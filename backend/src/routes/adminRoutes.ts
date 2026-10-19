@@ -23,6 +23,7 @@ import {
   adminRecoverGroupTask,
   adminModerateStudyNote,
   deleteUserAccountByAdmin,
+  recoverUserAccount,
   adminUpdateTaskFull,
   adminUpdateGroupFull,
   unfreezeUserDate,
@@ -121,6 +122,7 @@ router.post('/tasks/:taskId/recover', adminRecoverGroupTask);
 router.post('/completions/:completionId/moderate', adminModerateStudyNote);
 
 // High-Risk Sensitive Operations (Requires Sensitive PIN confirmation)
+router.post('/users/:userId/recover', requireSensitiveAuth, recoverUserAccount);
 router.delete('/users/:userId', requireSensitiveAuth, deleteUserAccountByAdmin);
 
 // User Requests & Feedback Management

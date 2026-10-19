@@ -38,6 +38,10 @@ interface LinkedInGamesHubProps {
   groupId: string;
   groupName: string;
   initialGameId?: string;
+  hasActiveDashboardTask?: boolean;
+  onMakeDashboardTask?: () => void;
+  onRemoveDashboardTask?: () => void;
+  isTogglingTask?: boolean;
 }
 
 const GAME_ICONS: Record<string, React.FC<{ className?: string }>> = {
@@ -55,6 +59,10 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   groupId,
   groupName,
   initialGameId = 'pinpoint',
+  hasActiveDashboardTask,
+  onMakeDashboardTask,
+  onRemoveDashboardTask,
+  isTogglingTask = false,
 }) => {
   const { user } = useAuth();
   const toast = useToast();
@@ -334,23 +342,56 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
               </div>
             </div>
           </div>
-          <button
-            onClick={() => {
-              loadAllGames();
-              if (selectedGameId) loadGameDetails(selectedGameId);
-            }}
-            disabled={isLoadingAll || isLoadingDetails}
-            className="p-2 sm:px-3 sm:py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 shrink-0"
-            title="Refresh"
-            aria-label="Refresh"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${
-                isLoadingAll || isLoadingDetails ? 'animate-spin text-flame-400' : ''
-              }`}
-            />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Dashboard Task Link Status / Toggle */}
+            {hasActiveDashboardTask ? (
+              <div className="inline-flex items-center gap-2 bg-zinc-800/80 border border-zinc-700/80 px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-200 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span>Active on Dashboard</span>
+                {onRemoveDashboardTask && (
+                  <button
+                    type="button"
+                    onClick={onRemoveDashboardTask}
+                    disabled={isTogglingTask}
+                    className="text-[11px] text-zinc-400 hover:text-rose-400 transition-colors ml-1 font-mono cursor-pointer"
+                    title="Remove from dashboard without leaving group"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ) : (
+              onMakeDashboardTask && (
+                <button
+                  type="button"
+                  onClick={onMakeDashboardTask}
+                  disabled={isTogglingTask}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Make this group as task</span>
+                </button>
+              )
+            )}
+
+            <button
+              onClick={() => {
+                loadAllGames();
+                if (selectedGameId) loadGameDetails(selectedGameId);
+              }}
+              disabled={isLoadingAll || isLoadingDetails}
+              className="p-2 sm:px-3 sm:py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 shrink-0"
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${
+                  isLoadingAll || isLoadingDetails ? 'animate-spin text-flame-400' : ''
+                }`}
+              />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 

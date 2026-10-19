@@ -55,6 +55,11 @@ export interface AdminUser {
   profileImageLimitMb?: number;
   reminderLimit?: number;
   taskReminderLimit?: number;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedExpiresAt?: string | null;
+  deletionDaysRemaining?: number | null;
+  canRecover?: boolean;
   createdAt: string;
   _count?: {
     tasks: number;
@@ -308,6 +313,21 @@ export async function deleteUserAccountByAdmin(
     {
       data: { reason: data.reason },
       headers: { 'x-admin-pin': data.sensitivePin },
+    }
+  );
+  return res.data;
+}
+
+export async function recoverUserAccountByAdmin(
+  userId: string,
+  data: { reason?: string; sensitivePin?: string }
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; user: any }>(
+    `/admin/users/${userId}/recover`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
     }
   );
   return res.data;

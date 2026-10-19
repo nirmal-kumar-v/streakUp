@@ -477,9 +477,22 @@ export async function searchUsersForAdmin(req: AdminAuthenticatedRequest, res: R
       },
     });
 
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const enrichedUsers = users.map((u) => {
+      const del = isAccountDeleted(u.id);
+      return {
+        ...u,
+        isDeleted: del.isDeleted,
+        deletedAt: del.record?.deletedAt || null,
+        deletedExpiresAt: del.record?.expiresAt || null,
+        deletionDaysRemaining: del.daysRemaining ?? null,
+        canRecover: del.canRecover ?? false,
+      };
+    });
+
     return res.json({
       success: true,
-      users,
+      users: enrichedUsers,
     });
   } catch (err: any) {
     console.error('searchUsersForAdmin error:', err);
@@ -584,6 +597,14 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).taskReminderLimit = getUserTaskReminderLimit(userId);
     (safeUser as any).discoverGroupsLimit = getUserDiscoverGroupsLimit(userId);
     (safeUser as any).profileImageLimitMb = getUserProfileImageLimitMb(userId);
+
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const del = isAccountDeleted(userId);
+    (safeUser as any).isDeleted = del.isDeleted;
+    (safeUser as any).deletedAt = del.record?.deletedAt || null;
+    (safeUser as any).deletedExpiresAt = del.record?.expiresAt || null;
+    (safeUser as any).deletionDaysRemaining = del.daysRemaining ?? null;
+    (safeUser as any).canRecover = del.canRecover ?? false;
 
     return res.json({
       success: true,
@@ -1426,6 +1447,52 @@ export async function deleteUserAccountByAdmin(req: AdminAuthenticatedRequest, r
   } catch (err: any) {
     console.error('deleteUserAccountByAdmin error:', err);
     return res.status(500).json({ success: false, error: 'Failed to delete user account.' });
+  }
+}
+
+/**
+ * Recover a deleted user account within the 10-day grace period (Super Admin action)
+ */
+export async function recoverUserAccount(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { reason = 'Account recovered by Super Admin' } = req.body;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, email: true, name: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User account not found.' });
+    }
+
+    const { recoverAccount, isAccountDeleted } = await import('../services/deletedAccountService');
+    const delStatus = isAccountDeleted(userId);
+    if (!delStatus.isDeleted) {
+      return res.status(400).json({ success: false, error: 'This user account is not currently deleted.' });
+    }
+
+    const recoveryResult = await recoverAccount(userId, req.admin!.username);
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'RECOVER_ACCOUNT',
+      targetUserId: userId,
+      targetUser: `@${user.username} (${user.email})`,
+      reason,
+      beforeState: { isDeleted: true, record: delStatus.record },
+      afterState: { isDeleted: false, record: recoveryResult.record },
+    });
+
+    return res.json({
+      success: true,
+      message: `Account for @${user.username} has been recovered. The user can simply log in again.`,
+      user,
+    });
+  } catch (err: any) {
+    console.error('recoverUserAccount error:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to recover account.' });
   }
 }
 

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import {
+  recordAccountDeletion,
+  isAccountDeleted,
+  recoverAccount,
+} from '../src/services/deletedAccountService';
 
 describe('Super Admin Control & Privileged Workflows', () => {
   const JWT_SECRET = 'streakup_test_super_secret_jwt';
@@ -231,6 +236,33 @@ describe('Super Admin Control & Privileged Workflows', () => {
 
     // Invalid scheme
     expect(/^https?:\/\/.+/i.test('ftp://invalid.com/pic.png')).toBe(false);
+  });
+
+  it('should manage deleted accounts with 10-day retention and admin recovery', async () => {
+    const testUserId = 'test-del-user-' + Date.now();
+    const testEmail = 'deleteduser@streakup.test';
+    const testUsername = 'deleteduser_test';
+
+    // 1. Initially not deleted
+    let status = await isAccountDeleted(testUserId);
+    expect(status.isDeleted).toBe(false);
+
+    // 2. User deletes account -> recorded in deleted accounts
+    await recordAccountDeletion(testUserId, testEmail, testUsername);
+
+    status = await isAccountDeleted(testUserId);
+    expect(status.isDeleted).toBe(true);
+    expect(status.canRecover).toBe(true);
+    expect(status.daysRemaining).toBeLessThanOrEqual(10);
+    expect(status.daysRemaining).toBeGreaterThanOrEqual(9);
+
+    // 3. Admin recovers user account
+    const recovered = await recoverAccount(testUserId);
+    expect(recovered.success).toBe(true);
+
+    // 4. After recovery, account is active again and user can login
+    status = await isAccountDeleted(testUserId);
+    expect(status.isDeleted).toBe(false);
   });
 });
 
