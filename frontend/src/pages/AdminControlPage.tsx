@@ -473,8 +473,23 @@ export const AdminControlPage: React.FC = () => {
         setSelectedUserDetails(u);
 
         // Pre-fill fields for smooth experience
-        setNewCurrentStreak(u.currentStreak || 0);
-        setNewLongestStreak(u.longestStreak || 0);
+        if (streakTargetType === 'TASK' && selectedTaskId) {
+          const currentT = u.tasks?.find((x: any) => x.id === selectedTaskId);
+          if (currentT) {
+            setNewCurrentStreak(currentT.currentStreak || 0);
+            setNewLongestStreak(currentT.longestStreak || 0);
+          } else if (u.tasks && u.tasks.length > 0) {
+            setSelectedTaskId(u.tasks[0].id);
+            setNewCurrentStreak(u.tasks[0].currentStreak || 0);
+            setNewLongestStreak(u.tasks[0].longestStreak || 0);
+          }
+        } else {
+          setNewCurrentStreak(u.currentStreak || 0);
+          setNewLongestStreak(u.longestStreak || 0);
+          if (u.tasks && u.tasks.length > 0 && !selectedTaskId) {
+            setSelectedTaskId(u.tasks[0].id);
+          }
+        }
         setNewStarredLimit(u.maxStarredNotifications || 15);
         setNewLeaderboardLimit(u.leaderboardLimit || 10);
         setNewReminderLimit(u.reminderLimit || 3);
@@ -486,9 +501,6 @@ export const AdminControlPage: React.FC = () => {
         setNewFreezeBalance(u.overallFreezeBalance || 0);
         setNewFreezeRechargeDays(u.overallFreezeRechargeDays || 0);
         setSelectedTimezone(u.timezone || 'Asia/Kolkata');
-        if (u.tasks && u.tasks.length > 0) {
-          setSelectedTaskId(u.tasks[0].id);
-        }
       }
     } catch (err: any) {
       if (err?.response?.status === 401 || err?.response?.status === 403) {
@@ -3617,11 +3629,10 @@ export const AdminControlPage: React.FC = () => {
                                 className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                               >
                                 {selectedUserDetails?.tasks?.map((t: any) => {
-                                  const isLi = isLinkedInName(t.title || t.group?.name);
                                   return (
                                     <option key={t.id} value={t.id}>
-                                      {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal] '}
-                                      {t.title} {isLi ? '(LinkedIn Parent Task — see individual game streaks below)' : `(Current: ${t.currentStreak}d)`}
+                                      {t.isGroupTask ? `[Group: ${t.group?.name || 'Group'}] ` : '[Personal] '}
+                                      {t.title} (Current: {t.currentStreak}d, Best: {t.longestStreak}d)
                                     </option>
                                   );
                                 })}
@@ -3677,22 +3688,31 @@ export const AdminControlPage: React.FC = () => {
                         </div>
 
                         {/* Live Before & After Preview */}
-                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border flex items-center justify-between text-xs">
+                        <div className="p-3 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                           <span className="text-zinc-400">Before / After Preview:</span>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 flex-wrap">
                             <span className="text-zinc-400">
                               Current:{' '}
                               <strong className="text-zinc-200">
                                 {streakTargetType === 'OVERALL'
                                   ? selectedUserDetails?.currentStreak || 0
                                   : selectedUserDetails?.tasks?.find((x: any) => x.id === selectedTaskId)
-                                      ?.currentStreak || 0}
-                                d
+                                      ?.currentStreak || 0}d
                               </strong>
+                              {' → '}
+                              <span className="text-flame-400 font-bold">{newCurrentStreak}d</span>
                             </span>
-                            <span className="text-zinc-500">→</span>
-                            <span className="text-flame-400 font-bold">
-                              Resulting: {newCurrentStreak}d
+                            <span className="text-zinc-500">|</span>
+                            <span className="text-zinc-400">
+                              Longest:{' '}
+                              <strong className="text-zinc-200">
+                                {streakTargetType === 'OVERALL'
+                                  ? selectedUserDetails?.longestStreak || 0
+                                  : selectedUserDetails?.tasks?.find((x: any) => x.id === selectedTaskId)
+                                      ?.longestStreak || 0}d
+                              </strong>
+                              {' → '}
+                              <span className="text-amber-400 font-bold">{newLongestStreak}d</span>
                             </span>
                           </div>
                         </div>

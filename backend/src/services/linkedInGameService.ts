@@ -274,7 +274,7 @@ export function computeGameDataForUser(
 
   const longestStreak =
     typeof record.manualLongestStreak === 'number'
-      ? record.manualLongestStreak
+      ? Math.max(record.manualLongestStreak, streakResult.longestStreak, currentStreak)
       : Math.max(streakResult.longestStreak, currentStreak);
 
   // Sort completions descending by date
@@ -368,9 +368,8 @@ export async function completeMemberGame(
     });
   }
 
-  // Clear any manual override once real completion arrives
+  // Clear manual current streak once real completion arrives, preserve admin longest streak
   record.manualCurrentStreak = null;
-  record.manualLongestStreak = null;
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -403,7 +402,6 @@ export async function uncompleteMemberGame(
 
   record.completions = record.completions.filter((c) => c.completionDate !== targetDate);
   record.manualCurrentStreak = null;
-  record.manualLongestStreak = null;
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -604,7 +602,6 @@ export async function adminGrantGameDate(
   }
 
   record.manualCurrentStreak = null;
-  record.manualLongestStreak = null;
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -647,7 +644,6 @@ export async function adminFreezeGameDate(
   }
 
   record.manualCurrentStreak = null;
-  record.manualLongestStreak = null;
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -799,7 +795,6 @@ export async function uncompleteCommittedGamesForDashboard(
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
     raw.manualCurrentStreak = null;
-    raw.manualLongestStreak = null;
     raw.updatedAt = new Date().toISOString();
     records[key] = raw;
     syncRecordToDb(raw).catch(() => {});
