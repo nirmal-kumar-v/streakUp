@@ -8,6 +8,7 @@ import {
   UserRequestCategory,
   UserRequestStatus,
 } from '../services/userRequestService';
+import { replyToUserRequestAsManager, isUserManager } from '../services/managerService';
 
 /**
  * POST /api/requests - Authenticated user submits a request or feedback
@@ -105,3 +106,54 @@ export async function updateRequestStatus(req: AdminAuthenticatedRequest, res: R
     });
   }
 }
+
+/**
+ * GET /api/requests/manager-check - Check if authenticated user has Manager access
+ */
+export async function checkManagerStatus(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.json({ success: true, isManager: false });
+    }
+    const isMgr = await isUserManager(userId);
+    return res.json({ success: true, isManager: isMgr });
+  } catch {
+    return res.json({ success: true, isManager: false });
+  }
+}
+
+/**
+ * POST /api/requests/:id/reply - Manager replies to a user request/feedback
+ * Dispatches an IN-APP ONLY notification to the original requesting user (NO email).
+ */
+export async function replyRequestAsManager(req: AuthenticatedRequest, res: Response) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Authentication required.' });
+    }
+
+    const { id } = req.params;
+    const { replyMessage } = req.body;
+
+    if (!replyMessage || !replyMessage.trim()) {
+      return res.status(400).json({ success: false, error: 'Reply message is required.' });
+    }
+
+    const result = await replyToUserRequestAsManager({
+      managerUserId: userId,
+      requestId: id,
+      replyMessage: replyMessage.trim(),
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    const isForbidden = err.message && err.message.toLowerCase().includes('forbidden');
+    return res.status(isForbidden ? 403 : 400).json({
+      success: false,
+      error: err.message || 'Failed to send manager reply.',
+    });
+  }
+}
+

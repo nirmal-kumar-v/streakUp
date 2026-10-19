@@ -10,6 +10,7 @@ import {
   getAllManagers,
   updateManagerEmailPreference,
   isUserManager,
+  replyToUserRequestAsManager,
 } from '../src/services/managerService';
 import {
   sendAdminMessageToUser,
@@ -182,6 +183,49 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
 
       const list = await getAllManagers();
       expect(list.some((m) => m.userId === testManagerUserId)).toBe(false);
+    }, 15000);
+
+    it('allows an authorized manager to reply to a user request with an in-app notification and no email', async () => {
+      // 1. Grant manager access to testManagerUserId
+      await grantManagerAccess({
+        userId: testManagerUserId,
+        grantedBy: 'admin',
+        emailNotificationsEnabled: true,
+      });
+
+      // 2. Submit a request from testUserId
+      const req = await submitUserRequest({
+        userId: testUserId,
+        category: 'FEATURE_REQUEST',
+        message: 'Can we have customizable streak notifications?',
+      });
+
+      // 3. Manager replies to the request
+      const replyRes = await replyToUserRequestAsManager({
+        managerUserId: testManagerUserId,
+        requestId: req.id,
+        replyMessage: 'We are evaluating this feature for the next sprint!',
+      });
+
+      expect(replyRes.success).toBe(true);
+
+      // 4. Verify original user received an in-app notification
+      const userNotifs = await prisma.notification.findMany({
+        where: { userId: testUserId },
+      });
+      const match = userNotifs.find((n) => n.eventKey?.startsWith(`REQ_REPLY:${req.id}`));
+      expect(match).toBeDefined();
+      expect(match?.title).toContain('Manager Reply');
+      expect(match?.message).toContain('We are evaluating this feature');
+
+      // 5. Verify non-manager fails with error
+      await expect(
+        replyToUserRequestAsManager({
+          managerUserId: 'non-existent-or-unauthorized-user',
+          requestId: req.id,
+          replyMessage: 'Unauthorized message attempt',
+        })
+      ).rejects.toThrow('Forbidden: Only authorized managers can reply to user requests.');
     }, 15000);
   });
 

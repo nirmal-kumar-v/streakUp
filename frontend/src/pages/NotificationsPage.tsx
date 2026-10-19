@@ -22,9 +22,13 @@ import {
   Trophy,
   ArrowRight,
   Star,
+  Reply,
+  Send,
+  RefreshCw,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { toggleStarNotification } from '../api/notifications';
+import { checkIfCurrentUserIsManager, replyToUserRequestAsManager } from '../api/userRequests';
 
 export const NotificationsPage: React.FC = () => {
   const { decrementNotifications, clearNotifications, setUnreadNotificationsCount } = useBadges();
@@ -39,6 +43,45 @@ export const NotificationsPage: React.FC = () => {
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'starred' | 'reminders' | 'friends' | 'milestones'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Manager state for request & feedback replies
+  const [isManager, setIsManager] = useState<boolean>(false);
+  const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState<string>('');
+  const [isSendingReply, setIsSendingReply] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    checkIfCurrentUserIsManager()
+      .then((res) => {
+        if (isMounted) setIsManager(res);
+      })
+      .catch(() => {
+        if (isMounted) setIsManager(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSendReply = async (requestId: string) => {
+    if (!replyText.trim() || isSendingReply) return;
+    setIsSendingReply(true);
+    try {
+      const res = await replyToUserRequestAsManager(requestId, replyText.trim());
+      if (res.success) {
+        toast.info('Reply sent to user');
+        setActiveReplyId(null);
+        setReplyText('');
+      } else {
+        toast.error(res.message || 'Failed to send reply');
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to send reply'));
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
 
   const loadNotifications = useCallback(async (targetPage = 1, filter = activeFilter) => {
     // Only set loading if we don't have notifications yet to avoid screen flash
@@ -466,6 +509,69 @@ export const NotificationsPage: React.FC = () => {
                         </Link>
                       </div>
                     )}
+
+                    {/* Manager Reply Option — Exclusively for Requests & Feedback */}
+                    {Boolean(isManager && item.eventKey?.startsWith('REQ_ALERT:')) && (() => {
+                      const reqId = item.eventKey!.split(':')[1];
+                      if (!reqId) return null;
+                      const isOpen = activeReplyId === item.id;
+                      return (
+                        <div className="mt-3 pt-3 border-t border-dark-border/60">
+                          {!isOpen ? (
+                            <button
+                              onClick={() => {
+                                setActiveReplyId(item.id);
+                                setReplyText('');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-flame-500/10 text-flame-400 hover:bg-flame-500/20 border border-flame-500/20 transition-all shadow-sm"
+                            >
+                              <Reply className="w-3.5 h-3.5" />
+                              <span>Reply</span>
+                            </button>
+                          ) : (
+                            <div className="space-y-2 bg-dark-surface/60 p-3 rounded-xl border border-dark-border">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-zinc-300">Reply to User (In-App)</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveReplyId(null);
+                                    setReplyText('');
+                                  }}
+                                  className="text-dark-muted hover:text-zinc-200 text-[11px]"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              <textarea
+                                value={replyText}
+                                onChange={(e) => setReplyText(e.target.value)}
+                                placeholder="Write response to user..."
+                                rows={2}
+                                maxLength={1000}
+                                className="w-full bg-dark-card border border-dark-border rounded-lg p-2.5 text-xs text-zinc-200 placeholder-dark-muted focus:outline-none focus:border-flame-500/50 resize-none transition-colors"
+                              />
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] text-dark-muted font-mono">{replyText.length}/1000</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSendReply(reqId)}
+                                  disabled={!replyText.trim() || isSendingReply}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-flame-500 hover:bg-flame-400 text-zinc-950 disabled:opacity-40 transition-all shadow-sm"
+                                >
+                                  {isSendingReply ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Send Reply</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 

@@ -1,1 +1,24 @@
-[]
+[
+  {
+    "id": "725d6a8c-ced3-462b-971b-0d4a41844306",
+    "userId": "test-mgr-user-2",
+    "username": "mgrcandidate",
+    "name": "Manager Candidate",
+    "email": "mgrcandidate@example.com",
+    "emailNotificationsEnabled": true,
+    "grantedBy": "admin",
+    "createdAt": "2026-10-19T14:22:14.677Z",
+    "updatedAt": "2026-10-19T14:22:14.677Z"
+  },
+  {
+    "id": "133dbe7a-a2c2-4e59-ae96-42ad94c7b3e0",
+    "userId": "40216495-029e-471e-93c7-10e28e313a4a",
+    "username": "nirmal",
+    "name": "NIRMALKUMAR",
+    "email": "nirmalkumar31082006@gmail.com",
+    "emailNotificationsEnabled": true,
+    "grantedBy": "admin",
+    "createdAt": "2026-10-19T14:02:23.363Z",
+    "updatedAt": "2026-10-19T14:02:23.363Z"
+  }
+]

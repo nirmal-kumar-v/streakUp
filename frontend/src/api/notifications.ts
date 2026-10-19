@@ -19,6 +19,7 @@ export interface NotificationItem {
   friendId?: string | null;
   taskId?: string | null;
   actionUrl?: string | null;
+  eventKey?: string | null;
   isRead: boolean;
   readAt?: string | null;
   isStarred?: boolean;

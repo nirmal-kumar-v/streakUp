@@ -322,3 +322,112 @@ export async function notifyManagersOfNewRequest(request: UserRequestRecord) {
     }
   }
 }
+
+/**
+ * Reply to a user request by an authorized manager.
+ * Dispatches an IN-APP notification to the original requesting user (NO email).
+ */
+export async function replyToUserRequestAsManager(params: {
+  managerUserId: string;
+  requestId: string;
+  replyMessage: string;
+}): Promise<{ success: boolean; message: string }> {
+  const { managerUserId, requestId, replyMessage } = params;
+
+  if (!replyMessage || replyMessage.trim().length < 2) {
+    throw new Error('Reply message cannot be empty.');
+  }
+
+  // 1. Verify caller is an active manager
+  const isMgr = await isUserManager(managerUserId);
+  if (!isMgr) {
+    throw new Error('Forbidden: Only authorized managers can reply to user requests.');
+  }
+
+  const manager = await prisma.user.findUnique({
+    where: { id: managerUserId },
+    select: { id: true, username: true, name: true },
+  });
+
+  if (!manager) {
+    throw new Error('Manager account not found.');
+  }
+
+  // 2. Locate the user request from storage/db
+  const requestsFile = path.join(DATA_DIR, 'user_requests.json');
+  let requests: UserRequestRecord[] = [];
+  try {
+    if (fs.existsSync(requestsFile)) {
+      requests = JSON.parse(fs.readFileSync(requestsFile, 'utf-8')) || [];
+    }
+  } catch {}
+
+  let targetRequest = requests.find((r) => r.id === requestId);
+
+  // If not found in file, try DB
+  if (!targetRequest) {
+    try {
+      const rows = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT "id", "user_id" as "userId", "username", "name", "category", "message", "status", "admin_notes" as "adminNotes" FROM "user_requests" WHERE "id" = $1`,
+        requestId
+      );
+      if (Array.isArray(rows) && rows.length > 0) {
+        targetRequest = rows[0] as UserRequestRecord;
+      }
+    } catch {}
+  }
+
+  if (!targetRequest) {
+    throw new Error('User request not found.');
+  }
+
+  // 3. Update the request status and record the manager note
+  const noteText = `Manager @${manager.username}: ${replyMessage.trim()}`;
+  targetRequest.adminNotes = targetRequest.adminNotes
+    ? `${targetRequest.adminNotes}\n${noteText}`
+    : noteText;
+  if (targetRequest.status === 'PENDING') {
+    targetRequest.status = 'UNDER_REVIEW';
+  }
+  targetRequest.updatedAt = new Date().toISOString();
+
+  try {
+    fs.writeFileSync(requestsFile, JSON.stringify(requests, null, 2), 'utf-8');
+  } catch {}
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `
+      UPDATE "user_requests"
+      SET "status" = CASE WHEN "status" = 'PENDING' THEN 'UNDER_REVIEW' ELSE "status" END,
+          "admin_notes" = $1,
+          "updated_at" = NOW()
+      WHERE "id" = $2
+      `,
+      targetRequest.adminNotes,
+      requestId
+    );
+  } catch {}
+
+  const categoryLabels: Record<string, string> = {
+    FEATURE_REQUEST: 'Feature Request',
+    BUG_REPORT: 'Bug Report',
+    ACCOUNT_SUPPORT: 'Account Support',
+    GENERAL_FEEDBACK: 'General Feedback',
+    OTHER: 'Request & Feedback',
+  };
+  const catLabel = categoryLabels[targetRequest.category] || 'Request';
+
+  // 4. Dispatch IN-APP ONLY notification to the original user (NO email from manager)
+  await createNotification({
+    userId: targetRequest.userId,
+    category: NotificationCategory.SYSTEM,
+    title: `Manager Reply on your ${catLabel}`,
+    message: `@${manager.username}: "${replyMessage.trim()}"`,
+    eventKey: `REQ_REPLY:${requestId}:${Date.now()}`,
+    actionUrl: '/notifications',
+  });
+
+  return { success: true, message: 'Reply sent to user.' };
+}
+
