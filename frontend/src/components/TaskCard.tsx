@@ -10,7 +10,6 @@ import {
   Repeat,
   Sparkles,
   Flame,
-  Gamepad2,
 } from 'lucide-react';
 import { isLinkedInName } from '../utils/linkedin';
 
@@ -77,17 +76,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     >
       <div className="flex items-center justify-between gap-3.5">
         <div className="flex items-center gap-3.5 min-w-0 flex-1">
-          {/* Completion Checkbox / Tick Button OR Schedule Icon if non-today OR LinkedIn Games Hub button */}
-          {isLinkedIn ? (
-            <button
-              onClick={handleLinkedInNavigate}
-              title="LinkedIn Games Hub — Click to play Pinpoint, Crossclimb, Queens, and more"
-              aria-label="Open LinkedIn Games Hub"
-              className="flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 shadow-sm transition-all hover:scale-105 active:scale-95"
-            >
-              <Gamepad2 className="w-4 h-4 text-sky-400" />
-            </button>
-          ) : canTick && onToggleComplete ? (
+          {/* Completion Checkbox / Tick Button OR Schedule Icon if non-today */}
+          {canTick && onToggleComplete ? (
             <button
               onClick={handleCheck}
               disabled={isToggling}
@@ -109,7 +99,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </div>
           )}
 
-          {/* Task Name & Streak Only (Clicking name opens task details / LinkedIn games) */}
+          {/* Task Name & Streak Only (Clicking name or card opens LinkedIn games hub / task details) */}
           <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
             <h3
               onClick={() => {
@@ -127,18 +117,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.title}
             </h3>
 
-            {isLinkedIn && (
-              <span
-                onClick={handleLinkedInNavigate}
-                className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/30 shrink-0 hover:bg-sky-500/20 transition-colors"
-                title="8 Independent Games: Pinpoint, Crossclimb, Queens, Tango, Zip, Mini Sudoku, Patches, Wend"
-              >
-                <Gamepad2 className="w-3 h-3" />
-                <span>8 Games</span>
-              </span>
-            )}
-
-            {/* Task Streak Badge */}
+            {/* Task Streak Badge (Highest streak among committed games for LinkedIn task) */}
             {task.recurrence === 'DAILY' && (
               <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-flame-400 bg-flame-500/10 px-2 py-0.5 rounded-full border border-flame-500/20 shrink-0">
                 <Flame className="w-3 h-3 fill-flame-500" />
@@ -161,6 +140,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             )}
           </div>
         </div>
+
 
         {/* Action Buttons: Edit, Archive, Delete */}
         <div className="flex items-center gap-0.5 sm:gap-1 shrink-0 opacity-90 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">

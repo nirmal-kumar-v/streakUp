@@ -129,4 +129,105 @@ describe('LinkedIn Group Games & Independent Streaks', () => {
     const unfrozenPatches = await adminFreezeGameDate(testGroupId, user1, 'patches', '2026-10-16', false);
     expect(unfrozenPatches.freezeLogs.some((f) => f.protectedDate === '2026-10-16')).toBe(false);
   });
+
+  it('7. All eight games are committed by default for members', async () => {
+    const userCommitTest = `user-commit-${Date.now()}`;
+    const allGames = await getAllGamesForMember(testGroupId, userCommitTest, timezone);
+    expect(allGames).toHaveLength(8);
+    for (const g of allGames) {
+      expect(g.isCommitted).toBe(true);
+    }
+  });
+
+  it('8. Users can individually uncommit and recommit without losing history or resetting streaks', async () => {
+    const userToggle = `user-toggle-${Date.now()}`;
+    // 1. Complete Tango to earn a streak of 1
+    const tangoCompleted = await completeMemberGame(testGroupId, userToggle, 'tango', timezone);
+    expect(tangoCompleted.currentStreak).toBe(1);
+    expect(tangoCompleted.isCommitted).toBe(true);
+
+    // 2. Uncommit Tango
+    const { setGameCommitment } = await import('../src/services/linkedInGameService');
+    const tangoUncommitted = await setGameCommitment(testGroupId, userToggle, 'tango', false, timezone);
+    expect(tangoUncommitted.isCommitted).toBe(false);
+    // History and streak MUST be preserved!
+    expect(tangoUncommitted.currentStreak).toBe(1);
+    expect(tangoUncommitted.totalCompletions).toBe(1);
+
+    // 3. Recommit Tango
+    const tangoRecommitted = await setGameCommitment(testGroupId, userToggle, 'tango', true, timezone);
+    expect(tangoRecommitted.isCommitted).toBe(true);
+    expect(tangoRecommitted.currentStreak).toBe(1);
+    expect(tangoRecommitted.totalCompletions).toBe(1);
+  });
+
+  it('9. Dashboard streak represents the highest current streak among committed games only', async () => {
+    const userDash = `user-dash-${Date.now()}`;
+    const {
+      setGameCommitment,
+      getLinkedInDashboardStreak,
+      completeCommittedGamesForDashboard,
+    } = await import('../src/services/linkedInGameService');
+
+    // Initially all 8 games have 0 streak
+    const initialDash = await getLinkedInDashboardStreak(testGroupId, userDash, timezone);
+    expect(initialDash.currentStreak).toBe(0);
+    expect(initialDash.committedCount).toBe(8);
+
+    // Give Queens a streak of 5, Pinpoint a streak of 3
+    await adminCorrectGameStreak(testGroupId, userDash, 'queens', 5, 5);
+    await adminCorrectGameStreak(testGroupId, userDash, 'pinpoint', 3, 3);
+
+    const dashWithQueens = await getLinkedInDashboardStreak(testGroupId, userDash, timezone);
+    expect(dashWithQueens.currentStreak).toBe(5);
+
+    // If user uncommits from Queens, dashboard highest streak falls back to Pinpoint (3)
+    await setGameCommitment(testGroupId, userDash, 'queens', false, timezone);
+    const dashAfterUncommitQueens = await getLinkedInDashboardStreak(testGroupId, userDash, timezone);
+    expect(dashAfterUncommitQueens.currentStreak).toBe(3);
+
+    // If user uncommits from all committed games, dashboard streak is 0
+    const allGames = await getAllGamesForMember(testGroupId, userDash, timezone);
+    for (const g of allGames) {
+      await setGameCommitment(testGroupId, userDash, g.gameId, false, timezone);
+    }
+    const dashEmpty = await getLinkedInDashboardStreak(testGroupId, userDash, timezone);
+    expect(dashEmpty.currentStreak).toBe(0);
+    expect(dashEmpty.committedCount).toBe(0);
+  });
+
+  it('10. Dashboard tick completes only committed games and does not touch uncommitted games', async () => {
+    const userTickTest = `user-tick-${Date.now()}`;
+    const {
+      setGameCommitment,
+      completeCommittedGamesForDashboard,
+    } = await import('../src/services/linkedInGameService');
+
+    // Uncommit Tango and Wend
+    await setGameCommitment(testGroupId, userTickTest, 'tango', false, timezone);
+    await setGameCommitment(testGroupId, userTickTest, 'wend', false, timezone);
+
+    // Perform dashboard tick (completing all committed games)
+    const tickResult = await completeCommittedGamesForDashboard(testGroupId, userTickTest, timezone);
+    expect(tickResult.totalCommittedCount).toBe(6);
+    expect(tickResult.completedGamesCount).toBe(6);
+
+    // Verify committed games (e.g. Pinpoint, Queens) are completed today
+    const pinpoint = await getSingleGameForMember(testGroupId, userTickTest, 'pinpoint', timezone);
+    expect(pinpoint?.completedToday).toBe(true);
+
+    // Verify uncommitted games (Tango, Wend) were NOT completed
+    const tango = await getSingleGameForMember(testGroupId, userTickTest, 'tango', timezone);
+    const wend = await getSingleGameForMember(testGroupId, userTickTest, 'wend', timezone);
+    expect(tango?.completedToday).toBe(false);
+    expect(tango?.totalCompletions).toBe(0);
+    expect(wend?.completedToday).toBe(false);
+    expect(wend?.totalCompletions).toBe(0);
+
+    // Repeated dashboard tick does not create duplicate completions
+    const repeatTick = await completeCommittedGamesForDashboard(testGroupId, userTickTest, timezone);
+    expect(repeatTick.newlyCompletedCount ?? repeatTick.completedGamesCount).toBe(0);
+    expect(repeatTick.alreadyCompletedCount).toBe(6);
+  });
 });
+

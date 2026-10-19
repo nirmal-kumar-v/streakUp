@@ -33,6 +33,7 @@ import {
 import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
+import { isLinkedInName } from '../utils/linkedin';
 
 export const TasksPage: React.FC = () => {
   const { user, updateUser } = useAuth();
@@ -109,6 +110,37 @@ export const TasksPage: React.FC = () => {
         toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
       }
     } else {
+      // If LinkedIn task, complete immediately without requesting a study note
+      const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
+      if (isLinkedIn) {
+        try {
+          const res = await completeTask(task.id, 'LinkedIn games completed');
+          if (res.success) {
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === task.id
+                  ? { ...t, completedToday: true, currentStreak: res.streak?.currentStreak ?? t.currentStreak }
+                  : t
+              )
+            );
+            if (res.streak) {
+              updateUser({
+                currentStreak: res.streak.currentStreak,
+                longestStreak: res.streak.longestStreak,
+              });
+            }
+            triggerStreakCelebration({
+              newStreak: res.streak?.currentStreak,
+            });
+            await loadTasks();
+            toast.success('Committed LinkedIn games completed!');
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
+        }
+        return;
+      }
+
       setCompletingTask(task);
     }
   };

@@ -27,6 +27,7 @@ import {
   getSingleLinkedInGame,
   completeLinkedInGame,
   getLinkedInGameLeaderboard,
+  setLinkedInGameCommitment,
 } from '../controllers/linkedInGameController';
 import { requireAuth } from '../middleware/authMiddleware';
 
@@ -63,6 +64,7 @@ router.get('/:id/notes', getGroupNotes);
 router.get('/:id/linkedin-games', getLinkedInGames);
 router.get('/:id/linkedin-games/:gameId', getSingleLinkedInGame);
 router.post('/:id/linkedin-games/:gameId/complete', completeLinkedInGame);
+router.put('/:id/linkedin-games/:gameId/commitment', setLinkedInGameCommitment);
 router.get('/:id/linkedin-games/:gameId/leaderboard', getLinkedInGameLeaderboard);
 
 router.post('/:id/members/:targetUserId/promote', promoteMemberToAdmin);

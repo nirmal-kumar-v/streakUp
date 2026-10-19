@@ -3,6 +3,7 @@ import {
   fetchLinkedInGames,
   fetchSingleLinkedInGame,
   completeLinkedInGame,
+  updateLinkedInGameCommitment,
   LinkedInGameItem,
   LinkedInGameLeaderboardEntry,
 } from '../api/groups';
@@ -26,6 +27,9 @@ import {
   Grid3X3,
   Boxes,
   Shuffle,
+  Check,
+  Plus,
+  X,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
@@ -64,6 +68,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   const [isLoadingAll, setIsLoadingAll] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTogglingCommitment, setIsTogglingCommitment] = useState(false);
 
   const [studyNote, setStudyNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -143,6 +148,48 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       toast.error(extractErrorMessage(err, 'Failed to complete game.'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Toggle game commitment status
+  const handleToggleCommitment = async (gameId: string, targetCommitment: boolean) => {
+    if (isTogglingCommitment) return;
+    setIsTogglingCommitment(true);
+
+    // Optimistic UI update
+    setGames((prev) =>
+      prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: targetCommitment } : g))
+    );
+    if (activeGameData && activeGameData.gameId === gameId) {
+      setActiveGameData((prev) => (prev ? { ...prev, isCommitted: targetCommitment } : null));
+    }
+
+    try {
+      const res = await updateLinkedInGameCommitment(groupId, gameId, targetCommitment);
+      if (res.success && res.game) {
+        setGames((prev) =>
+          prev.map((g) => (g.gameId === gameId ? res.game : g))
+        );
+        if (activeGameData && activeGameData.gameId === gameId) {
+          setActiveGameData(res.game);
+        }
+        toastRef.current.info(
+          targetCommitment
+            ? `Committed to ${res.game.name}. Dashboard tick will include this game.`
+            : `Uncommitted from ${res.game.name}. History and streak are preserved.`
+        );
+      }
+    } catch (err: any) {
+      // Rollback on error
+      setGames((prev) =>
+        prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: !targetCommitment } : g))
+      );
+      if (activeGameData && activeGameData.gameId === gameId) {
+        setActiveGameData((prev) => (prev ? { ...prev, isCommitted: !targetCommitment } : null));
+      }
+      toastRef.current.error(extractErrorMessage(err, 'Failed to update commitment.'));
+    } finally {
+      setIsTogglingCommitment(false);
     }
   };
 
@@ -242,11 +289,28 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     isSelected ? 'text-sky-400' : 'text-zinc-400'
                   }`}
                 />
-                {g.completedToday ? (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-400/20" title="Completed Today" />
-                ) : (
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" title="Pending Today" />
-                )}
+                <div className="flex items-center gap-1">
+                  {g.isCommitted ? (
+                    <span
+                      className="text-[9px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1 py-0.2 rounded border border-emerald-500/20"
+                      title="Committed to game"
+                    >
+                      ✓
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[9px] font-mono text-zinc-500 bg-dark-surface px-1 py-0.2 rounded border border-dark-border"
+                      title="Uncommitted"
+                    >
+                      off
+                    </span>
+                  )}
+                  {g.completedToday ? (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-emerald-400/20" title="Completed Today" />
+                  ) : (
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" title="Pending Today" />
+                  )}
+                </div>
               </div>
 
               <div className="mt-2">
@@ -287,6 +351,16 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                       <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-dark-surface border border-dark-border text-zinc-300 font-medium">
                         {activeGameData.tagline}
                       </span>
+                      {activeGameData.isCommitted ? (
+                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 font-bold flex items-center gap-1">
+                          <Check className="w-3 h-3 stroke-[2.5]" />
+                          <span>Committed</span>
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 font-medium">
+                          Uncommitted
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-dark-muted mt-0.5">
                       {activeGameData.description}
@@ -295,10 +369,41 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 </div>
               </div>
 
-              {/* Completion Action */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+              {/* Actions: Commitment Toggle & Completion Action */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+                {/* Minimal, Premium Commit / Committed Toggle */}
+                <button
+                  type="button"
+                  onClick={() => handleToggleCommitment(activeGameData.gameId, !activeGameData.isCommitted)}
+                  disabled={isTogglingCommitment}
+                  title={
+                    activeGameData.isCommitted
+                      ? 'Committed: Included in your daily LinkedIn dashboard tick. Click to uncommit (streak & history are preserved).'
+                      : 'Uncommitted: Click to commit and include in your daily LinkedIn dashboard tick.'
+                  }
+                  className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 min-w-[105px] ${
+                    activeGameData.isCommitted
+                      ? 'bg-emerald-500/10 hover:bg-rose-500/10 text-emerald-400 hover:text-rose-400 border-emerald-500/30 hover:border-rose-500/30'
+                      : 'bg-dark-surface hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 border-dark-border hover:border-emerald-500/30'
+                  }`}
+                >
+                  {isTogglingCommitment ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : activeGameData.isCommitted ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>Committed</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Commit</span>
+                    </>
+                  )}
+                </button>
+
                 {activeGameData.completedToday ? (
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                  <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Completed Today</span>
                   </div>
@@ -307,7 +412,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     type="button"
                     onClick={handleCompleteGame}
                     disabled={isSubmitting}
-                    className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-sky-500 hover:bg-sky-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-sky-500/20 transition-all"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-sky-500 hover:bg-sky-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-sky-500/20 transition-all"
                   >
                     {isSubmitting ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -321,11 +426,12 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowNoteInput((prev) => !prev)}
-                  className="px-3.5 py-2.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors text-center"
+                  className="px-3 py-2.5 bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors text-center"
                 >
                   {showNoteInput ? 'Close Note' : activeGameData.todayNote ? 'Edit Note' : '+ Note'}
                 </button>
               </div>
+
             </div>
 
             {/* Optional Study/Game Note input */}

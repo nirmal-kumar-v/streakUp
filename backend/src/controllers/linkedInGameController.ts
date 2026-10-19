@@ -9,6 +9,7 @@ import {
   isLinkedInName,
   normalizeGameId,
   LINKEDIN_GAMES,
+  setGameCommitment,
 } from '../services/linkedInGameService';
 import { DEFAULT_TIMEZONE } from '../services/timezoneService';
 
@@ -221,3 +222,47 @@ export async function getLinkedInGameLeaderboard(req: AuthenticatedRequest, res:
     return res.status(500).json({ success: false, error: 'Failed to fetch game leaderboard.' });
   }
 }
+
+/**
+ * PUT /api/groups/:id/linkedin-games/:gameId/commitment
+ * Member individually commits to or uncommits from an individual LinkedIn game
+ */
+export async function setLinkedInGameCommitment(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { id: groupId, gameId } = req.params;
+    const userId = req.user!.userId;
+    const { isCommitted } = req.body || {};
+
+    if (typeof isCommitted !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'A boolean isCommitted value is required.' });
+    }
+
+    const validation = await validateGroupMembership(groupId, userId);
+    if ('error' in validation) {
+      return res.status(validation.status || 400).json({ success: false, error: validation.error });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    const tz = user?.timezone || DEFAULT_TIMEZONE;
+
+    const updatedGame = await setGameCommitment(groupId, userId, normalizedGameId, isCommitted, tz);
+
+    return res.json({
+      success: true,
+      message: `${updatedGame.name} commitment updated to ${isCommitted ? 'committed' : 'uncommitted'}.`,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    console.error('[setLinkedInGameCommitment] Error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update game commitment.' });
+  }
+}
+

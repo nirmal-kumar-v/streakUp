@@ -801,6 +801,27 @@ export async function adminFreezeLinkedInGameDate(
   return res.data;
 }
 
+export async function adminSetLinkedInGameCommitment(
+  userId: string,
+  groupId: string,
+  data: {
+    gameId: string;
+    isCommitted: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; game: any }>(
+    `/admin/users/${userId}/linkedin-games/${groupId}/commitment`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+
 
 
 

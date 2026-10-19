@@ -324,6 +324,7 @@ export interface LinkedInGameItem {
   name: string;
   description: string;
   tagline: string;
+  isCommitted: boolean;
   currentStreak: number;
   longestStreak: number;
   completedToday: boolean;
@@ -407,6 +408,21 @@ export async function fetchLinkedInGameLeaderboard(
   leaderboard: LinkedInGameLeaderboardEntry[];
 }> {
   const res = await apiClient.get(`/groups/${groupId}/linkedin-games/${gameId}/leaderboard`);
+  return res.data;
+}
+
+export async function updateLinkedInGameCommitment(
+  groupId: string,
+  gameId: string,
+  isCommitted: boolean
+): Promise<{
+  success: boolean;
+  message: string;
+  game: LinkedInGameItem;
+}> {
+  const res = await apiClient.put(`/groups/${groupId}/linkedin-games/${gameId}/commitment`, {
+    isCommitted,
+  });
   return res.data;
 }
 

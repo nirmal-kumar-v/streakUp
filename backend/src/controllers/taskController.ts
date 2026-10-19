@@ -10,7 +10,12 @@ import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '
 import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
 import { FreezeScope } from '@prisma/client';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
-import { isLinkedInName } from '../services/linkedInGameService';
+import {
+  isLinkedInName,
+  getLinkedInDashboardStreak,
+  completeCommittedGamesForDashboard,
+  uncompleteCommittedGamesForDashboard,
+} from '../services/linkedInGameService';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -93,20 +98,40 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
     });
 
     // Transform tasks to attach completedToday flag and todayStudyNote
-    const formattedTasks = tasks.map(task => {
-      const completedToday = task.recurrence === 'DAILY'
-        ? task.completions.length > 0
-        : task.isCompleted;
+    const formattedTasks = await Promise.all(
+      tasks.map(async (task) => {
+        let completedToday =
+          task.recurrence === 'DAILY'
+            ? task.completions.length > 0
+            : task.isCompleted;
 
-      const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
+        let currentStreak = task.currentStreak;
+        let longestStreak = task.longestStreak;
+        const isLinkedIn = Boolean(
+          (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
+        );
 
-      return {
-        ...task,
-        completedToday,
-        todayStudyNote,
-        completions: undefined // hide raw completions array
-      };
-    });
+        if (isLinkedIn && task.groupId) {
+          const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
+          currentStreak = li.currentStreak;
+          longestStreak = Math.max(task.longestStreak, li.longestStreak);
+          completedToday = li.completedToday;
+        }
+
+        const todayStudyNote =
+          task.completions.length > 0 ? task.completions[0].studyNote : null;
+
+        return {
+          ...task,
+          currentStreak,
+          longestStreak,
+          completedToday,
+          todayStudyNote,
+          isLinkedIn,
+          completions: undefined, // hide raw completions array
+        };
+      })
+    );
 
     return res.json({
       success: true,
@@ -309,15 +334,71 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    // LinkedIn group tasks cannot be completed directly; members complete individual games
+    // LinkedIn group tasks: complete all currently committed games on the current qualifying date
     if (task.isGroupTask && isLinkedInName(task.title)) {
-      return res.status(400).json({
-        success: false,
-        error: 'LinkedIn group tasks are completed by playing individual games. Open the LinkedIn group page to play and track games.',
+      const timezone = task.user?.timezone || 'Asia/Kolkata';
+      const todayDateStr = getLocalDateString(timezone);
+
+      // Complete all currently committed games for that user on the current qualifying date
+      const liResult = task.groupId
+        ? await completeCommittedGamesForDashboard(task.groupId, userId, timezone, todayDateStr)
+        : { highestStreak: 0, longestStreak: 0, completedGamesCount: 0, alreadyCompletedCount: 0, totalCommittedCount: 0 };
+
+      // Update parent task streak in database to match highest streak among committed games
+      await prisma.task.update({
+        where: { id },
+        data: {
+          currentStreak: liResult.highestStreak,
+          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+        },
+      });
+
+      // Upsert completion record for the parent task on today's date (no study note requested for LinkedIn dashboard completion)
+      await prisma.taskCompletion.upsert({
+        where: {
+          taskId_completionDate: {
+            taskId: id,
+            completionDate: todayDateStr,
+          },
+        },
+        update: {
+          completedAt: new Date(),
+          studyNote: null,
+        },
+        create: {
+          taskId: id,
+          userId,
+          completionDate: todayDateStr,
+          studyNote: null,
+        },
+      });
+
+      // Recalculate overall streak
+      const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+
+      const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
+      const newTotalPoints = u?.points || 0;
+
+      return res.json({
+        success: true,
+        message: 'Committed LinkedIn games completed!',
+        completedToday: true,
+        studyNote: null,
+        taskStreak: {
+          currentStreak: liResult.highestStreak,
+          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+        },
+        overallStreak,
+        streak: {
+          currentStreak: liResult.highestStreak,
+          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+        },
+        pointsAwarded: 0,
+        totalPoints: newTotalPoints,
       });
     }
 
-    // Study note is strictly mandatory (Requirement 13)
+    // Study note is strictly mandatory for all other tasks (Requirement 13)
     if (!studyNote || typeof studyNote !== 'string' || studyNote.trim().length < 3) {
       return res.status(400).json({
         success: false,
@@ -452,9 +533,47 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
     }
 
     if (task.isGroupTask && isLinkedInName(task.title)) {
-      return res.status(400).json({
-        success: false,
-        error: 'LinkedIn group tasks are managed through individual games.',
+      const timezone = task.user?.timezone || 'Asia/Kolkata';
+      const todayDateStr = getLocalDateString(timezone);
+
+      const liResult = task.groupId
+        ? await uncompleteCommittedGamesForDashboard(task.groupId, userId, timezone, todayDateStr)
+        : { highestStreak: 0, longestStreak: 0 };
+
+      // Delete today's completion record if it exists
+      await prisma.taskCompletion.deleteMany({
+        where: {
+          taskId: id,
+          completionDate: todayDateStr,
+        },
+      });
+
+      // Update parent task streak
+      await prisma.task.update({
+        where: { id },
+        data: {
+          currentStreak: liResult.highestStreak,
+        },
+      });
+
+      // Recalculate overall streak
+      const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+      const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
+
+      return res.json({
+        success: true,
+        message: 'LinkedIn games marked as incomplete for today.',
+        completedToday: false,
+        taskStreak: {
+          currentStreak: liResult.highestStreak,
+          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+        },
+        overallStreak,
+        streak: {
+          currentStreak: liResult.highestStreak,
+          longestStreak: Math.max(task.longestStreak, liResult.longestStreak),
+        },
+        totalPoints: u?.points || 0,
       });
     }
 
@@ -764,34 +883,51 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
     });
 
     // Calculate completed vs pending today
-    const tasksWithStatus = activeTasks.map(task => {
-      const completedToday = task.recurrence === 'DAILY'
-        ? task.completions.length > 0
-        : task.isCompleted;
+    const tasksWithStatus = await Promise.all(
+      activeTasks.map(async (task) => {
+        let completedToday =
+          task.recurrence === 'DAILY'
+            ? task.completions.length > 0
+            : task.isCompleted;
 
-      const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
+        let currentStreak = task.currentStreak;
+        let longestStreak = task.longestStreak;
+        const isLinkedIn = Boolean(
+          (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
+        );
 
-      return {
-        id: task.id,
-        title: task.title,
-        description: task.description,
-        category: task.category,
-        priority: task.priority,
-        recurrence: task.recurrence,
-        scheduledDays: task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
-        dueTime: task.dueTime,
-        status: task.status,
-        currentStreak: task.currentStreak,
-        longestStreak: task.longestStreak,
-        freezeBalance: task.freezeBalance,
-        freezeRechargeDays: task.freezeRechargeDays,
-        completedToday,
-        todayStudyNote,
-        groupId: task.groupId,
-        isGroupTask: task.isGroupTask || !!task.groupId,
-        isLinkedIn: (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title),
-      };
-    });
+        if (isLinkedIn && task.groupId) {
+          const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
+          currentStreak = li.currentStreak;
+          longestStreak = Math.max(task.longestStreak, li.longestStreak);
+          completedToday = li.completedToday;
+        }
+
+        const todayStudyNote =
+          task.completions.length > 0 ? task.completions[0].studyNote : null;
+
+        return {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          category: task.category,
+          priority: task.priority,
+          recurrence: task.recurrence,
+          scheduledDays: task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+          dueTime: task.dueTime,
+          status: task.status,
+          currentStreak,
+          longestStreak,
+          freezeBalance: task.freezeBalance,
+          freezeRechargeDays: task.freezeRechargeDays,
+          completedToday,
+          todayStudyNote,
+          groupId: task.groupId,
+          isGroupTask: task.isGroupTask || !!task.groupId,
+          isLinkedIn,
+        };
+      })
+    );
 
     const totalActiveTasks = tasksWithStatus.length;
     const completedTodayCount = tasksWithStatus.filter(t => t.completedToday).length;

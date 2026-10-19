@@ -93,6 +93,7 @@ export interface StoredGameRecord {
   gameId: string;
   manualCurrentStreak?: number | null;
   manualLongestStreak?: number | null;
+  isCommitted?: boolean;
   completions: GameCompletionItem[];
   freezeLogs: GameFreezeItem[];
   updatedAt: string;
@@ -208,6 +209,7 @@ export function getRawGameRecord(groupId: string, userId: string, gameId: string
       gameId,
       manualCurrentStreak: null,
       manualLongestStreak: null,
+      isCommitted: true, // All 8 games committed by default for existing and newly created participants
       completions: [],
       freezeLogs: [],
       updatedAt: new Date().toISOString(),
@@ -222,6 +224,7 @@ export interface ComputedGameData {
   name: string;
   description: string;
   tagline: string;
+  isCommitted: boolean;
   currentStreak: number;
   longestStreak: number;
   completedToday: boolean;
@@ -281,6 +284,7 @@ export function computeGameDataForUser(
     name: meta.name,
     description: meta.description,
     tagline: meta.tagline,
+    isCommitted: record.isCommitted !== false,
     currentStreak,
     longestStreak,
     completedToday,
@@ -582,3 +586,167 @@ export async function adminFreezeGameDate(
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
 }
+
+/**
+ * Updates a member's commitment status for an individual LinkedIn game.
+ * Uncommitting does NOT delete history, reset streak, or consume freeze.
+ * Recommitting preserves history and normal streak rules.
+ */
+export async function setGameCommitment(
+  groupId: string,
+  userId: string,
+  gameId: string,
+  isCommitted: boolean,
+  userTimezone: string = DEFAULT_TIMEZONE
+): Promise<ComputedGameData> {
+  const normalized = normalizeGameId(gameId);
+  if (!normalized) {
+    throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
+  }
+
+  const records = loadAllRecords();
+  const key = getRecordKey(groupId, userId, normalized);
+  const record = getRawGameRecord(groupId, userId, normalized);
+
+  record.isCommitted = Boolean(isCommitted);
+  record.updatedAt = new Date().toISOString();
+
+  records[key] = record;
+  saveAllRecords(records);
+  syncRecordToDb(record).catch(() => {});
+
+  return computeGameDataForUser(record, userTimezone);
+}
+
+/**
+ * Calculates the LinkedIn dashboard streak aggregate:
+ * Highest current streak among that user's committed LinkedIn games.
+ * If no games are committed, returns zero.
+ * completedToday is true if at least 1 game is committed and all committed games are completed today.
+ */
+export async function getLinkedInDashboardStreak(
+  groupId: string,
+  userId: string,
+  userTimezone: string = DEFAULT_TIMEZONE
+): Promise<{
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  committedCount: number;
+  totalGames: number;
+}> {
+  const games = await getAllGamesForMember(groupId, userId, userTimezone);
+  const committedGames = games.filter((g) => g.isCommitted);
+
+  if (committedGames.length === 0) {
+    return {
+      currentStreak: 0,
+      longestStreak: 0,
+      completedToday: false,
+      committedCount: 0,
+      totalGames: games.length,
+    };
+  }
+
+  const currentStreak = Math.max(...committedGames.map((g) => g.currentStreak));
+  const longestStreak = Math.max(...committedGames.map((g) => g.longestStreak));
+  const completedToday = committedGames.every((g) => g.completedToday);
+
+  return {
+    currentStreak,
+    longestStreak,
+    completedToday,
+    committedCount: committedGames.length,
+    totalGames: games.length,
+  };
+}
+
+/**
+ * Ticking the LinkedIn dashboard task completes all currently committed games
+ * for that user on the qualifying date without completing uncommitted games.
+ * Does not award duplicate completions if already completed.
+ */
+export async function completeCommittedGamesForDashboard(
+  groupId: string,
+  userId: string,
+  userTimezone: string = DEFAULT_TIMEZONE,
+  completionDate?: string
+): Promise<{
+  highestStreak: number;
+  longestStreak: number;
+  completedGamesCount: number;
+  alreadyCompletedCount: number;
+  totalCommittedCount: number;
+}> {
+  const todayDate = completionDate || getTodayInTimezone(userTimezone);
+  const games = await getAllGamesForMember(groupId, userId, userTimezone);
+  const committedGames = games.filter((g) => g.isCommitted);
+
+  let newlyCompleted = 0;
+  let alreadyCompleted = 0;
+
+  for (const game of committedGames) {
+    const raw = getRawGameRecord(groupId, userId, game.gameId);
+    const isDone = raw.completions.some((c) => c.completionDate === todayDate);
+    if (isDone) {
+      alreadyCompleted++;
+    } else {
+      await completeMemberGame(
+        groupId,
+        userId,
+        game.gameId,
+        userTimezone,
+        todayDate,
+        null // No study note requested for LinkedIn dashboard completion
+      );
+      newlyCompleted++;
+    }
+  }
+
+  const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
+
+  return {
+    highestStreak: dashSummary.currentStreak,
+    longestStreak: dashSummary.longestStreak,
+    completedGamesCount: newlyCompleted,
+    alreadyCompletedCount: alreadyCompleted,
+    totalCommittedCount: committedGames.length,
+  };
+}
+
+/**
+ * Unticking the LinkedIn dashboard task marks committed games as incomplete for today.
+ */
+export async function uncompleteCommittedGamesForDashboard(
+  groupId: string,
+  userId: string,
+  userTimezone: string = DEFAULT_TIMEZONE,
+  completionDate?: string
+): Promise<{
+  highestStreak: number;
+  longestStreak: number;
+}> {
+  const targetDate = completionDate || getTodayInTimezone(userTimezone);
+  const games = await getAllGamesForMember(groupId, userId, userTimezone);
+  const committedGames = games.filter((g) => g.isCommitted);
+  const records = loadAllRecords();
+
+  for (const game of committedGames) {
+    const key = getRecordKey(groupId, userId, game.gameId);
+    const raw = getRawGameRecord(groupId, userId, game.gameId);
+    raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
+    raw.manualCurrentStreak = null;
+    raw.manualLongestStreak = null;
+    raw.updatedAt = new Date().toISOString();
+    records[key] = raw;
+    syncRecordToDb(raw).catch(() => {});
+  }
+  saveAllRecords(records);
+
+  const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
+  return {
+    highestStreak: dashSummary.currentStreak,
+    longestStreak: dashSummary.longestStreak,
+  };
+}
+

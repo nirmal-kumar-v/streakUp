@@ -83,6 +83,7 @@ import {
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
   adminFreezeLinkedInGameDate,
+  adminSetLinkedInGameCommitment,
   AdminUser,
   AdminAuditLogItem,
   AdminGroupItem,
@@ -335,6 +336,9 @@ export const AdminControlPage: React.FC = () => {
   const [adminGameFreezeAction, setAdminGameFreezeAction] = useState<boolean>(true);
   const [adminGameFreezeReason, setAdminGameFreezeReason] = useState<string>('');
   const [isSubmittingAdminGameFreeze, setIsSubmittingAdminGameFreeze] = useState(false);
+
+  const [adminGameCommitmentReason, setAdminGameCommitmentReason] = useState<string>('');
+  const [isSubmittingAdminGameCommitment, setIsSubmittingAdminGameCommitment] = useState(false);
 
   // ------------------------------------------
   const ADMIN_INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes inactivity timeout (Admin alone)
@@ -797,7 +801,7 @@ export const AdminControlPage: React.FC = () => {
   }, [selectedUserId, linkedInGroup?.id, loadAdminLinkedInGames]);
 
   useEffect(() => {
-    const cur = adminLinkedInGames.find((g: any) => g.id === selectedAdminGameId);
+    const cur = adminLinkedInGames.find((g: any) => g.id === selectedAdminGameId || g.gameId === selectedAdminGameId);
     if (cur) {
       setAdminGameCurrentStreak(cur.currentStreak || 0);
       setAdminGameLongestStreak(cur.longestStreak || 0);
@@ -915,6 +919,45 @@ export const AdminControlPage: React.FC = () => {
           toast.error(extractErrorMessage(err, `Failed to update ${gameName} freeze.`));
         } finally {
           setIsSubmittingAdminGameFreeze(false);
+        }
+      }
+    );
+  };
+
+  const handleAdminSetGameCommitment = async (gameId: string, isCommitted: boolean) => {
+    if (!selectedUserId || !linkedInGroup?.id) return;
+    const game = LINKEDIN_GAMES_LIST.find((g) => g.id === gameId);
+    const gameName = game ? game.name : gameId;
+    const actionLabel = isCommitted ? 'Commit' : 'Uncommit';
+    const reason =
+      adminGameCommitmentReason.trim() ||
+      `Admin set ${gameName} commitment to ${actionLabel.toUpperCase()} for @${selectedUserDetails?.username}`;
+
+    openPinPrompt(
+      `Authorize ${gameName} ${actionLabel}`,
+      `Enter Super Admin Sensitive Password to change commitment for ${gameName} on @${selectedUserDetails?.username} to ${actionLabel.toUpperCase()}.`,
+      async (pin) => {
+        setIsSubmittingAdminGameCommitment(true);
+        try {
+          const res = await adminSetLinkedInGameCommitment(selectedUserId, linkedInGroup.id, {
+            gameId,
+            isCommitted,
+            reason,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setAdminGameCommitmentReason('');
+            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, `Failed to update ${gameName} commitment.`));
+        } finally {
+          setIsSubmittingAdminGameCommitment(false);
         }
       }
     );
@@ -3740,7 +3783,8 @@ export const AdminControlPage: React.FC = () => {
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           {LINKEDIN_GAMES_LIST.map((game) => {
                             const isSelected = selectedAdminGameId === game.id;
-                            const record = adminLinkedInGames.find((g) => g.id === game.id);
+                            const record = adminLinkedInGames.find((g) => g.id === game.id || g.gameId === game.id);
+                            const isCommitted = record?.isCommitted !== false;
                             return (
                               <button
                                 key={game.id}
@@ -3760,8 +3804,15 @@ export const AdminControlPage: React.FC = () => {
                                     🔥 {record?.currentStreak ?? 0}d
                                   </span>
                                 </div>
-                                <div className="text-[10px] text-dark-muted font-mono mt-0.5 truncate">
-                                  {game.category} • {record?.todayCompleted ? 'Done' : 'Pending'}
+                                <div className="flex items-center justify-between text-[10px] font-mono mt-1 text-dark-muted">
+                                  <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
+                                    isCommitted
+                                      ? 'text-emerald-400 bg-emerald-500/10'
+                                      : 'text-zinc-500 bg-zinc-800'
+                                  }`}>
+                                    {isCommitted ? '✓ Committed' : 'off Uncommitted'}
+                                  </span>
+                                  <span>{record?.completedToday || record?.todayCompleted ? 'Done' : 'Pending'}</span>
                                 </div>
                               </button>
                             );
@@ -3771,10 +3822,11 @@ export const AdminControlPage: React.FC = () => {
                         {/* Selected Game Dashboard Stats */}
                         {(() => {
                           const activeGame = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
-                          const activeRecord = adminLinkedInGames.find((g) => g.id === selectedAdminGameId);
+                          const activeRecord = adminLinkedInGames.find((g) => g.id === selectedAdminGameId || g.gameId === selectedAdminGameId);
+                          const isCommitted = activeRecord?.isCommitted !== false;
                           return (
                             <div className="space-y-4">
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                                 <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
                                   <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
                                     Current Streak
@@ -3807,10 +3859,27 @@ export const AdminControlPage: React.FC = () => {
 
                                 <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
                                   <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                    Commitment
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-1 text-sm font-bold">
+                                    {isCommitted ? (
+                                      <span className="text-emerald-400 flex items-center gap-1 font-mono text-xs">
+                                        <CheckCircle2 className="w-4 h-4" /> Committed
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-500 flex items-center gap-1 font-mono text-xs">
+                                        <Clock className="w-4 h-4" /> Uncommitted
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
                                     Today's Status
                                   </span>
                                   <div className="flex items-center gap-1.5 mt-1 text-sm font-bold">
-                                    {activeRecord?.todayCompleted ? (
+                                    {activeRecord?.completedToday || activeRecord?.todayCompleted ? (
                                       <span className="text-emerald-400 flex items-center gap-1">
                                         <CheckCircle2 className="w-4 h-4" /> Completed
                                       </span>
@@ -3824,7 +3893,65 @@ export const AdminControlPage: React.FC = () => {
                               </div>
 
                               {/* Game Management Actions Grid */}
-                              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                {/* Form A: Commitment Control */}
+                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3 flex flex-col justify-between">
+                                  <div className="space-y-3">
+                                    <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
+                                      <span className="flex items-center gap-1.5">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                        <span>Commitment</span>
+                                      </span>
+                                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                                        isCommitted
+                                          ? 'bg-emerald-500/20 text-emerald-400'
+                                          : 'bg-zinc-800 text-zinc-400'
+                                      }`}>
+                                        {isCommitted ? 'COMMITTED' : 'UNCOMMITTED'}
+                                      </span>
+                                    </h4>
+                                    <p className="text-[11px] text-zinc-400">
+                                      Include/exclude {activeGame?.name} in dashboard tick. Preserves history & streaks.
+                                    </p>
+
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={adminGameCommitmentReason}
+                                        onChange={(e) => setAdminGameCommitmentReason(e.target.value)}
+                                        placeholder="Admin reason..."
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
+                                      />
+                                    </div>
+
+                                    {renderNotificationOptions()}
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminSetGameCommitment(selectedAdminGameId, !isCommitted)}
+                                    disabled={isSubmittingAdminGameCommitment}
+                                    className={`w-full py-2 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 mt-2 ${
+                                      isCommitted
+                                        ? 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30'
+                                        : 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-sm'
+                                    }`}
+                                  >
+                                    {isSubmittingAdminGameCommitment ? (
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    ) : isCommitted ? (
+                                      <>
+                                        <X className="w-3.5 h-3.5" />
+                                        <span>Uncommit {activeGame?.name}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Commit {activeGame?.name}</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                                 {/* Form A: Streak Value Correction */}
                                 <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
                                   <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
@@ -4018,11 +4145,11 @@ export const AdminControlPage: React.FC = () => {
                                 <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
                                   <span>Recent Completion History: {activeGame?.name}</span>
                                   <span className="text-[10px] font-mono text-zinc-400">
-                                    {activeRecord?.completions?.length || 0} total records
+                                    {(activeRecord?.completionsHistory || activeRecord?.completions)?.length || 0} total records
                                   </span>
                                 </h4>
 
-                                {(!activeRecord?.completions || activeRecord.completions.length === 0) ? (
+                                {(!activeRecord?.completionsHistory && !activeRecord?.completions || (activeRecord?.completionsHistory || activeRecord?.completions).length === 0) ? (
                                   <p className="text-xs text-zinc-500 italic py-2">No completions recorded yet for this game.</p>
                                 ) : (
                                   <div className="overflow-x-auto max-h-48 overflow-y-auto">
@@ -4036,9 +4163,9 @@ export const AdminControlPage: React.FC = () => {
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-dark-border">
-                                        {activeRecord.completions.slice(0, 15).map((c: any, idx: number) => (
+                                        {(activeRecord.completionsHistory || activeRecord.completions).slice(0, 15).map((c: any, idx: number) => (
                                           <tr key={idx} className="text-zinc-300 hover:bg-dark-card/50">
-                                            <td className="py-1.5 px-2 font-mono text-amber-300 font-bold">{c.date}</td>
+                                            <td className="py-1.5 px-2 font-mono text-amber-300 font-bold">{c.completionDate || c.date}</td>
                                             <td className="py-1.5 px-2">
                                               {c.isFrozen ? (
                                                 <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 text-[10px] font-bold">Frozen</span>

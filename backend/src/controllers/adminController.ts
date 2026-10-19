@@ -30,6 +30,7 @@ import {
   adminFreezeGameDate,
   isLinkedInName,
   normalizeGameId,
+  setGameCommitment,
 } from '../services/linkedInGameService';
 
 
@@ -3636,6 +3637,89 @@ export async function adminFreezeLinkedInGameDate(req: AdminAuthenticatedRequest
   } catch (err: any) {
     console.error('adminFreezeLinkedInGameDate error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game freeze.' });
+  }
+}
+
+/**
+ * Super Admin sets commitment for an individual member's LinkedIn game
+ */
+export async function adminSetLinkedInGameCommitment(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      gameId,
+      isCommitted,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (typeof isCommitted !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'Valid commitment boolean is required.' });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group || !isLinkedInName(group.name)) {
+      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
+    }
+
+    const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
+
+    const updatedGame = await setGameCommitment(groupId, userId, normalizedGameId, isCommitted, user.timezone);
+
+    const changesSummary = `LinkedIn game "${updatedGame.name}" commitment set to ${isCommitted ? 'COMMITTED' : 'UNCOMMITTED'}.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'LINKEDIN_GAME_COMMITMENT_CHANGE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: updatedGame,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `LinkedIn ${updatedGame.name} Commitment Updated`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Commitment for ${updatedGame.name} set to ${isCommitted ? 'Committed' : 'Uncommitted'}.`,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    console.error('adminSetLinkedInGameCommitment error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game commitment.' });
   }
 }
 

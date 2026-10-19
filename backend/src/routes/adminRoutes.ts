@@ -44,6 +44,7 @@ import {
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
   adminFreezeLinkedInGameDate,
+  adminSetLinkedInGameCommitment,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
@@ -104,6 +105,7 @@ router.get('/users/:userId/linkedin-games/:groupId', getMemberLinkedInGamesAdmin
 router.post('/users/:userId/linkedin-games/:groupId/correct', requireSensitiveAuth, adminCorrectLinkedInGameStreak);
 router.post('/users/:userId/linkedin-games/:groupId/grant-date', requireSensitiveAuth, adminGrantLinkedInGameDate);
 router.post('/users/:userId/linkedin-games/:groupId/freeze-date', requireSensitiveAuth, adminFreezeLinkedInGameDate);
+router.post('/users/:userId/linkedin-games/:groupId/commitment', requireSensitiveAuth, adminSetLinkedInGameCommitment);
 
 // Task Management
 router.post('/tasks/:taskId/visibility', updateTaskVisibility);
