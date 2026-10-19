@@ -55,7 +55,8 @@ apiClient.interceptors.response.use(
       const isLoginOrAuth =
         window.location.pathname.includes('/login') ||
         window.location.pathname.includes('/register') ||
-        window.location.pathname.includes('/admin-control');
+        window.location.pathname.includes('/streakup-karo') ||
+        window.location.pathname.includes('/admin');
 
       if (hasToken && !isLoginOrAuth && !isRedirectingToLogin) {
         isRedirectingToLogin = true;

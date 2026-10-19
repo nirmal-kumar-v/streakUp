@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BadgeProvider } from './context/BadgeContext';
 import { ToastProvider } from './context/ToastContext';
@@ -95,6 +95,35 @@ const PageFallback: React.FC = () => (
     </div>
   </div>
 );
+
+const EXACT_ADMIN_URL = '/streakup-karo/aB9!xQ4#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK.vercel.app';
+const EXACT_ADMIN_PATHNAME = '/streakup-karo/aB9!xQ4';
+const EXACT_ADMIN_HASH = '#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK.vercel.app';
+
+/**
+ * Obfuscated admin entrypoint redirector:
+ * Redirects strictly to the exact fixed complex secret URL requested.
+ */
+const AdminRedirect: React.FC = () => {
+  return <Navigate to={EXACT_ADMIN_URL} replace />;
+};
+
+/**
+ * Validates that the full URL including the exact complex secret string is present.
+ * If any character is altered or modified, it immediately blocks and redirects to home.
+ */
+const AdminSecretRoute: React.FC = () => {
+  const location = useLocation();
+  const currentHash = decodeURIComponent(location.hash || '');
+  const targetHash1 = decodeURIComponent(EXACT_ADMIN_HASH);
+  const targetHash2 = decodeURIComponent('#mK2$vL7&pZ5*rW1@tN8%cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%cY3(eF6)uJ0_xG5+zQ8=vB2-mK');
+
+  if (currentHash !== targetHash1 && currentHash !== targetHash2) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <AdminControlPage />;
+};
 
 export const AppContent: React.FC = () => {
   useAllDevicesDisableZoom();
@@ -235,8 +264,10 @@ export const AppContent: React.FC = () => {
             }
           />
 
-          {/* Super Admin Control Panel (Privileged unlisted route) */}
-          <Route path="/admin-control" element={<AdminControlPage />} />
+          {/* Super Admin Control Panel (Strict fixed complex secret URL, no tokens) */}
+          <Route path="/admin-control" element={<AdminRedirect />} />
+          <Route path="/admin-panel" element={<AdminRedirect />} />
+          <Route path={EXACT_ADMIN_PATHNAME} element={<AdminSecretRoute />} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
