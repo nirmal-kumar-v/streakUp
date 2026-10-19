@@ -29,6 +29,7 @@ import {
   adminDeleteReminderSchedule,
   overrideLeaderboardLimit,
   overrideReminderLimit,
+  overrideTaskReminderLimit,
   overrideDiscoverGroupsLimit,
   overrideProfileImageLimit,
   adminUpdateUserProfileImage,
@@ -74,6 +75,7 @@ router.post('/users/:userId/adjust-points', requireSensitiveAuth, adjustPoints);
 router.post('/users/:userId/override-starred-limit', requireSensitiveAuth, overrideLimit15);
 router.post('/users/:userId/override-leaderboard-limit', requireSensitiveAuth, overrideLeaderboardLimit);
 router.post('/users/:userId/override-reminder-limit', requireSensitiveAuth, overrideReminderLimit);
+router.post('/users/:userId/override-task-reminder-limit', requireSensitiveAuth, overrideTaskReminderLimit);
 router.post('/users/:userId/override-discover-groups-limit', requireSensitiveAuth, overrideDiscoverGroupsLimit);
 router.post('/users/:userId/override-profile-image-limit', requireSensitiveAuth, overrideProfileImageLimit);
 router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);

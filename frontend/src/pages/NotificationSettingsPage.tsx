@@ -42,6 +42,7 @@ export const NotificationSettingsPage: React.FC = () => {
   const [timezone, setTimezone] = useState<string>('Asia/Kolkata');
   const [isAccountEmailVerified, setIsAccountEmailVerified] = useState<boolean>(true);
   const [maxOverallReminders, setMaxOverallReminders] = useState<number>(3);
+  const [maxTaskReminders, setMaxTaskReminders] = useState<number>(1);
 
   const [schedules, setSchedules] = useState<ReminderScheduleItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -122,12 +123,18 @@ export const NotificationSettingsPage: React.FC = () => {
         if (prefRes.reminderLimit) {
           setMaxOverallReminders(prefRes.reminderLimit);
         }
+        if (prefRes.taskReminderLimit) {
+          setMaxTaskReminders(prefRes.taskReminderLimit);
+        }
       }
 
       if (schedRes.success) {
         setSchedules(schedRes.schedules);
         if (schedRes.maxAllowed) {
           setMaxOverallReminders(schedRes.maxAllowed);
+        }
+        if (schedRes.taskMaxAllowed) {
+          setMaxTaskReminders(schedRes.taskMaxAllowed);
         }
       }
 
@@ -687,12 +694,12 @@ export const NotificationSettingsPage: React.FC = () => {
         )}
       </div>
 
-      {/* SECTION 3: Independent Recurring Task Reminders (Max 2 per task) */}
+      {/* SECTION 3: Independent Recurring Task Reminders (Max per task) */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-6 shadow-panel space-y-5">
         <div>
           <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-400 shrink-0" />
-            Individual Task Reminders (Max 2 per Task)
+            Individual Task Reminders (Max {maxTaskReminders} per Task)
           </h3>
           <p className="text-xs text-dark-muted mt-1">
             Configure independent reminder schedules for specific recurring habits (e.g. GATE Prep at 7:00 PM, Daily LeetCode at 9:00 PM).
@@ -758,7 +765,7 @@ export const NotificationSettingsPage: React.FC = () => {
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-bold text-zinc-100 truncate">{task.title}</div>
                       <div className="text-[10px] text-dark-muted font-mono">
-                        {taskScheds.length} / 2 scheduled
+                        {taskScheds.length} / {maxTaskReminders} scheduled
                       </div>
                     </div>
 

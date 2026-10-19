@@ -14,7 +14,7 @@ import {
   buildVerifyNotificationEmailOtpEmail,
 } from '../services/emailService';
 import { validateReminderCount } from '../services/reminderSchedulerService';
-import { getUserReminderLimit } from '../services/adminConfigService';
+import { getUserReminderLimit, getUserTaskReminderLimit } from '../services/adminConfigService';
 import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
 
 /**
@@ -280,6 +280,7 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
     });
 
     const reminderLimit = getUserReminderLimit(userId);
+    const taskReminderLimit = getUserTaskReminderLimit(userId);
 
     return res.json({
       success: true,
@@ -288,6 +289,7 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
       timezone: user?.timezone,
       isEmailVerified: user?.isEmailVerified !== false,
       reminderLimit,
+      taskReminderLimit,
       isSmtpConfigured: isSmtpConfigured(),
     });
   } catch (err: any) {
@@ -426,11 +428,13 @@ export async function getReminderSchedules(req: AuthenticatedRequest, res: Respo
     });
 
     const maxAllowed = getUserReminderLimit(userId);
+    const taskMaxAllowed = getUserTaskReminderLimit(userId);
 
     return res.json({
       success: true,
       schedules,
       maxAllowed,
+      taskMaxAllowed,
     });
   } catch (err: any) {
     console.error('getReminderSchedules error:', err);

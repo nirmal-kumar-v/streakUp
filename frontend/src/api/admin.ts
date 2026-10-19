@@ -53,6 +53,8 @@ export interface AdminUser {
   isEmailVerified?: boolean;
   maxStarredNotifications: number | null;
   profileImageLimitMb?: number;
+  reminderLimit?: number;
+  taskReminderLimit?: number;
   createdAt: string;
   _count?: {
     tasks: number;
@@ -509,6 +511,21 @@ export async function overrideReminderLimit(
   return res.data;
 }
 
+export async function overrideTaskReminderLimit(
+  userId: string,
+  data: { taskReminderLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; taskReminderLimit: number }>(
+    `/admin/users/${userId}/override-task-reminder-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function overrideDiscoverGroupsLimit(
   userId: string,
   data: { discoverGroupsLimit: number; reason: string } & AdminNotificationPayload
@@ -588,6 +605,7 @@ export interface AdminUserReminderSettings {
   success: boolean;
   timezone: string;
   quotaLimit: number;
+  taskQuotaLimit?: number;
   preferences?: NotificationPreference;
   overall: {
     isEnabled: boolean;

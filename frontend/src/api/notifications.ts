@@ -125,6 +125,7 @@ export async function fetchNotificationPreferences() {
     isEmailVerified?: boolean;
     isSmtpConfigured?: boolean;
     reminderLimit?: number;
+    taskReminderLimit?: number;
   };
 }
 
@@ -143,6 +144,7 @@ export async function fetchReminderSchedules() {
     success: boolean;
     schedules: ReminderScheduleItem[];
     maxAllowed?: number;
+    taskMaxAllowed?: number;
   };
 }
 

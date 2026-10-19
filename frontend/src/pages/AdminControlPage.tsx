@@ -66,6 +66,7 @@ import {
   adminDeleteReminderSchedule,
   overrideLeaderboardLimit,
   overrideReminderLimit,
+  overrideTaskReminderLimit,
   overrideDiscoverGroupsLimit,
   overrideProfileImageLimit,
   adminUpdateUserProfileImage,
@@ -227,6 +228,10 @@ export const AdminControlPage: React.FC = () => {
   const [newReminderLimit, setNewReminderLimit] = useState<number>(3);
   const [reminderLimitReason, setReminderLimitReason] = useState('');
   const [isSubmittingReminderLimit, setIsSubmittingReminderLimit] = useState(false);
+
+  const [newTaskReminderLimit, setNewTaskReminderLimit] = useState<number>(1);
+  const [taskReminderLimitReason, setTaskReminderLimitReason] = useState('');
+  const [isSubmittingTaskReminderLimit, setIsSubmittingTaskReminderLimit] = useState(false);
 
   const [newDiscoverGroupsLimit, setNewDiscoverGroupsLimit] = useState<number>(5);
   const [discoverGroupsReason, setDiscoverGroupsReason] = useState('');
@@ -436,6 +441,7 @@ export const AdminControlPage: React.FC = () => {
         setNewStarredLimit(u.maxStarredNotifications || 15);
         setNewLeaderboardLimit(u.leaderboardLimit || 10);
         setNewReminderLimit(u.reminderLimit || 3);
+        setNewTaskReminderLimit(u.taskReminderLimit || 1);
         setNewDiscoverGroupsLimit(u.discoverGroupsLimit || 5);
         setNewProfileImageLimitMb(u.profileImageLimitMb || 5);
         setFreezeScope('overall');
@@ -988,6 +994,43 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
+  // Per-Task Scheduled Reminders Quota Override
+  const handleOverrideTaskReminderLimit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!taskReminderLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+    openPinPrompt(
+      'Authorize Per-Task Reminders Quota Override',
+      `Enter Super Admin Sensitive Password to change per-task reminders quota for @${selectedUserDetails?.username} to ${newTaskReminderLimit} reminder(s) per habit.`,
+      async (pin) => {
+        setIsSubmittingTaskReminderLimit(true);
+        try {
+          const res = await overrideTaskReminderLimit(selectedUserId, {
+            taskReminderLimit: Number(newTaskReminderLimit),
+            reason: taskReminderLimitReason.trim(),
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setTaskReminderLimitReason('');
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update per-task reminder quota limit.'));
+        } finally {
+          setIsSubmittingTaskReminderLimit(false);
+        }
+      }
+    );
+  };
+
   // Top Discover Groups Display Limit Override
   const handleOverrideDiscoverGroupsLimit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1249,8 +1292,13 @@ export const AdminControlPage: React.FC = () => {
       toast.error(`Time ${formatted} is already configured for this task.`);
       return;
     }
-    if (taskConfig.reminderTimes.length >= 2) {
-      toast.error('Tasks support a maximum of 2 reminder times.');
+    const taskQuota =
+      userReminderSettings?.tasks?.find((t) => t.taskId === taskId)?.maxAllowed ||
+      userReminderSettings?.taskQuotaLimit ||
+      selectedUserDetails?.taskReminderLimit ||
+      1;
+    if (taskConfig.reminderTimes.length >= taskQuota) {
+      toast.error(`Tasks support a maximum of ${taskQuota} reminder ${taskQuota === 1 ? 'time' : 'times'}.`);
       return;
     }
     setTaskRemindersState({
@@ -3836,10 +3884,12 @@ export const AdminControlPage: React.FC = () => {
                         <div>
                           <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
                             <Layers className="w-4 h-4 text-purple-400" />
-                            <span>Personal & Group Task Reminders (Max 2 Per Task)</span>
+                            <span>
+                              Personal & Group Task Reminders (Max {userReminderSettings?.taskQuotaLimit || selectedUserDetails?.taskReminderLimit || 1} Per Task)
+                            </span>
                           </h4>
                           <p className="text-[11px] text-zinc-400 mt-0.5">
-                            Each task supports up to two independently configurable times. Changes persist directly into the database and scheduler.
+                            Each task supports up to {userReminderSettings?.taskQuotaLimit || selectedUserDetails?.taskReminderLimit || 1} independently configurable reminder schedule(s). Changes persist directly into the database and scheduler.
                           </p>
                         </div>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold">
@@ -3911,7 +3961,7 @@ export const AdminControlPage: React.FC = () => {
                                       <span>Configured Reminder Times for this Task</span>
                                     </span>
                                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold">
-                                      {times.length} / 2 Times
+                                      {times.length} / {task.maxAllowed || userReminderSettings?.taskQuotaLimit || selectedUserDetails?.taskReminderLimit || 1} Times
                                     </span>
                                   </div>
 
@@ -3939,7 +3989,7 @@ export const AdminControlPage: React.FC = () => {
                                     </div>
                                   )}
 
-                                  {times.length < 2 ? (
+                                  {times.length < (task.maxAllowed || userReminderSettings?.taskQuotaLimit || selectedUserDetails?.taskReminderLimit || 1) ? (
                                     <div className="pt-2 border-t border-dark-border/60">
                                       <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
                                         Add Notification Time (HH:mm)
@@ -3959,7 +4009,7 @@ export const AdminControlPage: React.FC = () => {
                                         <button
                                           type="button"
                                           onClick={() => handleAddTaskReminderTime(task.id)}
-                                          className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                                          className="px-3.5 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                                         >
                                           <Plus className="w-3.5 h-3.5" />
                                           <span>Add Time</span>
@@ -3968,7 +4018,7 @@ export const AdminControlPage: React.FC = () => {
                                     </div>
                                   ) : (
                                     <div className="p-2 bg-dark-surface/50 rounded-lg border border-dark-border/60 text-[11px] text-zinc-400">
-                                      Maximum 2 reminder times configured for this task.
+                                      Task reminder limit reached ({task.maxAllowed || userReminderSettings?.taskQuotaLimit || selectedUserDetails?.taskReminderLimit || 1} max). Increase the user's per-task quota in the Limits tab to allow more times.
                                     </div>
                                   )}
                                 </div>
@@ -4604,6 +4654,105 @@ export const AdminControlPage: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                    {/* CARD 2B: PER-TASK REMINDERS QUOTA */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-purple-400" />
+                          <span>Per-Task Reminders Quota (Default: 1 Reminder Per Task)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                          {selectedUserDetails?.taskReminderLimit || 1} PER TASK
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        By default, StreakUp limits each personal and group habit to 1 reminder time. You can <strong className="text-zinc-200">customize and increase the per-task reminder quota specifically for @{selectedUserDetails?.username}</strong> (e.g. to 2, 3, 5, or 10 schedules per task) so they can configure multiple alert schedules per habit.
+                      </p>
+
+                      <form onSubmit={handleOverrideTaskReminderLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Per-Task Reminders Quota Limit
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Per-Task Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.taskReminderLimit || 1} reminder time(s) allowed per task`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Per-Task Quota Limit (Max 50)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                value={newTaskReminderLimit}
+                                onChange={(e) => setNewTaskReminderLimit(parseInt(e.target.value, 10) || 1)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-purple-500 font-mono"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[1, 2, 3, 5, 8].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewTaskReminderLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newTaskReminderLimit === preset
+                                        ? 'bg-purple-500 text-zinc-950 border-purple-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-purple-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={taskReminderLimitReason}
+                            onChange={(e) => setTaskReminderLimitReason(e.target.value)}
+                            placeholder="e.g. Granted user permission for multiple reminder schedules per habit"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-purple-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingTaskReminderLimit}
+                          className="w-full py-2.5 bg-purple-500 hover:bg-purple-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          {isSubmittingTaskReminderLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Per-Task Reminders Quota ({newTaskReminderLimit} Per Task)</span>
+                        </button>
+                      </form>
+                    </div>
 
                     {/* CARD 3: 12-HOUR FRIEND NUDGE LOCKOUT */}
                     <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">

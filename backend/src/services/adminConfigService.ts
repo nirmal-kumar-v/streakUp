@@ -5,6 +5,7 @@ import prisma from '../config/prisma';
 interface UserAdminConfig {
   leaderboardLimit?: number;
   reminderLimit?: number;
+  taskReminderLimit?: number;
   discoverGroupsLimit?: number;
   profileImageLimitMb?: number;
   [key: string]: any;
@@ -133,6 +134,25 @@ export function setUserReminderLimit(userId: string, limit: number): void {
     configs[userId] = {};
   }
   configs[userId].reminderLimit = Math.max(1, Math.min(50, limit));
+  writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
+}
+
+export function getUserTaskReminderLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.taskReminderLimit === 'number' && userConf.taskReminderLimit > 0) {
+    return userConf.taskReminderLimit;
+  }
+  return 1; // Default 1 scheduled reminder per task quota for all users
+}
+
+export function setUserTaskReminderLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].taskReminderLimit = Math.max(1, Math.min(50, limit));
   writeAllConfigs(configs);
   syncToDatabase(userId, configs[userId]);
 }

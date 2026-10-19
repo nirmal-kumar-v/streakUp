@@ -95,14 +95,14 @@ describe('1. Shield Inventory & Recharge Logic (Default vs Admin-Approved Capaci
 });
 
 describe('2. Reminder Controls & Quota Enforcement', () => {
-  it('Task reminders enforce strict maximum of 2 independently configurable reminder times per task', async () => {
+  it('Task reminders enforce default of 1 independently configurable reminder time per task', async () => {
     // Check validation helper
     const check1 = await validateReminderCount({
       userId: 'test-user-id',
       scope: ReminderScope.TASK,
       taskId: 'test-task-1',
     });
-    expect(check1.maxAllowed).toBe(2);
+    expect(check1.maxAllowed).toBe(1);
   });
 
   it('Calculates next scheduled occurrence accurately respecting user timezone and days', () => {

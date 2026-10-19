@@ -13,6 +13,8 @@ import {
   setUserLeaderboardLimit,
   getUserReminderLimit,
   setUserReminderLimit,
+  getUserTaskReminderLimit,
+  setUserTaskReminderLimit,
   getUserDiscoverGroupsLimit,
   setUserDiscoverGroupsLimit,
   getUserProfileImageLimitMb,
@@ -558,6 +560,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     const { passwordHash, ...safeUser } = user;
     (safeUser as any).leaderboardLimit = getUserLeaderboardLimit(userId);
     (safeUser as any).reminderLimit = getUserReminderLimit(userId);
+    (safeUser as any).taskReminderLimit = getUserTaskReminderLimit(userId);
     (safeUser as any).discoverGroupsLimit = getUserDiscoverGroupsLimit(userId);
     (safeUser as any).profileImageLimitMb = getUserProfileImageLimitMb(userId);
 
@@ -2460,6 +2463,72 @@ export async function overrideReminderLimit(req: AdminAuthenticatedRequest, res:
 }
 
 /**
+ * Override the maximum task-specific reminders quota for a specific user
+ */
+export async function overrideTaskReminderLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      taskReminderLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof taskReminderLimit !== 'number' || taskReminderLimit < 1 || taskReminderLimit > 50) {
+      return res.status(400).json({ success: false, error: 'Task reminder quota limit must be an integer between 1 and 50.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserTaskReminderLimit(userId);
+    setUserTaskReminderLimit(userId, taskReminderLimit);
+
+    const changesSummary = `Per-task scheduled reminders quota changed from ${beforeLimit} to ${taskReminderLimit} reminders per task.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_TASK_REMINDER_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { taskReminderLimit: beforeLimit },
+      afterState: { taskReminderLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Per-Task Reminders Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Per-task scheduled reminders limit for @${user.username} updated to ${taskReminderLimit} per task.`,
+      taskReminderLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideTaskReminderLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update per-task reminder limit.' });
+  }
+}
+
+/**
  * Override the top discover ranking groups limit for a specific user
  */
 export async function overrideDiscoverGroupsLimit(req: AdminAuthenticatedRequest, res: Response) {
@@ -2756,6 +2825,7 @@ export async function getUserReminderSettings(req: AdminAuthenticatedRequest, re
 
     const timezone = user.timezone || 'Asia/Kolkata';
     const quotaLimit = getUserReminderLimit(userId);
+    const taskQuotaLimit = getUserTaskReminderLimit(userId);
 
     // 1. Overall Schedules
     const overallSchedules = user.reminderSchedules
@@ -2771,7 +2841,7 @@ export async function getUserReminderSettings(req: AdminAuthenticatedRequest, re
       user.notificationPreference?.overallStreakRemindersEmail !== false &&
       overallSchedules.some((s) => s.isEnabled);
 
-    // 2. Task Schedules (Personal & Group tasks, up to 2 times per task)
+    // 2. Task Schedules (Personal & Group tasks, up to taskQuotaLimit per task)
     const taskSettings = user.tasks.map((task) => {
       const schedules = user.reminderSchedules
         .filter((s) => s.scope === 'TASK' && s.taskId === task.id)
@@ -2795,7 +2865,7 @@ export async function getUserReminderSettings(req: AdminAuthenticatedRequest, re
         groupName: task.group?.name || null,
         taskRemindersEnabled: isTaskEnabled,
         schedules,
-        maxAllowed: 2,
+        maxAllowed: taskQuotaLimit,
       };
     });
 
@@ -2803,6 +2873,7 @@ export async function getUserReminderSettings(req: AdminAuthenticatedRequest, re
       success: true,
       timezone,
       quotaLimit,
+      taskQuotaLimit,
       preferences: user.notificationPreference || {
         emailNotificationsEnabled: true,
         inAppNotificationsEnabled: true,
@@ -3005,11 +3076,12 @@ export async function adminUpdateTaskReminders(req: AdminAuthenticatedRequest, r
       return res.status(400).json({ success: false, error: 'times must be an array of "HH:mm" strings.' });
     }
 
-    // Up to two independently configurable reminder times per task
-    if (times.length > 2) {
+    // Up to taskQuotaLimit independently configurable reminder times per task
+    const taskQuotaLimit = getUserTaskReminderLimit(userId);
+    if (times.length > taskQuotaLimit) {
       return res.status(400).json({
         success: false,
-        error: 'Tasks are permitted a maximum of two independently configurable reminder times.',
+        error: `Tasks are permitted a maximum of ${taskQuotaLimit} independently configurable reminder ${taskQuotaLimit === 1 ? 'time' : 'times'}.`,
       });
     }
 
