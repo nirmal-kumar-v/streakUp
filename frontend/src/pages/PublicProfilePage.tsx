@@ -17,6 +17,7 @@ import {
   User as UserIcon,
   Award,
   UserMinus,
+  Users,
 } from 'lucide-react';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -79,8 +80,13 @@ export const PublicProfilePage: React.FC = () => {
     setIsActionPending(true);
 
     const prevStatus = profile.relationshipStatus;
-    // 1. Optimistic UI: immediately set friends & decrement navbar badge
-    setProfile({ ...profile, relationshipStatus: 'FRIENDS' });
+    const prevCount = profile.connectionsCount ?? 0;
+    // 1. Optimistic UI: immediately set friends, increment connections count & decrement navbar badge
+    setProfile({
+      ...profile,
+      relationshipStatus: 'FRIENDS',
+      connectionsCount: prevCount + 1,
+    });
     decrementFriendRequests();
     toast.success(`You're now friends with @${profile.username}`);
 
@@ -100,7 +106,12 @@ export const PublicProfilePage: React.FC = () => {
     setShowRemoveConfirm(false);
     setIsActionPending(true);
     const prevStatus = profile.relationshipStatus;
-    setProfile({ ...profile, relationshipStatus: 'NONE' });
+    const prevCount = profile.connectionsCount ?? 0;
+    setProfile({
+      ...profile,
+      relationshipStatus: 'NONE',
+      connectionsCount: Math.max(0, prevCount - 1),
+    });
     toast.info(`Removed @${profile.username} from friends`);
 
     try {
@@ -178,9 +189,19 @@ export const PublicProfilePage: React.FC = () => {
             </h1>
             <p className="text-sm text-flame-400 font-mono mt-0.5">@{profile.username}</p>
 
-            <div className="flex items-center justify-center sm:justify-start gap-2 text-xs text-dark-muted mt-2 font-mono">
-              <Calendar className="w-3.5 h-3.5 text-dark-muted" />
-              <span>Joined {formattedDate}</span>
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-xs text-dark-muted mt-2 font-mono">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-dark-muted" />
+                <span>Joined {formattedDate}</span>
+              </div>
+              <span className="text-zinc-700 hidden sm:inline">•</span>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 font-semibold shadow-sm">
+                <Users className="w-3.5 h-3.5" />
+                <span>
+                  {profile.connectionsCount ?? 0}{' '}
+                  {profile.connectionsCount === 1 ? 'Connection' : 'Connections'}
+                </span>
+              </div>
             </div>
 
             {/* Friend Action Button */}
@@ -238,8 +259,8 @@ export const PublicProfilePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards (Requirement 9) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* Stats Cards (Requirement 9 + Connections Count) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {/* Current Streak */}
         <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center">
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
@@ -292,6 +313,20 @@ export const PublicProfilePage: React.FC = () => {
           </div>
           <div className="text-3xl font-black font-mono text-emerald-400">
             {profile.totalCompletedTasks}
+          </div>
+        </div>
+
+        {/* Connections Count */}
+        <div className="bg-dark-card border border-dark-border hover:border-cyan-500/30 transition-all rounded-2xl p-5 shadow-panel text-center col-span-2 sm:col-span-1">
+          <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
+            <Users className="w-4 h-4 text-cyan-400" />
+            <span>Connections</span>
+          </div>
+          <div className="text-3xl font-black font-mono text-cyan-400">
+            {profile.connectionsCount ?? 0}
+            <span className="text-xs font-normal text-dark-muted ml-1">
+              {profile.connectionsCount === 1 ? 'friend' : 'friends'}
+            </span>
           </div>
         </div>
       </div>

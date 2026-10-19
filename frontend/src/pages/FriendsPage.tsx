@@ -269,14 +269,22 @@ export const FriendsPage: React.FC = () => {
   return (
     <div className="space-y-6 pb-20">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5">
-          <Users2 className="w-7 h-7 text-flame-500" />
-          Friends & Social
-        </h1>
-        <p className="text-xs sm:text-sm text-dark-muted mt-1">
-          Connect with friends, keep each other accountable, and compete on the leaderboard
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl sm:text-3xl font-black text-zinc-100 tracking-tight flex items-center gap-2.5">
+              <Users2 className="w-7 h-7 text-flame-500" />
+              <span>Friends & Social</span>
+            </h1>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/25 text-cyan-400 font-mono text-xs font-bold shadow-sm">
+              <Users2 className="w-3.5 h-3.5" />
+              <span>{friends.length} {friends.length === 1 ? 'Connection' : 'Connections'}</span>
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-dark-muted mt-1">
+            Connect with friends, keep each other accountable, and compete on the leaderboard
+          </p>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -290,7 +298,7 @@ export const FriendsPage: React.FC = () => {
           }`}
         >
           <Users2 className="w-4 h-4" />
-          <span>My Friends ({friends.length})</span>
+          <span>My Connections ({friends.length})</span>
         </button>
 
         <button

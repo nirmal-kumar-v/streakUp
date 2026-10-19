@@ -43,7 +43,9 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
         createdAt: true,
         _count: {
           select: {
-            taskCompletions: true
+            taskCompletions: true,
+            friendshipsAsUser1: true,
+            friendshipsAsUser2: true,
           }
         }
       }
@@ -88,6 +90,8 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
       }
     }
 
+    const connectionsCount = (user._count?.friendshipsAsUser1 || 0) + (user._count?.friendshipsAsUser2 || 0);
+
     return res.json({
       success: true,
       profile: {
@@ -99,6 +103,7 @@ export async function getPublicProfile(req: AuthenticatedRequest, res: Response)
         longestStreak: user.longestStreak,
         points: user.points ?? 0,
         totalCompletedTasks: user._count.taskCompletions,
+        connectionsCount,
         memberSince: user.createdAt,
         relationshipStatus,
         requestId

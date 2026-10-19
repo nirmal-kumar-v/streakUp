@@ -745,6 +745,12 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
         isEmailVerified: true,
         emailLastChangedAt: true,
         createdAt: true,
+        _count: {
+          select: {
+            friendshipsAsUser1: true,
+            friendshipsAsUser2: true,
+          }
+        }
       }
     });
 
@@ -752,8 +758,12 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
+    const { _count, ...userData } = user;
+    const connectionsCount = (_count?.friendshipsAsUser1 || 0) + (_count?.friendshipsAsUser2 || 0);
+
     const safeUser = {
-      ...user,
+      ...userData,
+      connectionsCount,
       profileImageLimitMb: getUserProfileImageLimitMb(user.id),
     };
 

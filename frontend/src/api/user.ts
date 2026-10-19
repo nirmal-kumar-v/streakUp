@@ -10,6 +10,7 @@ export interface PublicProfile {
   longestStreak: number;
   points?: number;
   totalCompletedTasks: number;
+  connectionsCount?: number;
   memberSince: string;
   relationshipStatus: 'SELF' | 'FRIENDS' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'NONE';
   requestId: string | null;

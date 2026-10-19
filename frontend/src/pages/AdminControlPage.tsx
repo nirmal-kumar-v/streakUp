@@ -307,14 +307,29 @@ export const AdminControlPage: React.FC = () => {
   const [isSubmittingSensitivePin, setIsSubmittingSensitivePin] = useState(false);
 
   // ------------------------------------------
-  // Verify token on mount
+  const ADMIN_INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes inactivity timeout (Admin alone)
+
+  // ------------------------------------------
+  // Verify token & inactivity on mount
   // ------------------------------------------
   useEffect(() => {
     const token = localStorage.getItem('streakup_admin_token');
+    const lastActivityStr = localStorage.getItem('streakup_admin_last_activity');
+    const now = Date.now();
+
     if (token) {
+      if (lastActivityStr && now - Number(lastActivityStr) > ADMIN_INACTIVITY_LIMIT_MS) {
+        localStorage.removeItem('streakup_admin_token');
+        localStorage.removeItem('streakup_admin_last_activity');
+        setIsAdminAuth(false);
+        toast.error('Admin session expired due to 5 minutes of inactivity. Please log in again.');
+        return;
+      }
+
       fetchAdminProfile()
         .then((res) => {
           if (res.success) {
+            localStorage.setItem('streakup_admin_last_activity', String(Date.now()));
             setIsAdminAuth(true);
             setActiveAdmin(res.admin);
             handleSearchUsers('');
@@ -322,10 +337,45 @@ export const AdminControlPage: React.FC = () => {
         })
         .catch(() => {
           localStorage.removeItem('streakup_admin_token');
+          localStorage.removeItem('streakup_admin_last_activity');
           setIsAdminAuth(false);
         });
     }
   }, []);
+
+  // ------------------------------------------
+  // Admin-only 5-minute inactivity tracker
+  // ------------------------------------------
+  useEffect(() => {
+    if (!isAdminAuth) return;
+
+    const recordActivity = () => {
+      localStorage.setItem('streakup_admin_last_activity', String(Date.now()));
+    };
+
+    // Track user interactions within the admin panel
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove'];
+    events.forEach((ev) => window.addEventListener(ev, recordActivity, { passive: true }));
+
+    // Periodic check every 5 seconds
+    const interval = setInterval(() => {
+      const lastActivity = Number(localStorage.getItem('streakup_admin_last_activity') || Date.now());
+      if (Date.now() - lastActivity > ADMIN_INACTIVITY_LIMIT_MS) {
+        localStorage.removeItem('streakup_admin_token');
+        localStorage.removeItem('streakup_admin_last_activity');
+        setIsAdminAuth(false);
+        setActiveAdmin(null);
+        setSelectedUserId(null);
+        setSelectedUserDetails(null);
+        toast.error('Admin session expired due to 5 minutes of inactivity. Please log in again.');
+      }
+    }, 5000);
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, recordActivity));
+      clearInterval(interval);
+    };
+  }, [isAdminAuth]);
 
   // ------------------------------------------
   // Debounced auto-search on searchQuery change
@@ -352,6 +402,7 @@ export const AdminControlPage: React.FC = () => {
       const res = await adminLogin(adminUsername, adminPassword);
       if (res.success) {
         localStorage.setItem('streakup_admin_token', res.token);
+        localStorage.setItem('streakup_admin_last_activity', String(Date.now()));
         setIsAdminAuth(true);
         setActiveAdmin(res.admin);
         toast.info('Super Admin authenticated successfully.');
@@ -366,6 +417,7 @@ export const AdminControlPage: React.FC = () => {
 
   const handleAdminLogout = () => {
     localStorage.removeItem('streakup_admin_token');
+    localStorage.removeItem('streakup_admin_last_activity');
     setIsAdminAuth(false);
     setActiveAdmin(null);
     setSelectedUserId(null);

@@ -10,6 +10,7 @@ export interface User {
   currentStreak: number;
   longestStreak: number;
   points?: number;
+  connectionsCount?: number;
   isEmailVerified?: boolean;
   emailLastChangedAt?: string | null;
   createdAt?: string;
