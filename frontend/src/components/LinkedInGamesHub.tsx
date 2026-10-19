@@ -57,12 +57,7 @@ const GAME_ICONS: Record<string, React.FC<{ className?: string }>> = {
 
 export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   groupId,
-  groupName,
   initialGameId = 'pinpoint',
-  hasActiveDashboardTask,
-  onMakeDashboardTask,
-  onRemoveDashboardTask,
-  isTogglingTask = false,
 }) => {
   const { user } = useAuth();
   const toast = useToast();
@@ -71,16 +66,41 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
 
   const [games, setGames] = useState<LinkedInGameItem[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string>(initialGameId);
-  const [activeGameData, setActiveGameData] = useState<LinkedInGameItem | null>(null);
   const [leaderboard, setLeaderboard] = useState<LinkedInGameLeaderboardEntry[]>([]);
 
   const [isLoadingAll, setIsLoadingAll] = useState(true);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isTogglingCommitment, setIsTogglingCommitment] = useState(false);
-
   const [studyNote, setStudyNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
+
+  // Background in-flight tracker per game (prevents duplicate clicks on SAME game, allows clicking other games immediately)
+  const inFlightCompletionsRef = useRef<Set<string>>(new Set());
+  const selectedGameIdRef = useRef(selectedGameId);
+  selectedGameIdRef.current = selectedGameId;
+
+  // Derive active game directly from cached games list (0ms lag, always perfectly in sync)
+  const activeGameData = games.find((g) => g.gameId === selectedGameId) || games[0] || null;
+
+  // Load detailed game data + independent leaderboard for the selected game (silent background sync)
+  const loadGameDetails = useCallback(
+    async (gameId: string) => {
+      try {
+        const res = await fetchSingleLinkedInGame(groupId, gameId);
+        if (res.success) {
+          if (res.leaderboard && selectedGameIdRef.current === gameId) {
+            setLeaderboard(res.leaderboard);
+          }
+          if (res.game) {
+            setGames((prev) =>
+              prev.map((g) => (g.gameId === gameId ? { ...g, ...res.game } : g))
+            );
+          }
+        }
+      } catch (err: any) {
+        console.warn('[LinkedInGamesHub] Silent details fetch warning:', err);
+      }
+    },
+    [groupId]
+  );
 
   // Load summary for all 8 games
   const loadAllGames = useCallback(async () => {
@@ -88,13 +108,12 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       const res = await fetchLinkedInGames(groupId);
       if (res.success && res.games) {
         setGames(res.games);
-        // Instant warm-up of active game
-        const currentActive = res.games.find((g) => g.gameId === selectedGameId) || res.games[0];
+        const currentActive = res.games.find((g) => g.gameId === selectedGameIdRef.current) || res.games[0];
+        if (currentActive?.todayNote) {
+          setStudyNote(currentActive.todayNote);
+        }
         if (currentActive) {
-          setActiveGameData((prev) => prev && prev.gameId === currentActive.gameId ? { ...currentActive, ...prev } : currentActive);
-          if (currentActive.todayNote) {
-            setStudyNote(currentActive.todayNote);
-          }
+          loadGameDetails(currentActive.gameId);
         }
       }
     } catch (err: any) {
@@ -102,44 +121,11 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     } finally {
       setIsLoadingAll(false);
     }
-  }, [groupId, selectedGameId]);
-
-  // Load detailed game data + independent leaderboard for the selected game
-  const loadGameDetails = useCallback(
-    async (gameId: string) => {
-      try {
-        setIsLoadingDetails(true);
-        const res = await fetchSingleLinkedInGame(groupId, gameId);
-        if (res.success && res.game) {
-          // Sync authoritative state
-          setActiveGameData(res.game);
-          setLeaderboard(res.leaderboard || []);
-          if (res.game.todayNote) {
-            setStudyNote(res.game.todayNote);
-          }
-          // Update game in local list
-          setGames((prev) =>
-            prev.map((g) => (g.gameId === gameId ? res.game : g))
-          );
-        }
-      } catch (err: any) {
-        toastRef.current.error(extractErrorMessage(err, 'Failed to load game details.'));
-      } finally {
-        setIsLoadingDetails(false);
-      }
-    },
-    [groupId]
-  );
+  }, [groupId, loadGameDetails]);
 
   useEffect(() => {
     loadAllGames();
   }, [loadAllGames]);
-
-  useEffect(() => {
-    if (selectedGameId) {
-      loadGameDetails(selectedGameId);
-    }
-  }, [selectedGameId, loadGameDetails]);
 
   // Instant game selection: immediately switches active state from local cache (0ms lag, no stale completion)
   const handleSelectGame = (gameId: string) => {
@@ -148,133 +134,156 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     setShowNoteInput(false);
 
     const cachedGame = games.find((g) => g.gameId === gameId);
-    if (cachedGame) {
-      setActiveGameData(cachedGame);
-      setStudyNote(cachedGame.todayNote || '');
+    if (cachedGame?.todayNote) {
+      setStudyNote(cachedGame.todayNote);
+    } else {
+      setStudyNote('');
     }
+    // Silently fetch fresh leaderboard in background without blocking view
+    loadGameDetails(gameId);
   };
 
   // Instant optimistic game completion: zero processing visible to user
-  const handleCompleteGame = async () => {
-    if (isSubmitting || !selectedGameId || !activeGameData) return;
-    setIsSubmitting(true);
+  const handleCompleteGame = (gameIdToComplete?: string) => {
+    const targetGameId = gameIdToComplete || selectedGameId;
+    if (!targetGameId) return;
 
-    const prevActive = { ...activeGameData };
-    const prevGames = [...games];
-    const newStreak = (prevActive.currentStreak || 0) + 1;
-    const newLongest = Math.max(prevActive.longestStreak || 0, newStreak);
+    // Prevent duplicate simultaneous submissions on the exact same game
+    if (inFlightCompletionsRef.current.has(targetGameId)) return;
+    inFlightCompletionsRef.current.add(targetGameId);
+
+    const targetGame = games.find((g) => g.gameId === targetGameId);
+    if (!targetGame) {
+      inFlightCompletionsRef.current.delete(targetGameId);
+      return;
+    }
+
+    const prevGame = { ...targetGame };
+    const newStreak = (prevGame.currentStreak || 0) + 1;
+    const newLongest = Math.max(prevGame.longestStreak || 0, newStreak);
+    const noteToSave = studyNote.trim() || prevGame.todayNote;
 
     // 1. Instant optimistic UI update: user sees completion immediately!
-    const optimisticGame: LinkedInGameItem = {
-      ...prevActive,
-      completedToday: true,
-      currentStreak: newStreak,
-      longestStreak: newLongest,
-      todayNote: studyNote.trim() || null,
-      totalCompletions: (prevActive.totalCompletions || 0) + 1,
-    };
-
-    setActiveGameData(optimisticGame);
     setGames((prev) =>
-      prev.map((g) => (g.gameId === selectedGameId ? optimisticGame : g))
+      prev.map((g) => {
+        if (g.gameId === targetGameId) {
+          return {
+            ...g,
+            completedToday: true,
+            currentStreak: newStreak,
+            longestStreak: newLongest,
+            todayNote: noteToSave || null,
+            totalCompletions: (g.totalCompletions || 0) + 1,
+          };
+        }
+        return g;
+      })
     );
     setShowNoteInput(false);
-    toast.success(`${optimisticGame.name} completed! Streak: ${newStreak}d 🔥`);
+    toast.success(`${prevGame.name} marked done! Streak: ${newStreak}d 🔥`);
 
-    // 2. Background API sync
-    try {
-      const res = await completeLinkedInGame(groupId, selectedGameId, {
-        studyNote: studyNote.trim() || undefined,
-      });
-      if (res.success && res.game) {
-        setActiveGameData(res.game);
-        setLeaderboard(res.leaderboard || []);
+    // 2. Silent background sync
+    completeLinkedInGame(groupId, targetGameId, {
+      studyNote: noteToSave || undefined,
+    })
+      .then((res) => {
+        if (res.success && res.game) {
+          setGames((prev) =>
+            prev.map((g) => (g.gameId === targetGameId ? { ...g, ...res.game } : g))
+          );
+          if (selectedGameIdRef.current === targetGameId && res.leaderboard) {
+            setLeaderboard(res.leaderboard);
+          }
+        }
+      })
+      .catch((err: any) => {
+        // Rollback only on actual failure
         setGames((prev) =>
-          prev.map((g) => (g.gameId === selectedGameId ? res.game : g))
+          prev.map((g) => (g.gameId === targetGameId ? prevGame : g))
         );
-      }
-    } catch (err: any) {
-      // Rollback only on actual failure
-      setActiveGameData(prevActive);
-      setGames(prevGames);
-      toast.error(extractErrorMessage(err, 'Failed to complete game.'));
-    } finally {
-      setIsSubmitting(false);
-    }
+        toast.error(extractErrorMessage(err, 'Failed to complete game.'));
+      })
+      .finally(() => {
+        inFlightCompletionsRef.current.delete(targetGameId);
+      });
   };
 
   // Instant optimistic game uncomplete (undo tick inside group)
-  const handleUncompleteGame = async () => {
-    if (isSubmitting || !selectedGameId || !activeGameData) return;
-    setIsSubmitting(true);
+  const handleUncompleteGame = (gameIdToUncomplete?: string) => {
+    const targetGameId = gameIdToUncomplete || selectedGameId;
+    if (!targetGameId) return;
 
-    const prevActive = { ...activeGameData };
-    const prevGames = [...games];
-    const newStreak = Math.max(0, (prevActive.currentStreak || 1) - 1);
+    if (inFlightCompletionsRef.current.has(targetGameId)) return;
+    inFlightCompletionsRef.current.add(targetGameId);
+
+    const targetGame = games.find((g) => g.gameId === targetGameId);
+    if (!targetGame) {
+      inFlightCompletionsRef.current.delete(targetGameId);
+      return;
+    }
+
+    const prevGame = { ...targetGame };
+    const newStreak = Math.max(0, (prevGame.currentStreak || 1) - 1);
 
     // 1. Instant optimistic UI update
-    const optimisticGame: LinkedInGameItem = {
-      ...prevActive,
-      completedToday: false,
-      currentStreak: newStreak,
-      todayNote: null,
-      totalCompletions: Math.max(0, (prevActive.totalCompletions || 1) - 1),
-      completionsHistory: (prevActive.completionsHistory || []).slice(1),
-    };
-
-    setActiveGameData(optimisticGame);
     setGames((prev) =>
-      prev.map((g) => (g.gameId === selectedGameId ? optimisticGame : g))
+      prev.map((g) => {
+        if (g.gameId === targetGameId) {
+          return {
+            ...g,
+            completedToday: false,
+            currentStreak: newStreak,
+            todayNote: null,
+            totalCompletions: Math.max(0, (prevGame.totalCompletions || 1) - 1),
+          };
+        }
+        return g;
+      })
     );
     setShowNoteInput(false);
-    toast.info(`${optimisticGame.name} undone`);
+    toast.info(`${prevGame.name} marked incomplete`);
 
-    // 2. Background API sync
-    try {
-      const res = await uncompleteLinkedInGame(groupId, selectedGameId);
-      if (res.success && res.game) {
-        setActiveGameData(res.game);
-        setLeaderboard(res.leaderboard || []);
+    // 2. Silent background sync
+    uncompleteLinkedInGame(groupId, targetGameId)
+      .then((res) => {
+        if (res.success && res.game) {
+          setGames((prev) =>
+            prev.map((g) => (g.gameId === targetGameId ? { ...g, ...res.game } : g))
+          );
+          if (selectedGameIdRef.current === targetGameId && res.leaderboard) {
+            setLeaderboard(res.leaderboard);
+          }
+        }
+      })
+      .catch((err: any) => {
+        // Rollback on error
         setGames((prev) =>
-          prev.map((g) => (g.gameId === selectedGameId ? res.game : g))
+          prev.map((g) => (g.gameId === targetGameId ? prevGame : g))
         );
-      }
-    } catch (err: any) {
-      // Rollback on error
-      setActiveGameData(prevActive);
-      setGames(prevGames);
-      toast.error(extractErrorMessage(err, 'Failed to undo game completion.'));
-    } finally {
-      setIsSubmitting(false);
-    }
+        toast.error(extractErrorMessage(err, 'Failed to undo game completion.'));
+      })
+      .finally(() => {
+        inFlightCompletionsRef.current.delete(targetGameId);
+      });
   };
 
   // Toggle game commitment status
   const handleToggleCommitment = async (gameId: string, targetCommitment: boolean) => {
-    if (isTogglingCommitment) return;
-    setIsTogglingCommitment(true);
-
-    // Optimistic UI update
+    // Instant optimistic UI update
     setGames((prev) =>
       prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: targetCommitment } : g))
     );
-    if (activeGameData && activeGameData.gameId === gameId) {
-      setActiveGameData((prev) => (prev ? { ...prev, isCommitted: targetCommitment } : null));
-    }
 
     try {
       const res = await updateLinkedInGameCommitment(groupId, gameId, targetCommitment);
       if (res.success && res.game) {
         setGames((prev) =>
-          prev.map((g) => (g.gameId === gameId ? res.game : g))
+          prev.map((g) => (g.gameId === gameId ? { ...g, ...res.game } : g))
         );
-        if (activeGameData && activeGameData.gameId === gameId) {
-          setActiveGameData(res.game);
-        }
         toastRef.current.info(
           targetCommitment
-            ? `Committed to ${res.game.name}. Dashboard tick will include this game.`
-            : `Uncommitted from ${res.game.name}. History and streak are preserved.`
+            ? `Committed to ${res.game.name}. Dashboard tick includes this game.`
+            : `Uncommitted from ${res.game.name}. History and streak preserved.`
         );
       }
     } catch (err: any) {
@@ -282,12 +291,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       setGames((prev) =>
         prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: !targetCommitment } : g))
       );
-      if (activeGameData && activeGameData.gameId === gameId) {
-        setActiveGameData((prev) => (prev ? { ...prev, isCommitted: !targetCommitment } : null));
-      }
       toastRef.current.error(extractErrorMessage(err, 'Failed to update commitment.'));
-    } finally {
-      setIsTogglingCommitment(false);
     }
   };
 
@@ -321,78 +325,34 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   };
 
   const ActiveIcon = GAME_ICONS[selectedGameId] || Gamepad2;
+  const completedGamesCount = games.filter((g) => g.completedToday).length;
 
   return (
-    <div className="space-y-6">
-      {/* Top Header Card */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-dark-surface border border-dark-border flex items-center justify-center text-zinc-300 shrink-0">
-              <Gamepad2 className="w-5 h-5 text-flame-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-zinc-100">
-                  LinkedIn Games
-                </h2>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-dark-surface text-zinc-400 border border-dark-border font-bold">
-                  {groupName}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Dashboard Task Link Status / Toggle */}
-            {hasActiveDashboardTask ? (
-              <div className="inline-flex items-center gap-2 bg-zinc-800/80 border border-zinc-700/80 px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-200 shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span>Active on Dashboard</span>
-                {onRemoveDashboardTask && (
-                  <button
-                    type="button"
-                    onClick={onRemoveDashboardTask}
-                    disabled={isTogglingTask}
-                    className="text-[11px] text-zinc-400 hover:text-rose-400 transition-colors ml-1 font-mono cursor-pointer"
-                    title="Remove from dashboard without leaving group"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ) : (
-              onMakeDashboardTask && (
-                <button
-                  type="button"
-                  onClick={onMakeDashboardTask}
-                  disabled={isTogglingTask}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Make this group as task</span>
-                </button>
-              )
-            )}
-
-            <button
-              onClick={() => {
-                loadAllGames();
-                if (selectedGameId) loadGameDetails(selectedGameId);
-              }}
-              disabled={isLoadingAll || isLoadingDetails}
-              className="p-2 sm:px-3 sm:py-1.5 bg-dark-surface hover:bg-dark-hover border border-dark-border rounded-xl text-xs font-semibold text-zinc-300 transition-colors flex items-center gap-1.5 shrink-0"
-              title="Refresh"
-              aria-label="Refresh"
-            >
-              <RefreshCw
-                className={`w-3.5 h-3.5 ${
-                  isLoadingAll || isLoadingDetails ? 'animate-spin text-flame-400' : ''
-                }`}
-              />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-          </div>
+    <div className="space-y-4">
+      {/* Sleek Minimal Puzzles Header */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-400">
+            Daily Games
+          </span>
+          <span className="px-2.5 py-0.5 rounded-full bg-zinc-800 text-amber-400 text-xs font-mono font-bold border border-zinc-700/60 shadow-sm">
+            {completedGamesCount}/8 Completed
+          </span>
         </div>
+
+        <button
+          onClick={() => {
+            loadAllGames();
+            if (selectedGameId) loadGameDetails(selectedGameId);
+          }}
+          disabled={isLoadingAll}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-card hover:bg-dark-hover border border-dark-border text-xs text-zinc-400 hover:text-zinc-200 font-medium transition-colors cursor-pointer"
+          title="Refresh Games"
+          aria-label="Refresh Games"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAll ? 'animate-spin text-amber-400' : ''}`} />
+          <span className="text-[11px] font-mono">Refresh</span>
+        </button>
       </div>
 
       {/* 8 Games Navigation Tabs */}
@@ -406,7 +366,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
               key={g.gameId}
               type="button"
               onClick={() => handleSelectGame(g.gameId)}
-              className={`p-2.5 sm:p-3 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between min-h-[74px] active:scale-[0.98] ${
+              className={`p-2.5 sm:p-3 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between min-h-[74px] active:scale-[0.98] cursor-pointer ${
                 isSelected
                   ? 'bg-dark-surface border-zinc-500 text-zinc-100 shadow-sm ring-1 ring-white/10'
                   : 'bg-dark-card border-dark-border hover:border-zinc-700 text-zinc-300 hover:bg-dark-surface/60'
@@ -450,10 +410,10 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       </div>
 
       {/* Selected Game Detailed View */}
-      {isLoadingDetails && !activeGameData ? (
+      {isLoadingAll && games.length === 0 ? (
         <div className="py-20 text-center text-xs text-dark-muted flex flex-col items-center gap-2 bg-dark-card border border-dark-border rounded-2xl">
           <RefreshCw className="w-5 h-5 animate-spin text-flame-400" />
-          <span>Loading {selectedGameId}...</span>
+          <span>Loading games...</span>
         </div>
       ) : activeGameData ? (
         <div className="space-y-6">
@@ -479,27 +439,24 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 </div>
               </div>
 
-              {/* Actions: Commitment Toggle & Completion Action */}
+              {/* Actions: Commitment Toggle & Instant Completion Action */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
                 {/* Commit / Committed Toggle with icon */}
                 <button
                   type="button"
                   onClick={() => handleToggleCommitment(activeGameData.gameId, !activeGameData.isCommitted)}
-                  disabled={isTogglingCommitment}
                   title={
                     activeGameData.isCommitted
                       ? 'Committed. Click to uncommit.'
                       : 'Uncommitted. Click to commit.'
                   }
-                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-semibold border transition-all active:scale-95 ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl text-xs font-semibold border transition-all active:scale-95 cursor-pointer ${
                     activeGameData.isCommitted
                       ? 'bg-dark-surface hover:bg-rose-500/10 text-zinc-300 hover:text-rose-400 border-dark-border hover:border-rose-500/30'
                       : 'bg-dark-surface hover:bg-dark-hover text-zinc-500 hover:text-zinc-300 border-dark-border'
                   }`}
                 >
-                  {isTogglingCommitment ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : activeGameData.isCommitted ? (
+                  {activeGameData.isCommitted ? (
                     <>
                       <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[2.5]" />
                       <span>Committed</span>
@@ -512,14 +469,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                   )}
                 </button>
 
-                {/* Tick / Un-tick Completion Button */}
+                {/* Instant Tick / Un-tick Completion Button */}
                 {activeGameData.completedToday ? (
                   <button
                     type="button"
-                    onClick={handleUncompleteGame}
-                    disabled={isSubmitting}
+                    onClick={() => handleUncompleteGame(activeGameData.gameId)}
                     title="Click to un-tick and mark incomplete"
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-xl bg-dark-surface hover:bg-rose-500/10 border border-emerald-500/40 hover:border-rose-500/30 text-emerald-400 hover:text-rose-400 text-xs font-semibold transition-all active:scale-95 group"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 min-h-[44px] rounded-xl bg-dark-surface hover:bg-rose-500/10 border border-emerald-500/40 hover:border-rose-500/30 text-emerald-400 hover:text-rose-400 text-xs font-semibold transition-all active:scale-95 group cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4 stroke-[2.5] group-hover:hidden" />
                     <X className="w-4 h-4 stroke-[2.5] hidden group-hover:block" />
@@ -529,15 +485,10 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 ) : (
                   <button
                     type="button"
-                    onClick={handleCompleteGame}
-                    disabled={isSubmitting}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-2 min-h-[44px] bg-flame-500 hover:bg-flame-400 active:scale-95 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all"
+                    onClick={() => handleCompleteGame(activeGameData.gameId)}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2 min-h-[44px] bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
                   >
-                    {isSubmitting ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                    )}
+                    <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
                     <span>Mark Done</span>
                   </button>
                 )}
@@ -545,7 +496,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowNoteInput((prev) => !prev)}
-                  className="px-3 py-2 min-h-[44px] bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-xl transition-colors text-center"
+                  className="px-3 py-2 min-h-[44px] bg-dark-surface hover:bg-dark-hover border border-dark-border text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-xl transition-colors text-center cursor-pointer"
                   title="Note"
                 >
                   {showNoteInput ? <X className="w-3.5 h-3.5" /> : activeGameData.todayNote ? 'Note' : '+ Note'}
@@ -569,9 +520,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={handleCompleteGame}
-                    disabled={isSubmitting}
-                    className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl transition-all shrink-0"
+                    onClick={() => handleCompleteGame(activeGameData.gameId)}
+                    className="px-4 py-2 bg-flame-500 hover:bg-flame-400 text-zinc-950 font-bold text-xs rounded-xl transition-all shrink-0 cursor-pointer"
                   >
                     Save Note
                   </button>

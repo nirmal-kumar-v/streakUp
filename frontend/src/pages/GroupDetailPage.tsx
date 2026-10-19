@@ -798,24 +798,8 @@ export const GroupDetailPage: React.FC = () => {
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-mono uppercase tracking-wider text-flame-400 font-bold px-2.5 py-0.5 rounded-md bg-flame-500/10 border border-flame-500/20">
-                Shared Group Habit
-              </span>
-              <span
-                className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
-                  isOwner
-                    ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                    : isAdmin
-                    ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-400'
-                }`}
-              >
-                {isOwner ? <Crown className="w-2.5 h-2.5" /> : isAdmin ? <Shield className="w-2.5 h-2.5" /> : null}
-                <span>{group.userRole}</span>
-              </span>
-
               {/* Group Code Pill */}
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-zinc-800/80 border border-zinc-700/80 text-xs">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 border border-zinc-700/80 text-xs">
                 <KeyRound className="w-3 h-3 text-amber-400" />
                 <span className="font-mono font-bold text-zinc-200 tracking-wider text-[11px]">
                   {group.joinCode}
@@ -854,8 +838,35 @@ export const GroupDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Area: Invite, Edit Group (if Owner), Leave */}
+          {/* Action Area: Dashboard Task, Invite, Edit Group (if Owner), Leave */}
           <div className="flex items-center gap-2.5 flex-wrap w-full md:w-auto">
+            {/* Dashboard Task Link Status / Toggle */}
+            {group.hasActiveDashboardTask ? (
+              <div className="inline-flex items-center gap-2 bg-zinc-800/80 border border-zinc-700/80 px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-200 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                <span>Active on Dashboard</span>
+                <button
+                  type="button"
+                  onClick={handleRemoveFromDashboard}
+                  disabled={isTogglingTask}
+                  className="text-[11px] text-zinc-400 hover:text-rose-400 transition-colors ml-1 font-mono cursor-pointer"
+                  title="Remove from dashboard without leaving group"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleMakeGroupTask}
+                disabled={isTogglingTask}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white border border-zinc-700 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5 text-amber-400" />
+                <span>Make this group as task</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={openInviteModal}
