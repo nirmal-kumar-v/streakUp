@@ -368,8 +368,10 @@ export async function completeMemberGame(
     });
   }
 
-  // Clear manual current streak once real completion arrives, preserve admin longest streak
-  record.manualCurrentStreak = null;
+  // Increment manual current streak if set by admin, otherwise calculated naturally
+  if (typeof record.manualCurrentStreak === 'number') {
+    record.manualCurrentStreak = record.manualCurrentStreak + 1;
+  }
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -400,8 +402,13 @@ export async function uncompleteMemberGame(
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
 
+  const hadCompletion = record.completions.some((c) => c.completionDate === targetDate);
   record.completions = record.completions.filter((c) => c.completionDate !== targetDate);
-  record.manualCurrentStreak = null;
+  if (typeof record.manualCurrentStreak === 'number') {
+    record.manualCurrentStreak = hadCompletion
+      ? Math.max(0, record.manualCurrentStreak - 1)
+      : record.manualCurrentStreak;
+  }
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -793,8 +800,13 @@ export async function uncompleteCommittedGamesForDashboard(
   for (const game of committedGames) {
     const key = getRecordKey(groupId, userId, game.gameId);
     const raw = getRawGameRecord(groupId, userId, game.gameId);
+    const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
     raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
-    raw.manualCurrentStreak = null;
+    if (typeof raw.manualCurrentStreak === 'number') {
+      raw.manualCurrentStreak = hadCompletion
+        ? Math.max(0, raw.manualCurrentStreak - 1)
+        : raw.manualCurrentStreak;
+    }
     raw.updatedAt = new Date().toISOString();
     records[key] = raw;
     syncRecordToDb(raw).catch(() => {});

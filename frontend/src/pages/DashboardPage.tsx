@@ -136,7 +136,11 @@ export const DashboardPage: React.FC = () => {
       // Optimistic untick immediately
       const prevTasks = [...tasks];
       setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, completedToday: false, todayStudyNote: null } : t))
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: Math.max(0, (t.currentStreak || 1) - 1) }
+            : t
+        )
       );
       try {
         const res = await uncompleteTask(task.id);
