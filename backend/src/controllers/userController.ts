@@ -674,12 +674,13 @@ export async function verifyChangeEmail(req: AuthenticatedRequest, res: Response
       });
     }
 
-    // Update user registered email and record timestamp
+    // Update user registered email and record timestamp, ensuring verified status
     const now = new Date();
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
         email: cleanNewEmail,
+        isEmailVerified: true,
         emailLastChangedAt: now,
       },
       select: {
@@ -688,6 +689,16 @@ export async function verifyChangeEmail(req: AuthenticatedRequest, res: Response
         username: true,
         email: true,
         emailLastChangedAt: true,
+        isEmailVerified: true,
+      },
+    });
+
+    // Reset customNotificationEmail so all future notifications seamlessly route to the new verified registered email
+    await prisma.notificationPreference.updateMany({
+      where: { userId },
+      data: {
+        customNotificationEmail: null,
+        isCustomEmailVerified: false,
       },
     });
 

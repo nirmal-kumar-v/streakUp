@@ -42,8 +42,9 @@ describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
       const baseUrl = getAppBaseUrl();
       expect(baseUrl).toBeTruthy();
       expect(baseUrl.startsWith('http')).toBe(true);
-      // In production/deployment, should point to hosted StreakUp URL
-      expect(baseUrl).toContain('streakup-karo.onrender.com');
+      // In production/deployment, should point to hosted StreakUp URL on Vercel
+      expect(baseUrl).toContain('streak-up-karo.vercel.app');
+      expect(baseUrl).not.toContain('streakup-karo.onrender.com');
       expect(baseUrl).not.toContain('localhost:5000');
     });
 
@@ -53,9 +54,10 @@ describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
         resetToken: 'test_token_hex_123',
       });
 
-      expect(resetEmail.text).toContain('https://streakup-karo.onrender.com/reset-password?token=test_token_hex_123');
+      expect(resetEmail.text).toContain('https://streak-up-karo.vercel.app/reset-password?token=test_token_hex_123');
       expect(resetEmail.text).not.toContain('localhost:5173');
       expect(resetEmail.text).not.toContain('localhost:5000');
+      expect(resetEmail.text).not.toContain('onrender.com');
     });
   });
 
@@ -117,7 +119,8 @@ describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
       expect(emailWithNote.text).toContain('Your friend Nithish completed their GATE Preparation task today.');
       expect(emailWithNote.text).toContain('Study note: Studied MCQs in Computer Networks');
       expect(emailWithNote.text).toContain("You haven't completed your matching task today yet. You still have time to make progress.");
-      expect(emailWithNote.text).toContain('https://streakup-karo.onrender.com/tasks');
+      expect(emailWithNote.text).toContain('https://streak-up-karo.vercel.app/tasks');
+      expect(emailWithNote.text).not.toContain('onrender.com');
     });
 
     it('completely omits study note section when note is empty or undefined (never invents a note)', () => {

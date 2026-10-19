@@ -6,9 +6,10 @@ import { getLocalDateString, getLocalTimeInfo, getTodayInTimezone, DEFAULT_TIMEZ
 import { DateTime } from 'luxon';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
 import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
-import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '../services/notificationService';
+import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts, createNotification } from '../services/notificationService';
+import { buildTaskCompletionEmail } from '../services/emailService';
 import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
-import { FreezeScope } from '@prisma/client';
+import { FreezeScope, NotificationCategory } from '@prisma/client';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 import {
   isLinkedInName,
@@ -394,6 +395,32 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         studyNote: 'LinkedIn games completed',
       }).catch((err) => console.error('[completeTask:LinkedIn] Friend activity alert error:', err));
 
+      // Dispatch habit completion notification & email directly to the completing user
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      }).then((userRecord) => {
+        const liEmail = buildTaskCompletionEmail({
+          userName: userRecord?.name || 'Habit Builder',
+          taskTitle: task.title,
+          currentStreak: liResult.highestStreak,
+          pointsAwarded: 0,
+          totalPoints: newTotalPoints,
+          studyNote: 'Committed LinkedIn games completed',
+        });
+
+        createNotification({
+          userId,
+          category: NotificationCategory.TASK_REMINDER,
+          title: `Habit Completed: ${task.title}`,
+          message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}.`,
+          actionUrl: `/dashboard`,
+          eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+          emailSubject: liEmail.subject,
+          emailText: liEmail.text,
+        }).catch((err) => console.error('[completeTask:LinkedIn] User completion notification error:', err));
+      }).catch((err) => console.error('[completeTask:LinkedIn] Fetch user error:', err));
+
       return res.json({
         success: true,
         message: 'Committed LinkedIn games completed!',
@@ -509,6 +536,32 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         studyNote: completion.studyNote,
       }).catch((err) => console.error('[completeTask] Friend activity alert error:', err));
     }
+
+    // Dispatch habit completion notification & email directly to the completing user
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
+    }).then((userRecord) => {
+      const completionEmail = buildTaskCompletionEmail({
+        userName: userRecord?.name || 'Habit Builder',
+        taskTitle: task.title,
+        currentStreak: taskStreak.currentStreak,
+        pointsAwarded,
+        totalPoints: newTotalPoints,
+        studyNote: completion.studyNote,
+      });
+
+      createNotification({
+        userId,
+        category: NotificationCategory.TASK_REMINDER,
+        title: `Habit Completed: ${task.title}`,
+        message: `You completed "${task.title}" today! Streak: ${taskStreak.currentStreak} day${taskStreak.currentStreak === 1 ? '' : 's'}${pointsAwarded > 0 ? ` (+${pointsAwarded} pts)` : ''}.`,
+        actionUrl: `/dashboard`,
+        eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
+        emailSubject: completionEmail.subject,
+        emailText: completionEmail.text,
+      }).catch((err) => console.error('[completeTask] User completion notification error:', err));
+    }).catch((err) => console.error('[completeTask] Fetch user error:', err));
 
     return res.json({
       success: true,

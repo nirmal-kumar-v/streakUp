@@ -47,13 +47,21 @@ export function getSmtpConfig() {
  */
 export function getAppBaseUrl(): string {
   const configured = process.env.APP_BASE_URL || process.env.CLIENT_URL;
-  if (configured && !configured.includes('localhost')) {
+  if (
+    configured &&
+    !configured.includes('localhost') &&
+    !configured.includes('onrender.com') &&
+    !configured.includes('render')
+  ) {
     return configured.replace(/\/+$/, '');
   }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '')}`;
   }
-  return (configured || 'https://streak-up-karo.vercel.app').replace(/\/+$/, '');
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`;
+  }
+  return 'https://streak-up-karo.vercel.app';
 }
 
 /**
@@ -483,6 +491,49 @@ export function buildMyMilestoneEmail(data: {
   ].join('\n');
 
   return { subject, text };
+}
+
+/**
+ * Daily habit completion celebration email dispatched directly to the completing user
+ */
+export function buildTaskCompletionEmail(data: {
+  userName: string;
+  taskTitle: string;
+  currentStreak: number;
+  pointsAwarded?: number;
+  totalPoints?: number;
+  studyNote?: string | null;
+}) {
+  const dashboardUrl = `${getAppBaseUrl()}/dashboard`;
+  const subject = `🔥 Habit Completed: ${data.taskTitle} (${data.currentStreak} Day Streak!)`;
+  const lines = [
+    `Hi ${data.userName},`,
+    '',
+    `Great work! You have successfully completed your habit "${data.taskTitle}" today!`,
+    '',
+    `Current Streak: ${data.currentStreak} day${data.currentStreak === 1 ? '' : 's'} 🔥`,
+  ];
+
+  if (data.pointsAwarded && data.pointsAwarded > 0) {
+    lines.push(`Points Earned: +${data.pointsAwarded} pts (Total: ${data.totalPoints ?? data.pointsAwarded} pts)`);
+  }
+
+  if (data.studyNote && data.studyNote.trim()) {
+    lines.push('', `Your Study Note:`, `"${data.studyNote.trim()}"`);
+  }
+
+  lines.push(
+    '',
+    `View your streak progress on your dashboard:`,
+    dashboardUrl,
+    '',
+    `Keep up the fantastic momentum tomorrow!`,
+    '',
+    `—`,
+    `StreakUp Team`
+  );
+
+  return { subject, text: lines.join('\n') };
 }
 
 /**

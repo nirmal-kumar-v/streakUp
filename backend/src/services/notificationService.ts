@@ -178,11 +178,22 @@ export async function createNotification(params: CreateNotificationParams) {
   };
 
   if (isEmailCategoryEnabled() && emailSubject && emailText) {
-    // Determine destination email (custom verified email or user registered email)
-    const destinationEmail =
-      pref.customNotificationEmail && pref.isCustomEmailVerified
-        ? pref.customNotificationEmail
-        : user.email;
+    // Determine destination email (custom verified email or active registered user email)
+    let destinationEmail = user.email;
+
+    if (pref.customNotificationEmail && pref.isCustomEmailVerified) {
+      // If the user's primary login email was changed AFTER the custom notification email was set,
+      // route seamlessly to the new registered email!
+      const customIsStale = Boolean(
+        user.emailLastChangedAt &&
+        pref.updatedAt &&
+        new Date(pref.updatedAt) < new Date(user.emailLastChangedAt)
+      );
+
+      if (!customIsStale) {
+        destinationEmail = pref.customNotificationEmail.trim().toLowerCase();
+      }
+    }
 
     const emailIdempotencyKey = eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`;
 

@@ -1,5 +1,18 @@
 [
   {
+    "id": "f9544155-c973-46a3-91d9-cb6de5ccb95d",
+    "userId": "6e94bdc8-bb78-4775-8964-f9432a8faa16",
+    "username": "nithish_22",
+    "name": "NITHISH",
+    "email": "nithishs2203@gmail.com",
+    "category": "FEATURE_REQUEST",
+    "message": "1.Keep some badges like in duolingo and reddit sites, for example maintain this level of streak u can unlock this badges like that and show it in profile page. \n2.and i need separate page for Streak listing not like an overall streak count it shows in individual platform streak counts...in profile page\nIF STRANGER OPEN MY PROFILE PAGE IT BE POWER PACC SOURCE IT SHOWS ALL MY ACHIEVEMENTS LIKE THAT I NEED IN MY PROFILE PAGE \n\nIN SIMPLE WORDS: LIKE CODOLIO PLATFORM",
+    "status": "UNDER_REVIEW",
+    "adminNotes": "Manager @nirmal: will be solved soon... thankyou nithish",
+    "createdAt": "2026-10-19T15:25:30.841Z",
+    "updatedAt": "2026-10-19T15:37:59.522Z"
+  },
+  {
     "id": "97d433cd-4348-4cf8-b19a-00c8fa996c08",
     "userId": "test-req-user-1",
     "username": "reqtester",
@@ -8,9 +21,9 @@
     "category": "FEATURE_REQUEST",
     "message": "Can we have customizable streak notifications?",
     "status": "UNDER_REVIEW",
-    "createdAt": "2026-10-19T14:56:15.289Z",
-    "updatedAt": "2026-10-19T14:56:17.439Z",
-    "adminNotes": "Manager @mgrcandidate: We are evaluating this feature for the next sprint!"
+    "adminNotes": "Manager @mgrcandidate: We are evaluating this feature for the next sprint!",
+    "createdAt": "2026-10-19T14:56:20.696Z",
+    "updatedAt": "2026-10-19T14:56:21.778Z"
   },
   {
     "id": "87764cf7-1a65-4a35-904d-be88d192db9a",
@@ -21,9 +34,9 @@
     "category": "OTHER",
     "message": "Inquiry regarding streak pause rules.",
     "status": "RESOLVED",
-    "createdAt": "2026-10-19T14:56:08.497Z",
-    "updatedAt": "2026-10-19T14:56:08.760Z",
-    "adminNotes": "Examining user logs for context."
+    "adminNotes": "Examining user logs for context.",
+    "createdAt": "2026-10-19T14:56:12.759Z",
+    "updatedAt": "2026-10-19T14:56:13.109Z"
   },
   {
     "id": "b12a56a4-be98-4235-bc96-34c2abf11f51",
