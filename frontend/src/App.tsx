@@ -155,127 +155,129 @@ export const AppContent: React.FC = () => {
       <StreakCelebration />
       {isAuthenticated && <PostCompletionNudge />}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <Suspense fallback={<PageFallback />}>
-          <Routes>
-          {/* Public Routes */}
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/leaderboard" element={<Navigate to="/leaderboard/friends" replace />} />
-          <Route path="/leaderboard/global" element={<GlobalLeaderboardPage />} />
-          <Route path="/profile/:username" element={<PublicProfilePage />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <ErrorBoundary>
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+            {/* Public Routes */}
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/leaderboard" element={<Navigate to="/leaderboard/friends" replace />} />
+            <Route path="/leaderboard/global" element={<GlobalLeaderboardPage />} />
+            <Route path="/profile/:username" element={<PublicProfilePage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
-          {/* Protected Routes */}
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/tasks"
-            element={
-              <ProtectedRoute>
-                <TasksPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/friends/tasks"
-            element={
-              <ProtectedRoute>
-                <FriendsTasksPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/friends-tasks"
-            element={
-              <ProtectedRoute>
-                <FriendsTasksPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/leaderboard/friends"
-            element={
-              <ProtectedRoute>
-                <FriendsLeaderboardPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/groups"
-            element={
-              <ProtectedRoute>
-                <GroupsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/groups/:id"
-            element={
-              <ProtectedRoute>
-                <GroupDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/friends"
-            element={
-              <ProtectedRoute>
-                <FriendsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/notifications"
-            element={
-              <ProtectedRoute>
-                <NotificationsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings/notifications"
-            element={
-              <ProtectedRoute>
-                <NotificationSettingsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/notifications/settings"
-            element={
-              <ProtectedRoute>
-                <NotificationSettingsPage />
-              </ProtectedRoute>
-            }
-          />
+            {/* Protected Routes */}
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/tasks"
+              element={
+                <ProtectedRoute>
+                  <TasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/friends/tasks"
+              element={
+                <ProtectedRoute>
+                  <FriendsTasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/friends-tasks"
+              element={
+                <ProtectedRoute>
+                  <FriendsTasksPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/leaderboard/friends"
+              element={
+                <ProtectedRoute>
+                  <FriendsLeaderboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/groups"
+              element={
+                <ProtectedRoute>
+                  <GroupsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/groups/:id"
+              element={
+                <ProtectedRoute>
+                  <GroupDetailPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/friends"
+              element={
+                <ProtectedRoute>
+                  <FriendsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute>
+                  <NotificationsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings/notifications"
+              element={
+                <ProtectedRoute>
+                  <NotificationSettingsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications/settings"
+              element={
+                <ProtectedRoute>
+                  <NotificationSettingsPage />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Super Admin Control Panel (Strict fixed complex secret URL, no tokens) */}
-          <Route path="/admin-control" element={<AdminRedirect />} />
-          <Route path="/admin-panel" element={<AdminRedirect />} />
-          <Route path={EXACT_ADMIN_PATHNAME} element={<AdminSecretRoute />} />
+            {/* Super Admin Control Panel (Strict fixed complex secret URL, no tokens) */}
+            <Route path="/admin-control" element={<AdminRedirect />} />
+            <Route path="/admin-panel" element={<AdminRedirect />} />
+            <Route path={EXACT_ADMIN_PATHNAME} element={<AdminSecretRoute />} />
 
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
       </main>
 
       {/* Footer */}

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, getMe, logoutUser } from '../api/auth';
 
-interface AuthContextType {
+export interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
@@ -12,7 +12,30 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const defaultAuthContext: AuthContextType = {
+  user: null,
+  token: null,
+  isAuthenticated: false,
+  isLoading: false,
+  login: () => {},
+  logout: async () => {},
+  updateUser: () => {},
+  refreshUser: async () => {},
+};
+
+declare global {
+  interface Window {
+    __STREAKUP_AUTH_CONTEXT__?: React.Context<AuthContextType>;
+  }
+}
+
+const AuthContext: React.Context<AuthContextType> =
+  (typeof window !== 'undefined' && window.__STREAKUP_AUTH_CONTEXT__) ||
+  createContext<AuthContextType>(defaultAuthContext);
+
+if (typeof window !== 'undefined') {
+  window.__STREAKUP_AUTH_CONTEXT__ = AuthContext;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
@@ -100,10 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
-export function useAuth() {
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  return context || defaultAuthContext;
 }

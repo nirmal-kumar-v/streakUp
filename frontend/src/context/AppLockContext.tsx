@@ -37,7 +37,35 @@ interface AppLockContextType {
   unlockApp: () => void;
 }
 
-const AppLockContext = createContext<AppLockContextType | undefined>(undefined);
+const defaultAppLockContext: AppLockContextType = {
+  isAppLockEnabled: false,
+  isLocked: false,
+  hasPinSet: false,
+  failedAttempts: 0,
+  lockoutRemainingSeconds: 0,
+  securityQuestion: undefined,
+  setupPin: async () => false,
+  changePin: async () => ({ success: false, error: 'AppLock unavailable' }),
+  disableAppLock: async () => ({ success: false, error: 'AppLock unavailable' }),
+  verifyAndUnlock: async () => ({ success: false, error: 'AppLock unavailable' }),
+  verifySecurityAnswerAndResetPin: async () => ({ success: false, error: 'AppLock unavailable' }),
+  lockApp: () => {},
+  unlockApp: () => {},
+};
+
+declare global {
+  interface Window {
+    __STREAKUP_APPLOCK_CONTEXT__?: React.Context<AppLockContextType>;
+  }
+}
+
+const AppLockContext: React.Context<AppLockContextType> =
+  (typeof window !== 'undefined' && window.__STREAKUP_APPLOCK_CONTEXT__) ||
+  createContext<AppLockContextType>(defaultAppLockContext);
+
+if (typeof window !== 'undefined') {
+  window.__STREAKUP_APPLOCK_CONTEXT__ = AppLockContext;
+}
 
 // App locks when coming out of the app for 10 seconds or more
 const BACKGROUND_LOCK_THRESHOLD_MS = 10 * 1000;
@@ -591,8 +619,5 @@ export const AppLockProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const useAppLock = (): AppLockContextType => {
   const context = useContext(AppLockContext);
-  if (!context) {
-    throw new Error('useAppLock must be used within an AppLockProvider');
-  }
-  return context;
+  return context || defaultAppLockContext;
 };

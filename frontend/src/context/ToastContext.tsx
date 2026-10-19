@@ -9,14 +9,33 @@ interface ToastItem {
   type: ToastType;
 }
 
-interface ToastContextType {
+export interface ToastContextType {
   showToast: (message: string, type?: ToastType) => void;
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
 }
 
-const ToastContext = createContext<ToastContextType | undefined>(undefined);
+const defaultToastContext: ToastContextType = {
+  showToast: () => {},
+  success: () => {},
+  error: () => {},
+  info: () => {},
+};
+
+declare global {
+  interface Window {
+    __STREAKUP_TOAST_CONTEXT__?: React.Context<ToastContextType>;
+  }
+}
+
+const ToastContext: React.Context<ToastContextType> =
+  (typeof window !== 'undefined' && window.__STREAKUP_TOAST_CONTEXT__) ||
+  createContext<ToastContextType>(defaultToastContext);
+
+if (typeof window !== 'undefined') {
+  window.__STREAKUP_TOAST_CONTEXT__ = ToastContext;
+}
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -96,10 +115,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export function useToast() {
+export function useToast(): ToastContextType {
   const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
+  return context || defaultToastContext;
 }

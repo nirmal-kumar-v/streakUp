@@ -3,7 +3,7 @@ import { fetchFriendRequests } from '../api/friends';
 import { fetchNotifications } from '../api/notifications';
 import { useAuth } from './AuthContext';
 
-interface BadgeContextType {
+export interface BadgeContextType {
   pendingRequestsCount: number;
   unreadNotificationsCount: number;
   refreshBadges: () => Promise<void>;
@@ -15,7 +15,32 @@ interface BadgeContextType {
   clearNotifications: () => void;
 }
 
-const BadgeContext = createContext<BadgeContextType | undefined>(undefined);
+const defaultBadgeContext: BadgeContextType = {
+  pendingRequestsCount: 0,
+  unreadNotificationsCount: 0,
+  refreshBadges: async () => {},
+  decrementFriendRequests: () => {},
+  incrementFriendRequests: () => {},
+  setPendingRequestsCount: () => {},
+  decrementNotifications: () => {},
+  setUnreadNotificationsCount: () => {},
+  clearNotifications: () => {},
+};
+
+declare global {
+  interface Window {
+    __STREAKUP_BADGE_CONTEXT__?: React.Context<BadgeContextType>;
+  }
+}
+
+// Preserve a single context instance across lazy-loaded chunks and Vite HMR
+const BadgeContext: React.Context<BadgeContextType> =
+  (typeof window !== 'undefined' && window.__STREAKUP_BADGE_CONTEXT__) ||
+  createContext<BadgeContextType>(defaultBadgeContext);
+
+if (typeof window !== 'undefined') {
+  window.__STREAKUP_BADGE_CONTEXT__ = BadgeContext;
+}
 
 const BADGE_STORAGE_KEY = 'streakup_badges_state';
 
@@ -187,10 +212,7 @@ export const BadgeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 };
 
-export function useBadges() {
+export function useBadges(): BadgeContextType {
   const context = useContext(BadgeContext);
-  if (!context) {
-    throw new Error('useBadges must be used within a BadgeProvider');
-  }
-  return context;
+  return context || defaultBadgeContext;
 }
