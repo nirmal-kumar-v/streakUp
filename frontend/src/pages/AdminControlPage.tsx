@@ -39,7 +39,6 @@ import {
   Plus,
 } from 'lucide-react';
 import {
-  adminLogin,
   fetchAdminProfile,
   changeAdminCredentials,
   fetchAdminAuditLogs,
@@ -85,6 +84,7 @@ import {
 import { NotificationPreference } from '../api/notifications';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
+import { AdminLogin } from '../components/AdminLogin';
 
 export const AdminControlPage: React.FC = () => {
   const toast = useToast();
@@ -93,9 +93,6 @@ export const AdminControlPage: React.FC = () => {
   // Admin Auth State
   // ------------------------------------------
   const [isAdminAuth, setIsAdminAuth] = useState(false);
-  const [adminUsername, setAdminUsername] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeAdmin, setActiveAdmin] = useState<any>(null);
 
   // ------------------------------------------
@@ -391,30 +388,6 @@ export const AdminControlPage: React.FC = () => {
   // ------------------------------------------
   // Auth Handlers
   // ------------------------------------------
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminUsername || !adminPassword) {
-      toast.error('Username and password are required.');
-      return;
-    }
-    setIsLoggingIn(true);
-    try {
-      const res = await adminLogin(adminUsername, adminPassword);
-      if (res.success) {
-        localStorage.setItem('streakup_admin_token', res.token);
-        localStorage.setItem('streakup_admin_last_activity', String(Date.now()));
-        setIsAdminAuth(true);
-        setActiveAdmin(res.admin);
-        toast.info('Super Admin authenticated successfully.');
-        handleSearchUsers('');
-      }
-    } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Admin authentication failed.'));
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
   const handleAdminLogout = () => {
     localStorage.removeItem('streakup_admin_token');
     localStorage.removeItem('streakup_admin_last_activity');
@@ -2017,63 +1990,14 @@ export const AdminControlPage: React.FC = () => {
   // ==========================================
   if (!isAdminAuth) {
     return (
-      <div className="min-h-screen bg-dark-bg text-zinc-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-flame-500 to-rose-500" />
-          <div className="flex items-center gap-3.5 mb-6">
-            <div className="w-12 h-12 rounded-2xl bg-flame-500/10 border border-flame-500/30 flex items-center justify-center text-flame-400 shadow-inner">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-extrabold text-zinc-100 tracking-tight">StreakUp Super Admin</h1>
-              <p className="text-xs text-dark-muted font-medium">Privileged Management & Override Control</p>
-            </div>
-          </div>
-
-          <form onSubmit={handleAdminLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">Admin Username</label>
-              <input
-                type="text"
-                value={adminUsername}
-                onChange={(e) => setAdminUsername(e.target.value)}
-                placeholder="Enter admin username"
-                className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1.5">Admin Password</label>
-              <input
-                type="password"
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoggingIn}
-              className="w-full py-3 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-extrabold text-xs rounded-xl shadow-lg transition-all mt-3 flex items-center justify-center gap-2"
-            >
-              {isLoggingIn ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Verifying Credentials...</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4" />
-                  <span>Authenticate Super Admin</span>
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-      </div>
+      <AdminLogin
+        onSuccess={(admin) => {
+          setIsAdminAuth(true);
+          setActiveAdmin(admin);
+          toast.info('Super Admin authenticated successfully.');
+          handleSearchUsers('');
+        }}
+      />
     );
   }
 
