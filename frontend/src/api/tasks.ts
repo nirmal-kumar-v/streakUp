@@ -26,6 +26,7 @@ export interface Task {
   freezeRechargeDays?: number;
   groupId?: string | null;
   isGroupTask?: boolean;
+  isLinkedIn?: boolean;
   isCompleted?: boolean;
   createdAt: string;
   updatedAt: string;

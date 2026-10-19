@@ -22,6 +22,15 @@ import {
 } from '../services/adminConfigService';
 import { calculateNextOccurrence, runReminderCheck } from '../services/reminderSchedulerService';
 import { validateImageBuffer } from '../utils/imageValidator';
+import {
+  getAllGamesForMember,
+  getSingleGameForMember,
+  adminCorrectGameStreak,
+  adminGrantGameDate,
+  adminFreezeGameDate,
+  isLinkedInName,
+  normalizeGameId,
+} from '../services/linkedInGameService';
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
@@ -3324,6 +3333,312 @@ export async function adminUpdateUserPreferences(req: AdminAuthenticatedRequest,
     return res.status(500).json({ success: false, error: 'Failed to update user notification preferences.' });
   }
 }
+
+// ========================================================
+// LINKEDIN GROUP GAMES DEDICATED SUPER ADMIN CONTROLS
+// ========================================================
+
+/**
+ * Retrieve all 8 LinkedIn games and streaks for a selected group member
+ */
+export async function getMemberLinkedInGamesAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, joinCode: true },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    const isLinkedIn = isLinkedInName(group.name);
+    if (!isLinkedIn) {
+      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
+    }
+
+    const games = await getAllGamesForMember(groupId, userId, user.timezone || 'Asia/Kolkata');
+
+    return res.json({
+      success: true,
+      user,
+      group,
+      games,
+    });
+  } catch (err: any) {
+    console.error('getMemberLinkedInGamesAdmin error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to load member LinkedIn games.' });
+  }
+}
+
+/**
+ * Admin streak correction for an individual LinkedIn game
+ */
+export async function adminCorrectLinkedInGameStreak(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      gameId,
+      currentStreak,
+      longestStreak,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+
+    if (typeof currentStreak !== 'number' || currentStreak < 0) {
+      return res.status(400).json({ success: false, error: 'Valid non-negative current streak is required.' });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group || !isLinkedInName(group.name)) {
+      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
+    }
+
+    const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
+
+    const updatedGame = await adminCorrectGameStreak(
+      groupId,
+      userId,
+      normalizedGameId,
+      currentStreak,
+      typeof longestStreak === 'number' ? longestStreak : currentStreak
+    );
+
+    const changesSummary = `LinkedIn game "${updatedGame.name}" streak corrected: ${beforeState?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedGame.longestStreak}d).`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'LINKEDIN_GAME_STREAK_CORRECTION',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: updatedGame,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `LinkedIn ${updatedGame.name} Streak Corrected`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Streak for ${updatedGame.name} successfully updated to ${currentStreak} days.`,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    console.error('adminCorrectLinkedInGameStreak error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to correct LinkedIn game streak.' });
+  }
+}
+
+/**
+ * Super Admin retroactively grants or toggles completion for an individual LinkedIn game
+ */
+export async function adminGrantLinkedInGameDate(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      gameId,
+      date,
+      studyNote,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'A valid calendar date (YYYY-MM-DD) is required.' });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group || !isLinkedInName(group.name)) {
+      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
+    }
+
+    const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
+
+    const updatedGame = await adminGrantGameDate(groupId, userId, normalizedGameId, date, studyNote);
+
+    const changesSummary = `LinkedIn game "${updatedGame.name}" check-in granted for date ${date}. New streak: ${updatedGame.currentStreak}d.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'LINKEDIN_GAME_GRANT_DATE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: updatedGame,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `LinkedIn ${updatedGame.name} Check-in Granted`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Check-in for ${updatedGame.name} on ${date} recorded successfully.`,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    console.error('adminGrantLinkedInGameDate error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to grant LinkedIn game date.' });
+  }
+}
+
+/**
+ * Super Admin applies or removes freeze protection on a calendar date for an individual LinkedIn game
+ */
+export async function adminFreezeLinkedInGameDate(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      gameId,
+      date,
+      isFrozen = true,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'A valid calendar date (YYYY-MM-DD) is required.' });
+    }
+
+    const normalizedGameId = normalizeGameId(gameId);
+    if (!normalizedGameId) {
+      return res.status(400).json({ success: false, error: `Invalid LinkedIn game: ${gameId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group || !isLinkedInName(group.name)) {
+      return res.status(400).json({ success: false, error: 'Target group is not a LinkedIn group.' });
+    }
+
+    const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
+
+    const updatedGame = await adminFreezeGameDate(groupId, userId, normalizedGameId, date, Boolean(isFrozen));
+
+    const changesSummary = `LinkedIn game "${updatedGame.name}" freeze ${isFrozen ? 'applied' : 'removed'} for date ${date}.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'LINKEDIN_GAME_FREEZE_DATE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState,
+      afterState: updatedGame,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `LinkedIn ${updatedGame.name} Freeze ${isFrozen ? 'Applied' : 'Removed'}`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Freeze ${isFrozen ? 'applied' : 'removed'} for ${updatedGame.name} on ${date}.`,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    console.error('adminFreezeLinkedInGameDate error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game freeze.' });
+  }
+}
+
 
 
 

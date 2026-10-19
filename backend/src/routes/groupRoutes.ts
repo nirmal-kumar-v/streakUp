@@ -22,6 +22,12 @@ import {
   leaveGroup,
   updateMemberGroupPrivacy,
 } from '../controllers/groupController';
+import {
+  getLinkedInGames,
+  getSingleLinkedInGame,
+  completeLinkedInGame,
+  getLinkedInGameLeaderboard,
+} from '../controllers/linkedInGameController';
 import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -52,6 +58,12 @@ router.delete('/:id/task', removeGroupTask);
 
 router.get('/:id/leaderboard', getGroupLeaderboards);
 router.get('/:id/notes', getGroupNotes);
+
+// LinkedIn Group Dedicated Games Hub & Leaderboards
+router.get('/:id/linkedin-games', getLinkedInGames);
+router.get('/:id/linkedin-games/:gameId', getSingleLinkedInGame);
+router.post('/:id/linkedin-games/:gameId/complete', completeLinkedInGame);
+router.get('/:id/linkedin-games/:gameId/leaderboard', getLinkedInGameLeaderboard);
 
 router.post('/:id/members/:targetUserId/promote', promoteMemberToAdmin);
 router.delete('/:id/members/:targetUserId', removeMemberFromGroup);

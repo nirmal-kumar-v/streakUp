@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ShieldCheck,
   Search,
@@ -37,6 +37,8 @@ import {
   Compass,
   Play,
   Plus,
+  Gamepad2,
+  Trophy,
 } from 'lucide-react';
 import {
   fetchAdminProfile,
@@ -77,6 +79,10 @@ import {
   adminUpdateTaskReminders,
   adminTriggerManualReminderCheck,
   adminUpdateUserPreferences,
+  getMemberLinkedInGamesAdmin,
+  adminCorrectLinkedInGameStreak,
+  adminGrantLinkedInGameDate,
+  adminFreezeLinkedInGameDate,
   AdminUser,
   AdminAuditLogItem,
   AdminGroupItem,
@@ -86,6 +92,7 @@ import { NotificationPreference } from '../api/notifications';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { AdminLogin } from '../components/AdminLogin';
+import { isLinkedInName, LINKEDIN_GAMES_LIST } from '../utils/linkedin';
 
 export const AdminControlPage: React.FC = () => {
   const toast = useToast();
@@ -307,6 +314,27 @@ export const AdminControlPage: React.FC = () => {
   const [newAdminSensitivePin, setNewAdminSensitivePin] = useState('');
   const [confirmAdminSensitivePin, setConfirmAdminSensitivePin] = useState('');
   const [isSubmittingSensitivePin, setIsSubmittingSensitivePin] = useState(false);
+
+  // ------------------------------------------
+  // LinkedIn Group Games Super Admin State
+  // ------------------------------------------
+  const [adminLinkedInGames, setAdminLinkedInGames] = useState<any[]>([]);
+  const [isLoadingAdminLinkedInGames, setIsLoadingAdminLinkedInGames] = useState(false);
+  const [selectedAdminGameId, setSelectedAdminGameId] = useState<string>('pinpoint');
+  const [adminGameCurrentStreak, setAdminGameCurrentStreak] = useState<number>(0);
+  const [adminGameLongestStreak, setAdminGameLongestStreak] = useState<number>(0);
+  const [adminGameStreakReason, setAdminGameStreakReason] = useState<string>('');
+  const [isSubmittingAdminGameStreak, setIsSubmittingAdminGameStreak] = useState(false);
+
+  const [adminGameGrantDate, setAdminGameGrantDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [adminGameGrantNote, setAdminGameGrantNote] = useState<string>('');
+  const [adminGameGrantReason, setAdminGameGrantReason] = useState<string>('');
+  const [isSubmittingAdminGameGrant, setIsSubmittingAdminGameGrant] = useState(false);
+
+  const [adminGameFreezeDate, setAdminGameFreezeDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [adminGameFreezeAction, setAdminGameFreezeAction] = useState<boolean>(true);
+  const [adminGameFreezeReason, setAdminGameFreezeReason] = useState<string>('');
+  const [isSubmittingAdminGameFreeze, setIsSubmittingAdminGameFreeze] = useState(false);
 
   // ------------------------------------------
   const ADMIN_INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes inactivity timeout (Admin alone)
@@ -717,6 +745,176 @@ export const AdminControlPage: React.FC = () => {
           }
         } finally {
           setIsSubmittingStreak(false);
+        }
+      }
+    );
+  };
+
+  // ------------------------------------------
+  // LinkedIn Group Games Super Admin Handlers
+  // ------------------------------------------
+  const linkedInGroup = useMemo(() => {
+    if (!selectedUserDetails) return null;
+    const fromMembership = selectedUserDetails.groupMemberships?.find((m: any) =>
+      isLinkedInName(m.group?.name)
+    )?.group;
+    if (fromMembership) return fromMembership;
+    const fromOwned = selectedUserDetails.ownedGroups?.find((g: any) =>
+      isLinkedInName(g.name)
+    );
+    if (fromOwned) return fromOwned;
+    const fromTasks = selectedUserDetails.tasks?.find((t: any) =>
+      t.isGroupTask && isLinkedInName(t.title || t.group?.name)
+    )?.group;
+    return fromTasks || null;
+  }, [selectedUserDetails]);
+
+  const loadAdminLinkedInGames = useCallback(async (userId: string, groupId: string) => {
+    setIsLoadingAdminLinkedInGames(true);
+    try {
+      const res = await getMemberLinkedInGamesAdmin(userId, groupId);
+      if (res.success && res.games) {
+        setAdminLinkedInGames(res.games);
+        const cur = res.games.find((g: any) => g.id === selectedAdminGameId) || res.games[0];
+        if (cur) {
+          setAdminGameCurrentStreak(cur.currentStreak || 0);
+          setAdminGameLongestStreak(cur.longestStreak || 0);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load member LinkedIn games:', err);
+    } finally {
+      setIsLoadingAdminLinkedInGames(false);
+    }
+  }, [selectedAdminGameId]);
+
+  useEffect(() => {
+    if (selectedUserId && linkedInGroup?.id) {
+      loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+    } else {
+      setAdminLinkedInGames([]);
+    }
+  }, [selectedUserId, linkedInGroup?.id, loadAdminLinkedInGames]);
+
+  useEffect(() => {
+    const cur = adminLinkedInGames.find((g: any) => g.id === selectedAdminGameId);
+    if (cur) {
+      setAdminGameCurrentStreak(cur.currentStreak || 0);
+      setAdminGameLongestStreak(cur.longestStreak || 0);
+    }
+  }, [selectedAdminGameId, adminLinkedInGames]);
+
+  const handleAdminCorrectGameStreak = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId || !linkedInGroup?.id) return;
+    const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
+    const gameName = game ? game.name : selectedAdminGameId;
+    const reason = adminGameStreakReason.trim() || `Admin corrected ${gameName} streak for @${selectedUserDetails?.username}`;
+
+    openPinPrompt(
+      `Authorize ${gameName} Streak Correction`,
+      `Enter Super Admin Sensitive Password to adjust ${gameName} streak to ${adminGameCurrentStreak}d (best: ${adminGameLongestStreak}d) for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSubmittingAdminGameStreak(true);
+        try {
+          const res = await adminCorrectLinkedInGameStreak(selectedUserId, linkedInGroup.id, {
+            gameId: selectedAdminGameId,
+            currentStreak: Number(adminGameCurrentStreak),
+            longestStreak: Number(adminGameLongestStreak),
+            reason,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setAdminGameStreakReason('');
+            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, `Failed to correct ${gameName} streak.`));
+        } finally {
+          setIsSubmittingAdminGameStreak(false);
+        }
+      }
+    );
+  };
+
+  const handleAdminGrantGameDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId || !linkedInGroup?.id) return;
+    const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
+    const gameName = game ? game.name : selectedAdminGameId;
+    const reason = adminGameGrantReason.trim() || `Admin granted ${gameName} completion on ${adminGameGrantDate}`;
+
+    openPinPrompt(
+      `Authorize ${gameName} Date Grant`,
+      `Enter Super Admin Sensitive Password to grant completion for ${gameName} on ${adminGameGrantDate} for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSubmittingAdminGameGrant(true);
+        try {
+          const res = await adminGrantLinkedInGameDate(selectedUserId, linkedInGroup.id, {
+            gameId: selectedAdminGameId,
+            date: adminGameGrantDate,
+            studyNote: adminGameGrantNote.trim() || undefined,
+            reason,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setAdminGameGrantReason('');
+            setAdminGameGrantNote('');
+            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, `Failed to grant ${gameName} date.`));
+        } finally {
+          setIsSubmittingAdminGameGrant(false);
+        }
+      }
+    );
+  };
+
+  const handleAdminFreezeGameDate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId || !linkedInGroup?.id) return;
+    const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
+    const gameName = game ? game.name : selectedAdminGameId;
+    const actionLabel = adminGameFreezeAction ? 'freeze' : 'unfreeze';
+    const reason = adminGameFreezeReason.trim() || `Admin ${actionLabel}d ${gameName} on ${adminGameFreezeDate}`;
+
+    openPinPrompt(
+      `Authorize ${gameName} Freeze Update`,
+      `Enter Super Admin Sensitive Password to ${actionLabel} ${gameName} on ${adminGameFreezeDate} for @${selectedUserDetails?.username}.`,
+      async (pin) => {
+        setIsSubmittingAdminGameFreeze(true);
+        try {
+          const res = await adminFreezeLinkedInGameDate(selectedUserId, linkedInGroup.id, {
+            gameId: selectedAdminGameId,
+            date: adminGameFreezeDate,
+            isFrozen: adminGameFreezeAction,
+            reason,
+            sensitivePin: pin,
+            sendInApp: notifyInApp,
+            sendEmail: notifyEmail,
+            includeReason: notifyIncludeReason,
+            includeChanges: notifyIncludeChanges,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            setAdminGameFreezeReason('');
+            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, `Failed to update ${gameName} freeze.`));
+        } finally {
+          setIsSubmittingAdminGameFreeze(false);
         }
       }
     );
@@ -3133,17 +3331,29 @@ export const AdminControlPage: React.FC = () => {
                                 }}
                                 className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                               >
-                                {selectedUserDetails?.tasks?.map((t: any) => (
-                                  <option key={t.id} value={t.id}>
-                                    {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal] '}
-                                    {t.title} (Current: {t.currentStreak}d)
-                                  </option>
-                                ))}
+                                {selectedUserDetails?.tasks?.map((t: any) => {
+                                  const isLi = isLinkedInName(t.title || t.group?.name);
+                                  return (
+                                    <option key={t.id} value={t.id}>
+                                      {t.isGroupTask ? `[Group Task: ${t.group?.name || 'Group'}] ` : '[Personal] '}
+                                      {t.title} {isLi ? '(LinkedIn Parent Task — see individual game streaks below)' : `(Current: ${t.currentStreak}d)`}
+                                    </option>
+                                  );
+                                })}
                               </select>
                               {selectedUserDetails?.tasks?.find((x: any) => x.id === selectedTaskId)?.isGroupTask && (
                                 <p className="text-[10px] text-amber-400 mt-1">
                                   ✓ Member-Isolated: Modifying this group task alters only this member's streak.
                                   Other members retain independent completion histories.
+                                </p>
+                              )}
+                              {isLinkedInName(
+                                selectedUserDetails?.tasks?.find((x: any) => x.id === selectedTaskId)?.title ||
+                                selectedUserDetails?.tasks?.find((x: any) => x.id === selectedTaskId)?.group?.name
+                              ) && (
+                                <p className="text-[10px] text-amber-300 mt-1 font-semibold flex items-center gap-1">
+                                  <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>LinkedIn Group Task: 8 individual games (Pinpoint, Crossclimb, Queens, etc.) are managed independently in the dedicated panel below.</span>
                                 </p>
                               )}
                             </div>
@@ -3493,6 +3703,365 @@ export const AdminControlPage: React.FC = () => {
                         </button>
                       </form>
                     </div>
+
+                    {/* LinkedIn Group Games Super Admin Panel */}
+                    {linkedInGroup && (
+                      <div className="bg-dark-card border border-amber-500/30 rounded-2xl p-5 shadow-panel space-y-5">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-dark-border">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                                <Gamepad2 className="w-4 h-4" />
+                              </div>
+                              <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                                <span>LinkedIn Group: 8 Independent Game Streaks</span>
+                              </h3>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold">
+                                {linkedInGroup.name}
+                              </span>
+                            </div>
+                            <p className="text-xs text-dark-muted mt-1 leading-relaxed">
+                              Each game (Pinpoint, Crossclimb, Queens, Tango, Zip, Mini Sudoku, Patches, Wend) maintains its own independent streak, freeze, and completion history. Any correction here modifies only @{selectedUserDetails?.username} for the selected game.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => selectedUserId && linkedInGroup?.id && loadAdminLinkedInGames(selectedUserId, linkedInGroup.id)}
+                            disabled={isLoadingAdminLinkedInGames}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors shrink-0"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAdminLinkedInGames ? 'animate-spin text-amber-400' : ''}`} />
+                            <span>Refresh Games</span>
+                          </button>
+                        </div>
+
+                        {/* 8-Game Navigation Pills */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {LINKEDIN_GAMES_LIST.map((game) => {
+                            const isSelected = selectedAdminGameId === game.id;
+                            const record = adminLinkedInGames.find((g) => g.id === game.id);
+                            return (
+                              <button
+                                key={game.id}
+                                type="button"
+                                onClick={() => setSelectedAdminGameId(game.id)}
+                                className={`p-2.5 rounded-xl border text-left transition-all ${
+                                  isSelected
+                                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 shadow-sm'
+                                    : 'bg-dark-surface/60 border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-xs truncate">{game.name}</span>
+                                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                                    isSelected ? 'bg-amber-500/30 text-amber-200' : 'bg-dark-card text-zinc-500'
+                                  }`}>
+                                    🔥 {record?.currentStreak ?? 0}d
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-dark-muted font-mono mt-0.5 truncate">
+                                  {game.category} • {record?.todayCompleted ? 'Done' : 'Pending'}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Selected Game Dashboard Stats */}
+                        {(() => {
+                          const activeGame = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
+                          const activeRecord = adminLinkedInGames.find((g) => g.id === selectedAdminGameId);
+                          return (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                    Current Streak
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-amber-400">
+                                    <Flame className="w-5 h-5 fill-amber-500 text-amber-500" />
+                                    <span>{activeRecord?.currentStreak ?? 0}d</span>
+                                  </div>
+                                </div>
+
+                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                    Longest Streak
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-zinc-200">
+                                    <Trophy className="w-5 h-5 text-amber-400" />
+                                    <span>{activeRecord?.longestStreak ?? 0}d</span>
+                                  </div>
+                                </div>
+
+                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                    Freeze Available
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-sky-400">
+                                    <Snowflake className="w-5 h-5 text-sky-400" />
+                                    <span>{activeRecord?.freezeBalance ?? 1}/1</span>
+                                  </div>
+                                </div>
+
+                                <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                  <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                    Today's Status
+                                  </span>
+                                  <div className="flex items-center gap-1.5 mt-1 text-sm font-bold">
+                                    {activeRecord?.todayCompleted ? (
+                                      <span className="text-emerald-400 flex items-center gap-1">
+                                        <CheckCircle2 className="w-4 h-4" /> Completed
+                                      </span>
+                                    ) : (
+                                      <span className="text-zinc-500 flex items-center gap-1">
+                                        <Clock className="w-4 h-4" /> Not Completed
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Game Management Actions Grid */}
+                              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                {/* Form A: Streak Value Correction */}
+                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                                  <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                                    <Flame className="w-4 h-4 text-amber-400" />
+                                    <span>Correct Streak Values</span>
+                                  </h4>
+                                  <p className="text-[11px] text-zinc-400">
+                                    Modify active and longest streak for {activeGame?.name}.
+                                  </p>
+
+                                  <form onSubmit={handleAdminCorrectGameStreak} className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-zinc-400 block mb-1">Current (days)</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={adminGameCurrentStreak}
+                                          onChange={(e) => setAdminGameCurrentStreak(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                          className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 font-mono"
+                                          required
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-400 block mb-1">Best (days)</label>
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          value={adminGameLongestStreak}
+                                          onChange={(e) => setAdminGameLongestStreak(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                          className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 font-mono"
+                                          required
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={adminGameStreakReason}
+                                        onChange={(e) => setAdminGameStreakReason(e.target.value)}
+                                        placeholder="Admin reason for correction..."
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
+                                        required
+                                      />
+                                    </div>
+
+                                    {renderNotificationOptions()}
+
+                                    <button
+                                      type="submit"
+                                      disabled={isSubmittingAdminGameStreak}
+                                      className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                    >
+                                      {isSubmittingAdminGameStreak ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                      <span>Apply Streak Change</span>
+                                    </button>
+                                  </form>
+                                </div>
+
+                                {/* Form B: Historical Grant Date */}
+                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                                  <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                                    <Calendar className="w-4 h-4 text-emerald-400" />
+                                    <span>Grant / Complete Date</span>
+                                  </h4>
+                                  <p className="text-[11px] text-zinc-400">
+                                    Retroactively record completion for {activeGame?.name}.
+                                  </p>
+
+                                  <form onSubmit={handleAdminGrantGameDate} className="space-y-3">
+                                    <div>
+                                      <label className="text-[10px] text-zinc-400 block mb-1">Completion Date</label>
+                                      <input
+                                        type="date"
+                                        value={adminGameGrantDate}
+                                        onChange={(e) => setAdminGameGrantDate(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 font-mono"
+                                        required
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={adminGameGrantNote}
+                                        onChange={(e) => setAdminGameGrantNote(e.target.value)}
+                                        placeholder="Optional study / play note..."
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
+                                      />
+                                    </div>
+
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={adminGameGrantReason}
+                                        onChange={(e) => setAdminGameGrantReason(e.target.value)}
+                                        placeholder="Admin reason..."
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
+                                        required
+                                      />
+                                    </div>
+
+                                    {renderNotificationOptions()}
+
+                                    <button
+                                      type="submit"
+                                      disabled={isSubmittingAdminGameGrant}
+                                      className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                    >
+                                      {isSubmittingAdminGameGrant ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                      <span>Grant Completion Date</span>
+                                    </button>
+                                  </form>
+                                </div>
+
+                                {/* Form C: Freeze / Protect Date */}
+                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                                  <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                                    <Snowflake className="w-4 h-4 text-sky-400" />
+                                    <span>Freeze / Protect Date</span>
+                                  </h4>
+                                  <p className="text-[11px] text-zinc-400">
+                                    Protect or unfreeze a date specifically for {activeGame?.name}.
+                                  </p>
+
+                                  <form onSubmit={handleAdminFreezeGameDate} className="space-y-3">
+                                    <div>
+                                      <label className="text-[10px] text-zinc-400 block mb-1">Target Date</label>
+                                      <input
+                                        type="date"
+                                        value={adminGameFreezeDate}
+                                        onChange={(e) => setAdminGameFreezeDate(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 font-mono"
+                                        required
+                                      />
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setAdminGameFreezeAction(true)}
+                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                          adminGameFreezeAction
+                                            ? 'bg-sky-500/20 text-sky-300 border-sky-500/50'
+                                            : 'bg-dark-card text-zinc-400 border-dark-border'
+                                        }`}
+                                      >
+                                        Freeze
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setAdminGameFreezeAction(false)}
+                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                          !adminGameFreezeAction
+                                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/50'
+                                            : 'bg-dark-card text-zinc-400 border-dark-border'
+                                        }`}
+                                      >
+                                        Unfreeze
+                                      </button>
+                                    </div>
+
+                                    <div>
+                                      <input
+                                        type="text"
+                                        value={adminGameFreezeReason}
+                                        onChange={(e) => setAdminGameFreezeReason(e.target.value)}
+                                        placeholder="Admin reason..."
+                                        className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
+                                        required
+                                      />
+                                    </div>
+
+                                    {renderNotificationOptions()}
+
+                                    <button
+                                      type="submit"
+                                      disabled={isSubmittingAdminGameFreeze}
+                                      className="w-full py-2 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                    >
+                                      {isSubmittingAdminGameFreeze ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                                      <span>Apply Game Freeze</span>
+                                    </button>
+                                  </form>
+                                </div>
+                              </div>
+
+                              {/* Recent Game Completions Table */}
+                              <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-2">
+                                <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
+                                  <span>Recent Completion History: {activeGame?.name}</span>
+                                  <span className="text-[10px] font-mono text-zinc-400">
+                                    {activeRecord?.completions?.length || 0} total records
+                                  </span>
+                                </h4>
+
+                                {(!activeRecord?.completions || activeRecord.completions.length === 0) ? (
+                                  <p className="text-xs text-zinc-500 italic py-2">No completions recorded yet for this game.</p>
+                                ) : (
+                                  <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                                    <table className="w-full text-left text-xs">
+                                      <thead>
+                                        <tr className="border-b border-dark-border text-zinc-400 text-[11px]">
+                                          <th className="py-1.5 px-2">Date</th>
+                                          <th className="py-1.5 px-2">Status</th>
+                                          <th className="py-1.5 px-2">Note</th>
+                                          <th className="py-1.5 px-2">Recorded At</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-dark-border">
+                                        {activeRecord.completions.slice(0, 15).map((c: any, idx: number) => (
+                                          <tr key={idx} className="text-zinc-300 hover:bg-dark-card/50">
+                                            <td className="py-1.5 px-2 font-mono text-amber-300 font-bold">{c.date}</td>
+                                            <td className="py-1.5 px-2">
+                                              {c.isFrozen ? (
+                                                <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 text-[10px] font-bold">Frozen</span>
+                                              ) : (
+                                                <span className="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold">Completed</span>
+                                              )}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-zinc-400 italic truncate max-w-xs">{c.studyNote || '—'}</td>
+                                            <td className="py-1.5 px-2 text-zinc-500 text-[10px]">
+                                              {c.completedAt ? new Date(c.completedAt).toLocaleString() : '—'}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -5229,6 +5798,12 @@ export const AdminControlPage: React.FC = () => {
                                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-dark-border text-zinc-400">
                                     Code: {m.group?.joinCode}
                                   </span>
+                                  {isLinkedInName(m.group?.name) && (
+                                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30 font-bold flex items-center gap-1">
+                                      <Gamepad2 className="w-3 h-3 text-amber-400" />
+                                      <span>8 Game Streaks</span>
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-[11px] text-zinc-400 mt-1">
                                   Group Members: {m.group?._count?.members || m.group?.members?.length || 1} • Joined:{' '}

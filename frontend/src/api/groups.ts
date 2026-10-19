@@ -314,3 +314,99 @@ export async function removeGroupTask(id: string) {
 export const fetchGroupLeaderboards = fetchGroupLeaderboard;
 export type Group = GroupItem;
 export type GroupMember = GroupMemberItem;
+
+// ========================================================
+// LINKEDIN GROUP GAMES DEDICATED TYPES & API
+// ========================================================
+
+export interface LinkedInGameItem {
+  gameId: string;
+  name: string;
+  description: string;
+  tagline: string;
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  todayNote: string | null;
+  freezeBalance: number;
+  freezeRechargeDays: number;
+  totalCompletions: number;
+  lastCompletedDate: string | null;
+  completionsHistory: {
+    completionDate: string;
+    completedAt: string;
+    studyNote?: string | null;
+  }[];
+  freezeLogs: {
+    protectedDate: string;
+    usedAt: string;
+  }[];
+}
+
+export interface LinkedInGameLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  username: string;
+  profileImage: string | null;
+  role: string;
+  currentStreak: number;
+  longestStreak: number;
+  totalCompletions: number;
+  completedToday: boolean;
+  todayNote: string | null;
+  lastCompletedDate: string | null;
+}
+
+export async function fetchLinkedInGames(groupId: string): Promise<{
+  success: boolean;
+  groupId: string;
+  groupName: string;
+  games: LinkedInGameItem[];
+  totalGamesCount: number;
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/linkedin-games`);
+  return res.data;
+}
+
+export async function fetchSingleLinkedInGame(
+  groupId: string,
+  gameId: string
+): Promise<{
+  success: boolean;
+  groupId: string;
+  groupName: string;
+  game: LinkedInGameItem;
+  leaderboard: LinkedInGameLeaderboardEntry[];
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/linkedin-games/${gameId}`);
+  return res.data;
+}
+
+export async function completeLinkedInGame(
+  groupId: string,
+  gameId: string,
+  data?: { studyNote?: string; completionDate?: string }
+): Promise<{
+  success: boolean;
+  message: string;
+  game: LinkedInGameItem;
+  leaderboard: LinkedInGameLeaderboardEntry[];
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/linkedin-games/${gameId}/complete`, data || {});
+  return res.data;
+}
+
+export async function fetchLinkedInGameLeaderboard(
+  groupId: string,
+  gameId: string
+): Promise<{
+  success: boolean;
+  groupId: string;
+  gameId: string;
+  leaderboard: LinkedInGameLeaderboardEntry[];
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/linkedin-games/${gameId}/leaderboard`);
+  return res.data;
+}
+

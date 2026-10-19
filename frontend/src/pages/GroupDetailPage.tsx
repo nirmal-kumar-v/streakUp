@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   fetchGroupDetails,
   fetchGroupLeaderboard,
@@ -28,6 +28,8 @@ import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { triggerStreakCelebration } from '../components/StreakCelebration';
 import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import { useBodyScrollLock } from '../utils/scrollLock';
+import { isLinkedInName } from '../utils/linkedin';
+import { LinkedInGamesHub } from '../components/LinkedInGamesHub';
 import {
   Users,
   Flame,
@@ -56,6 +58,7 @@ import {
   Plus,
   Search,
   X,
+  Gamepad2,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 
@@ -64,9 +67,11 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const GroupDetailPage: React.FC = () => {
   const { id: groupId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [group, setGroup] = useState<GroupDetail | null>(null);
-  const [activeMainTab, setActiveMainTab] = useState<'task' | 'leaderboard' | 'notes' | 'admin'>('task');
+  const [activeMainTab, setActiveMainTab] = useState<'games' | 'task' | 'leaderboard' | 'notes' | 'admin'>('task');
+  const isLinkedIn = useMemo(() => isLinkedInName(group?.name), [group?.name]);
 
   const [leaderboard, setLeaderboard] = useState<GroupLeaderboardEntry[]>([]);
   const [notes, setNotes] = useState<GroupNoteItem[]>([]);
@@ -516,13 +521,19 @@ export const GroupDetailPage: React.FC = () => {
       const res = await fetchGroupDetails(groupId);
       if (res.success && res.group) {
         setGroup(res.group);
+        if (isLinkedInName(res.group.name)) {
+          const tabParam = searchParams.get('tab');
+          if (tabParam === 'games' || !tabParam) {
+            setActiveMainTab('games');
+          }
+        }
       }
     } catch (err: any) {
       showFeedback(extractErrorMessage(err, 'Failed to load group details.'), 'error');
     } finally {
       setIsLoadingGroup(false);
     }
-  }, [groupId]);
+  }, [groupId, searchParams]);
 
   const loadLeaderboard = useCallback(async () => {
     if (!groupId) return;
@@ -913,6 +924,23 @@ export const GroupDetailPage: React.FC = () => {
 
       {/* Navigation Sub-Tabs */}
       <div className="flex items-center gap-2 border-b border-dark-border pb-3 overflow-x-auto">
+        {isLinkedIn && (
+          <button
+            onClick={() => setActiveMainTab('games')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeMainTab === 'games'
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/40 shadow-sm'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+            }`}
+          >
+            <Gamepad2 className="w-3.5 h-3.5 text-amber-400" />
+            <span>LinkedIn Games</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold">
+              8
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => setActiveMainTab('task')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -984,6 +1012,11 @@ export const GroupDetailPage: React.FC = () => {
           )}
           <span>{feedback.text}</span>
         </div>
+      )}
+
+      {/* TAB 0: LINKEDIN GAMES VIEW */}
+      {activeMainTab === 'games' && isLinkedIn && groupId && (
+        <LinkedInGamesHub groupId={groupId} groupName={group.name} />
       )}
 
       {/* TAB 1: SHARED TASK VIEW */}
@@ -1073,32 +1106,55 @@ export const GroupDetailPage: React.FC = () => {
 
               {/* Completion Action Box */}
               <div className="p-5 rounded-2xl bg-dark-surface border border-dark-border">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-flame-400" />
-                      <span>Today's Completion</span>
-                    </h3>
-                    <p className="text-xs text-dark-muted mt-0.5">
-                      Mark the shared task complete and submit a study note for group members.
-                    </p>
-                  </div>
-
-                  {userTask?.completedToday ? (
-                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span>Completed Today</span>
+                {isLinkedIn ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                        <Gamepad2 className="w-4 h-4 text-amber-400" />
+                        <span>LinkedIn Game Streaks & Completion</span>
+                      </h3>
+                      <p className="text-xs text-dark-muted mt-0.5">
+                        Pinpoint, Crossclimb, Queens, Tango, Zip, Mini Sudoku, Patches, Wend each have independent daily streaks and leaderboards.
+                      </p>
                     </div>
-                  ) : (
+
                     <button
-                      onClick={() => setIsCompletionModalOpen(true)}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-flame-500/20 transition-all cursor-pointer"
+                      type="button"
+                      onClick={() => setActiveMainTab('games')}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-amber-500/20 transition-all cursor-pointer whitespace-nowrap"
                     >
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>Mark Complete</span>
+                      <Gamepad2 className="w-4 h-4" />
+                      <span>Play & Track 8 Games →</span>
                     </button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-flame-400" />
+                        <span>Today's Completion</span>
+                      </h3>
+                      <p className="text-xs text-dark-muted mt-0.5">
+                        Mark the shared task complete and submit a study note for group members.
+                      </p>
+                    </div>
+
+                    {userTask?.completedToday ? (
+                      <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>Completed Today</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setIsCompletionModalOpen(true)}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-md shadow-flame-500/20 transition-all cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>Mark Complete</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {userTask?.todayStudyNote && (
                   <div className="mt-4 pt-3 border-t border-dark-border/80">
@@ -1190,6 +1246,23 @@ export const GroupDetailPage: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* LinkedIn Game Leaderboards Banner */}
+          {isLinkedIn && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-amber-300">
+                <Gamepad2 className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>Looking for individual game leaderboards? Each of the 8 LinkedIn games has its own independent leaderboard.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('games')}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-bold text-xs shrink-0 transition-colors shadow-sm"
+              >
+                View 8 Game Leaderboards →
+              </button>
+            </div>
+          )}
 
           {/* Table */}
           {isLoadingLeaderboard ? (

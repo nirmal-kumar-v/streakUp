@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Task } from '../api/tasks';
 import {
   Check,
@@ -9,7 +10,9 @@ import {
   Repeat,
   Sparkles,
   Flame,
+  Gamepad2,
 } from 'lucide-react';
+import { isLinkedInName } from '../utils/linkedin';
 
 interface TaskCardProps {
   task: Task;
@@ -30,8 +33,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onViewDetails,
   canTick = true,
 }) => {
+  const navigate = useNavigate();
   const [isToggling, setIsToggling] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
+  const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
+
+  const handleLinkedInNavigate = () => {
+    if (task.groupId) {
+      navigate(`/groups/${task.groupId}?tab=games`);
+    } else {
+      navigate('/groups');
+    }
+  };
 
   const handleCheck = async () => {
     if (isToggling || !onToggleComplete || !canTick) return;
@@ -63,8 +77,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     >
       <div className="flex items-center justify-between gap-3.5">
         <div className="flex items-center gap-3.5 min-w-0 flex-1">
-          {/* Completion Checkbox / Tick Button OR Schedule Icon if non-today */}
-          {canTick && onToggleComplete ? (
+          {/* Completion Checkbox / Tick Button OR Schedule Icon if non-today OR LinkedIn Games Hub button */}
+          {isLinkedIn ? (
+            <button
+              onClick={handleLinkedInNavigate}
+              title="LinkedIn Games Hub — Click to play Pinpoint, Crossclimb, Queens, and more"
+              aria-label="Open LinkedIn Games Hub"
+              className="flex-shrink-0 w-7 h-7 sm:w-6 sm:h-6 rounded-lg flex items-center justify-center border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 shadow-sm transition-all hover:scale-105 active:scale-95"
+            >
+              <Gamepad2 className="w-4 h-4 text-sky-400" />
+            </button>
+          ) : canTick && onToggleComplete ? (
             <button
               onClick={handleCheck}
               disabled={isToggling}
@@ -86,17 +109,34 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             </div>
           )}
 
-          {/* Task Name & Streak Only (Clicking name opens task details) */}
+          {/* Task Name & Streak Only (Clicking name opens task details / LinkedIn games) */}
           <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
             <h3
-              onClick={() => onViewDetails && onViewDetails(task)}
-              title="Click to view details & streak calendar"
+              onClick={() => {
+                if (isLinkedIn) {
+                  handleLinkedInNavigate();
+                } else if (onViewDetails) {
+                  onViewDetails(task);
+                }
+              }}
+              title={isLinkedIn ? 'Click to open LinkedIn Games Hub' : 'Click to view details & streak calendar'}
               className={`text-sm sm:text-base font-semibold tracking-tight transition-colors truncate cursor-pointer hover:text-flame-400 ${
                 task.completedToday ? 'text-zinc-400 line-through' : 'text-zinc-100'
               }`}
             >
               {task.title}
             </h3>
+
+            {isLinkedIn && (
+              <span
+                onClick={handleLinkedInNavigate}
+                className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/30 shrink-0 hover:bg-sky-500/20 transition-colors"
+                title="8 Independent Games: Pinpoint, Crossclimb, Queens, Tango, Zip, Mini Sudoku, Patches, Wend"
+              >
+                <Gamepad2 className="w-3 h-3" />
+                <span>8 Games</span>
+              </span>
+            )}
 
             {/* Task Streak Badge */}
             {task.recurrence === 'DAILY' && (

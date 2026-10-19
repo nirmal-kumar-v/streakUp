@@ -40,6 +40,10 @@ import {
   adminUpdateTaskReminders,
   adminTriggerManualReminderCheck,
   adminUpdateUserPreferences,
+  getMemberLinkedInGamesAdmin,
+  adminCorrectLinkedInGameStreak,
+  adminGrantLinkedInGameDate,
+  adminFreezeLinkedInGameDate,
 } from '../controllers/adminController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 
@@ -94,6 +98,12 @@ router.get('/groups', searchGroupsForAdmin);
 router.post('/groups/:groupId/discoverability', requireSensitiveAuth, adminToggleGroupDiscoverability);
 router.post('/groups/:groupId/manage-member', adminManageGroupMember);
 router.post('/groups/:groupId/update-full', adminUpdateGroupFull);
+
+// Dedicated LinkedIn Group Member Games Control
+router.get('/users/:userId/linkedin-games/:groupId', getMemberLinkedInGamesAdmin);
+router.post('/users/:userId/linkedin-games/:groupId/correct', requireSensitiveAuth, adminCorrectLinkedInGameStreak);
+router.post('/users/:userId/linkedin-games/:groupId/grant-date', requireSensitiveAuth, adminGrantLinkedInGameDate);
+router.post('/users/:userId/linkedin-games/:groupId/freeze-date', requireSensitiveAuth, adminFreezeLinkedInGameDate);
 
 // Task Management
 router.post('/tasks/:taskId/visibility', updateTaskVisibility);

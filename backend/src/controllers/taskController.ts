@@ -10,6 +10,7 @@ import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts } from '
 import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
 import { FreezeScope } from '@prisma/client';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
+import { isLinkedInName } from '../services/linkedInGameService';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -308,6 +309,14 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
+    // LinkedIn group tasks cannot be completed directly; members complete individual games
+    if (task.isGroupTask && isLinkedInName(task.title)) {
+      return res.status(400).json({
+        success: false,
+        error: 'LinkedIn group tasks are completed by playing individual games. Open the LinkedIn group page to play and track games.',
+      });
+    }
+
     // Study note is strictly mandatory (Requirement 13)
     if (!studyNote || typeof studyNote !== 'string' || studyNote.trim().length < 3) {
       return res.status(400).json({
@@ -440,6 +449,13 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
     }
     if (task.userId !== userId) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
+    }
+
+    if (task.isGroupTask && isLinkedInName(task.title)) {
+      return res.status(400).json({
+        success: false,
+        error: 'LinkedIn group tasks are managed through individual games.',
+      });
     }
 
     const timezone = task.user?.timezone || 'Asia/Kolkata';
@@ -772,7 +788,8 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         completedToday,
         todayStudyNote,
         groupId: task.groupId,
-        isGroupTask: task.isGroupTask || !!task.groupId
+        isGroupTask: task.isGroupTask || !!task.groupId,
+        isLinkedIn: (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title),
       };
     });
 

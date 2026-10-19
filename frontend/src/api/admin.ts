@@ -727,6 +727,81 @@ export async function adminUpdateUserPreferences(
   return res.data;
 }
 
+// LinkedIn Games Dedicated Super Admin API Methods
+export async function getMemberLinkedInGamesAdmin(userId: string, groupId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    user: any;
+    group: any;
+    games: any[];
+  }>(`/admin/users/${userId}/linkedin-games/${groupId}`);
+  return res.data;
+}
+
+export async function adminCorrectLinkedInGameStreak(
+  userId: string,
+  groupId: string,
+  data: {
+    gameId: string;
+    currentStreak: number;
+    longestStreak?: number;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; game: any }>(
+    `/admin/users/${userId}/linkedin-games/${groupId}/correct`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminGrantLinkedInGameDate(
+  userId: string,
+  groupId: string,
+  data: {
+    gameId: string;
+    date: string;
+    studyNote?: string;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; game: any }>(
+    `/admin/users/${userId}/linkedin-games/${groupId}/grant-date`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminFreezeLinkedInGameDate(
+  userId: string,
+  groupId: string,
+  data: {
+    gameId: string;
+    date: string;
+    isFrozen?: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; game: any }>(
+    `/admin/users/${userId}/linkedin-games/${groupId}/freeze-date`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+
 
 
 
