@@ -21,6 +21,16 @@ function requireAuth(req, res, next) {
     const token = authHeader.split(' ')[1];
     try {
         const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
+        // Reject deleted accounts immediately even if JWT is still cryptographically valid
+        const { isAccountDeleted } = require('../services/deletedAccountService');
+        const deletion = isAccountDeleted(decoded.userId);
+        if (deletion.isDeleted) {
+            return res.status(403).json({
+                success: false,
+                error: 'This account was deleted. Please contact an administrator to recover your account.',
+                isDeletedAccount: true,
+            });
+        }
         req.user = decoded;
         next();
     }
@@ -46,7 +56,11 @@ function optionalAuth(req, _res, next) {
         const token = authHeader.split(' ')[1];
         try {
             const decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET);
-            req.user = decoded;
+            const { isAccountDeleted } = require('../services/deletedAccountService');
+            const deletion = isAccountDeleted(decoded.userId);
+            if (!deletion.isDeleted) {
+                req.user = decoded;
+            }
         }
         catch {
             // Ignore token failure for optional endpoints

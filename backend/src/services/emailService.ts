@@ -93,9 +93,9 @@ function createTransporter(portOverride?: number, secureOverride?: boolean) {
       minVersion: 'TLSv1.2',
     },
     family: 4, // CRITICAL FOR RENDER: Force IPv4 connection to prevent IPv6 silent timeout on cloud containers
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
+    connectionTimeout: 6000,
+    greetingTimeout: 6000,
+    socketTimeout: 8000,
   } as any);
 }
 

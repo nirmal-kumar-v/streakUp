@@ -49,6 +49,15 @@ apiClient.interceptors.response.use(
       return apiClient(config);
     }
 
+    if (error.response?.status === 403 && (error.response?.data as any)?.isDeletedAccount) {
+      if (!isRedirectingToLogin) {
+        isRedirectingToLogin = true;
+        localStorage.removeItem('streakup_token');
+        localStorage.removeItem('streakup_user');
+        window.location.href = '/login?deleted=true';
+      }
+    }
+
     if (error.response?.status === 401) {
       // If unauthorized and we had a token, remove it safely
       const hasToken = Boolean(localStorage.getItem('streakup_token'));

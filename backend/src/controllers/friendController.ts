@@ -44,9 +44,12 @@ export async function searchUsers(req: AuthenticatedRequest, res: Response) {
       take: 20
     });
 
+    const { isAccountDeleted } = await import('../services/deletedAccountService');
+    const activeUsers = matchingUsers.filter((u) => !isAccountDeleted(u.id).isDeleted);
+
     // Check relationship status for each user relative to current user
     const usersWithStatus = await Promise.all(
-      matchingUsers.map(async (target) => {
+      activeUsers.map(async (target) => {
         if (target.id === currentUserId) {
           return { ...target, status: 'SELF' };
         }

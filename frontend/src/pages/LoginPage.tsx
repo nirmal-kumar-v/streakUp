@@ -37,6 +37,14 @@ export const LoginPage: React.FC = () => {
     setFeedbackModalOpen(true);
   };
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('deleted') === 'true') {
+      setIsDeletedAccount(true);
+      setError('This account was deleted. You can request account recovery within 10 days.');
+    }
+  }, [location.search]);
+
   // Read any message passed via location state (e.g. after logout or reset password)
   const infoMessage = (location.state as any)?.message;
 

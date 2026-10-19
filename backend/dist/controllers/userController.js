@@ -96,6 +96,10 @@ async function getPublicProfile(req, res) {
         if (!user) {
             return res.status(404).json({ success: false, error: `User @${username} not found.` });
         }
+        const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+        if (isAccountDeleted(user.id).isDeleted) {
+            return res.status(404).json({ success: false, error: `User @${username} not found.` });
+        }
         // Determine relationship status relative to current user
         let relationshipStatus = 'NONE';
         let requestId = null;

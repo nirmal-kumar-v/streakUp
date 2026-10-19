@@ -20,6 +20,14 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
     const skip = (page - 1) * limit;
 
     const where: any = {};
+    const { loadAllDeletedAccounts } = await import('../services/deletedAccountService');
+    const deletedUserIds = loadAllDeletedAccounts()
+      .filter((a) => a.status === 'DELETED')
+      .map((a) => a.userId);
+
+    if (deletedUserIds.length > 0) {
+      where.id = { notIn: deletedUserIds };
+    }
     if (search) {
       where.normalizedUsername = { contains: search };
     }
@@ -258,6 +266,14 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
     // Include current user in friends leaderboard!
     const allCohortIds = Array.from(new Set([...friendUserIds, userId]));
 
+    const { loadAllDeletedAccounts: loadDelFriends } = await import('../services/deletedAccountService');
+    const deletedUserIdsSet = new Set(
+      loadDelFriends()
+        .filter((a) => a.status === 'DELETED')
+        .map((a) => a.userId)
+    );
+    const activeCohortIds = allCohortIds.filter((id) => !deletedUserIdsSet.has(id));
+
     const orderBy: any = type === 'points'
       ? [
           { points: 'desc' },
@@ -274,7 +290,7 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
 
     const users = await prisma.user.findMany({
       where: {
-        id: { in: allCohortIds }
+        id: { in: activeCohortIds }
       },
       select: {
         id: true,
