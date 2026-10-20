@@ -148,13 +148,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.title}
             </h3>
 
-            {/* Archived badge */}
-            {isArchived && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/25 shrink-0">
-                <Archive className="w-2.5 h-2.5" />
-                <span>Archived</span>
-              </span>
-            )}
 
             {/* Task Streak Badge */}
             {task.recurrence === 'DAILY' && (

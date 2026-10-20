@@ -1345,7 +1345,7 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       {/* SECTION: REQUESTS & FEEDBACK */}
-      <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5">
+      <div id="feedback-section" className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-8 shadow-panel space-y-5">
         <div>
           <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
             <MessageSquare className="w-5 h-5 text-flame-500" />
@@ -1509,6 +1509,33 @@ export const SettingsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Platform Branding & Navigation Footer */}
+      <footer className="pt-8 pb-4 border-t border-dark-border/80 text-center text-xs text-dark-muted font-mono">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-2">
+          <div>StreakUp &copy; {new Date().getFullYear()} — Daily Habits, Streaks & Friendly Competition</div>
+          <div className="flex items-center gap-4 text-xs font-sans">
+            <button
+              type="button"
+              onClick={() => {
+                const feedbackEl = document.getElementById('feedback-section');
+                if (feedbackEl) {
+                  feedbackEl.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                  window.scrollTo({ top: 1200, behavior: 'smooth' });
+                }
+              }}
+              className="hover:text-zinc-300 transition-colors cursor-pointer"
+            >
+              Feedback
+            </button>
+            <span className="text-zinc-700">•</span>
+            <Link to="/terms" className="hover:text-zinc-300 transition-colors">Terms</Link>
+            <span className="text-zinc-700">•</span>
+            <Link to="/privacy" className="hover:text-zinc-300 transition-colors">Privacy</Link>
+          </div>
+        </div>
+      </footer>
 
       {/* Delete Account Confirmation Modal */}
       {isDeleteModalOpen && (

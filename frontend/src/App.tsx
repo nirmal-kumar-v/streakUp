@@ -353,25 +353,27 @@ export const AppContent: React.FC = () => {
       </ErrorBoundary>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-dark-border py-6 text-center text-xs text-dark-muted font-mono">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div>StreakUp &copy; {new Date().getFullYear()} — Daily Habits, Streaks & Friendly Competition</div>
-          <div className="flex items-center gap-4 text-xs font-sans">
-            <button
-              type="button"
-              onClick={() => setPublicFeedbackOpen(true)}
-              className="hover:text-zinc-300 transition-colors cursor-pointer"
-            >
-              Feedback
-            </button>
-            <span className="text-zinc-700">•</span>
-            <Link to="/terms" className="hover:text-zinc-300 transition-colors">Terms</Link>
-            <span className="text-zinc-700">•</span>
-            <Link to="/privacy" className="hover:text-zinc-300 transition-colors">Privacy</Link>
+      {/* Footer (Only rendered when logged out; for logged in users, it is in Settings) */}
+      {!isAuthenticated && (
+        <footer className="border-t border-dark-border py-6 text-center text-xs text-dark-muted font-mono">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>StreakUp &copy; {new Date().getFullYear()} — Daily Habits, Streaks & Friendly Competition</div>
+            <div className="flex items-center gap-4 text-xs font-sans">
+              <button
+                type="button"
+                onClick={() => setPublicFeedbackOpen(true)}
+                className="hover:text-zinc-300 transition-colors cursor-pointer"
+              >
+                Feedback
+              </button>
+              <span className="text-zinc-700">•</span>
+              <Link to="/terms" className="hover:text-zinc-300 transition-colors">Terms</Link>
+              <span className="text-zinc-700">•</span>
+              <Link to="/privacy" className="hover:text-zinc-300 transition-colors">Privacy</Link>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {/* Floating Request & Support Pill (Shown when user is unauthenticated) */}
       {!isAuthenticated && (
