@@ -135,43 +135,82 @@ export const DashboardPage: React.FC = () => {
     if (task.completedToday) {
       // Optimistic untick immediately
       const prevTasks = [...tasks];
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === task.id
-            ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: Math.max(0, (t.currentStreak || 1) - 1) }
-            : t
-        )
+      const nextTaskStreak = Math.max(0, (task.currentStreak || 1) - 1);
+
+      // Determine if there are other tasks completed today
+      const otherCompleted = tasks.filter((t) => t.id !== task.id && t.completedToday).length;
+      const nextUserStreak = otherCompleted === 0 ? Math.max(0, (user?.currentStreak || 1) - 1) : (user?.currentStreak || 0);
+
+      const optimisticTasks = tasks.map((t) =>
+        t.id === task.id
+          ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: nextTaskStreak }
+          : t
       );
+      setTasks(optimisticTasks);
+
+      // Optimistically update user overall streak in navbar
+      updateUser({
+        currentStreak: nextUserStreak,
+      });
+
+      // Optimistically update sessionStorage cache immediately so refresh NEVER shows ticked
+      const currentCache = getCachedDashboard();
+      if (currentCache) {
+        setCachedDashboard({
+          ...currentCache,
+          todayTasks: optimisticTasks,
+          user: {
+            ...currentCache.user,
+            currentStreak: nextUserStreak,
+          },
+        });
+      }
+
       try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
-          if (res.taskStreak) {
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === task.id
-                  ? {
-                      ...t,
-                      completedToday: false,
-                      currentStreak: res.taskStreak.currentStreak,
-                      longestStreak: res.taskStreak.longestStreak,
-                    }
-                  : t
-              )
-            );
-          }
+          const finalTaskStreak = res.taskStreak?.currentStreak ?? nextTaskStreak;
+          const finalTaskLongest = res.taskStreak?.longestStreak ?? task.longestStreak;
+          const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+          const finalUserLongest = res.streak?.longestStreak ?? user?.longestStreak;
+
+          const syncedTasks = optimisticTasks.map((t) =>
+            t.id === task.id
+              ? {
+                  ...t,
+                  completedToday: false,
+                  currentStreak: finalTaskStreak,
+                  longestStreak: finalTaskLongest,
+                }
+              : t
+          );
+          setTasks(syncedTasks);
+
           if (res.streak) {
             updateUser({
-              currentStreak: res.streak.currentStreak,
-              longestStreak: res.streak.longestStreak,
+              currentStreak: finalUserStreak,
+              longestStreak: finalUserLongest,
             });
           }
-          await loadDashboard();
+
+          if (currentCache) {
+            setCachedDashboard({
+              ...currentCache,
+              todayTasks: syncedTasks,
+              user: {
+                ...currentCache.user,
+                currentStreak: finalUserStreak,
+                longestStreak: finalUserLongest,
+              },
+            });
+          }
         } else {
           throw new Error('Failed to undo completion');
         }
       } catch (err: any) {
         // Rollback
         setTasks(prevTasks);
+        if (currentCache) setCachedDashboard(currentCache);
         toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
       }
     } else {
@@ -184,14 +223,41 @@ export const DashboardPage: React.FC = () => {
       if (isLinkedIn) {
         const prevTasks = [...tasks];
         const nextStreak = (task.currentStreak || 0) + 1;
-        // Optimistic complete immediately: user perceives 0ms completion!
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === task.id
-              ? { ...t, completedToday: true, currentStreak: nextStreak }
-              : t
-          )
+        const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
+
+        const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
+        const nextUserStreak = !otherCompleted ? (user?.currentStreak || 0) + 1 : (user?.currentStreak || 1);
+        const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+
+        const optimisticTasks = tasks.map((t) =>
+          t.id === task.id
+            ? { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest }
+            : t
         );
+
+        // Optimistic complete immediately: user perceives 0ms completion!
+        setTasks(optimisticTasks);
+
+        // Optimistically update overall streak
+        updateUser({
+          currentStreak: nextUserStreak,
+          longestStreak: nextUserLongest,
+        });
+
+        // Optimistically update sessionStorage cache immediately
+        const currentCache = getCachedDashboard();
+        if (currentCache) {
+          setCachedDashboard({
+            ...currentCache,
+            todayTasks: optimisticTasks,
+            user: {
+              ...currentCache.user,
+              currentStreak: nextUserStreak,
+              longestStreak: nextUserLongest,
+            },
+          });
+        }
+
         triggerStreakCelebration({
           newStreak: nextStreak,
         });
@@ -200,28 +266,45 @@ export const DashboardPage: React.FC = () => {
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');
           if (res.success) {
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === task.id
-                  ? {
-                      ...t,
-                      completedToday: true,
-                      currentStreak: res.taskStreak?.currentStreak ?? t.currentStreak,
-                      longestStreak: res.taskStreak?.longestStreak ?? t.longestStreak,
-                    }
-                  : t
-              )
+            const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
+            const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+            const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+            const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+
+            const syncedTasks = optimisticTasks.map((t) =>
+              t.id === task.id
+                ? {
+                    ...t,
+                    completedToday: true,
+                    currentStreak: finalTaskStreak,
+                    longestStreak: finalTaskLongest,
+                  }
+                : t
             );
+            setTasks(syncedTasks);
+
             if (res.streak) {
               updateUser({
-                currentStreak: res.streak.currentStreak,
-                longestStreak: res.streak.longestStreak,
+                currentStreak: finalUserStreak,
+                longestStreak: finalUserLongest,
               });
             }
-            loadDashboard();
+
+            if (currentCache) {
+              setCachedDashboard({
+                ...currentCache,
+                todayTasks: syncedTasks,
+                user: {
+                  ...currentCache.user,
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                },
+              });
+            }
           }
         } catch (err: any) {
           setTasks(prevTasks);
+          if (currentCache) setCachedDashboard(currentCache);
           toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
         }
         return;
@@ -237,16 +320,41 @@ export const DashboardPage: React.FC = () => {
     const taskToComplete = completingTask;
     const prevTasks = [...tasks];
     const nextStreak = (taskToComplete.currentStreak || 0) + 1;
+    const nextLongest = Math.max(taskToComplete.longestStreak || 0, nextStreak);
+
+    const otherCompleted = tasks.some((t) => t.id !== taskToComplete.id && t.completedToday);
+    const nextUserStreak = !otherCompleted ? (user?.currentStreak || 0) + 1 : (user?.currentStreak || 1);
+    const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+
+    const optimisticTasks = tasks.map((t) =>
+      t.id === taskToComplete.id
+        ? { ...t, completedToday: true, todayStudyNote: studyNote || null, currentStreak: nextStreak, longestStreak: nextLongest }
+        : t
+    );
 
     // Immediately close modal and optimistically update habit list for 0ms lag
     setCompletingTask(null);
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === taskToComplete.id
-          ? { ...t, completedToday: true, todayStudyNote: studyNote || null, currentStreak: nextStreak }
-          : t
-      )
-    );
+    setTasks(optimisticTasks);
+
+    // Optimistically update overall streak
+    updateUser({
+      currentStreak: nextUserStreak,
+      longestStreak: nextUserLongest,
+    });
+
+    // Optimistically update sessionStorage cache immediately
+    const currentCache = getCachedDashboard();
+    if (currentCache) {
+      setCachedDashboard({
+        ...currentCache,
+        todayTasks: optimisticTasks,
+        user: {
+          ...currentCache.user,
+          currentStreak: nextUserStreak,
+          longestStreak: nextUserLongest,
+        },
+      });
+    }
 
     // 1. Subtle, rewarding Duolingo/LeetCode inspired streak celebration animation
     triggerStreakCelebration({
@@ -262,31 +370,46 @@ export const DashboardPage: React.FC = () => {
     try {
       const res = await completeTask(taskToComplete.id, studyNote);
       if (res.success) {
-        if (res.taskStreak) {
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === taskToComplete.id
-                ? {
-                    ...t,
-                    completedToday: true,
-                    currentStreak: res.taskStreak.currentStreak,
-                    longestStreak: res.taskStreak.longestStreak,
-                    todayStudyNote: res.studyNote || studyNote,
-                  }
-                : t
-            )
-          );
-        }
+        const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
+        const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+        const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+        const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+
+        const syncedTasks = optimisticTasks.map((t) =>
+          t.id === taskToComplete.id
+            ? {
+                ...t,
+                completedToday: true,
+                currentStreak: finalTaskStreak,
+                longestStreak: finalTaskLongest,
+                todayStudyNote: res.studyNote || studyNote,
+              }
+            : t
+        );
+        setTasks(syncedTasks);
+
         if (res.streak) {
           updateUser({
-            currentStreak: res.streak.currentStreak,
-            longestStreak: res.streak.longestStreak,
+            currentStreak: finalUserStreak,
+            longestStreak: finalUserLongest,
           });
         }
-        loadDashboard();
+
+        if (currentCache) {
+          setCachedDashboard({
+            ...currentCache,
+            todayTasks: syncedTasks,
+            user: {
+              ...currentCache.user,
+              currentStreak: finalUserStreak,
+              longestStreak: finalUserLongest,
+            },
+          });
+        }
       }
     } catch (err: any) {
       setTasks(prevTasks);
+      if (currentCache) setCachedDashboard(currentCache);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
     }
   };

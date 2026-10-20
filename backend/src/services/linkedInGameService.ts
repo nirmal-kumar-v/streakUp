@@ -814,7 +814,7 @@ export async function uncompleteCommittedGamesForDashboard(
   const committedGames = games.filter((g) => g.isCommitted);
   const records = loadAllRecords();
 
-  for (const game of committedGames) {
+  for (const game of games) {
     const key = getRecordKey(groupId, userId, game.gameId);
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
