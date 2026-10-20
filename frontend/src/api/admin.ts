@@ -23,11 +23,11 @@ adminApiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Admin Response Interceptor: clear stale admin token on 401/403
+// Admin Response Interceptor: clear stale admin token only on 401 unauthorized session
 adminApiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    if (error.response?.status === 401) {
       if (!error.config?.url?.includes('/admin/login')) {
         localStorage.removeItem('streakup_admin_token');
       }

@@ -24,7 +24,17 @@ app.use(cors({
   origin: true, // Automatically mirrors origin (supports localhost, vercel.app, and custom domains)
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-admin-pin',
+    'x-sensitive-key',
+    'X-Admin-Pin',
+    'X-Sensitive-Key',
+    'Accept',
+    'Origin',
+    'X-Requested-With'
+  ]
 }));
 
 app.use(express.json({ limit: '15mb' }));

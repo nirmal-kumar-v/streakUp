@@ -195,7 +195,6 @@ export const AdminControlPage: React.FC = () => {
   const [newCurrentStreak, setNewCurrentStreak] = useState<number>(0);
   const [newLongestStreak, setNewLongestStreak] = useState<number>(0);
   const [streakReason, setStreakReason] = useState('');
-  const [isSubmittingStreak, setIsSubmittingStreak] = useState(false);
   const [streakApplyToOverall, setStreakApplyToOverall] = useState(false);
   const [adminGameApplyToOverall, setAdminGameApplyToOverall] = useState(false);
   const [adminGameGrantApplyToOverall, setAdminGameGrantApplyToOverall] = useState(false);
@@ -206,7 +205,6 @@ export const AdminControlPage: React.FC = () => {
   const [newFreezeBalance, setNewFreezeBalance] = useState<number>(0);
   const [newFreezeRechargeDays, setNewFreezeRechargeDays] = useState<number>(0);
   const [freezeControlReason, setFreezeControlReason] = useState('');
-  const [isSubmittingFreezeControl, setIsSubmittingFreezeControl] = useState(false);
 
   // Groups Discovery Management State
   const [adminGroupsList, setAdminGroupsList] = useState<AdminGroupItem[]>([]);
@@ -232,35 +230,53 @@ export const AdminControlPage: React.FC = () => {
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [isSendingTestReminder, setIsSendingTestReminder] = useState(false);
 
+  // Staging for Applied Changes (Single Password Save)
+  const [appliedChanges, setAppliedChanges] = useState<
+    Record<
+      string,
+      {
+        id: string;
+        label: string;
+        description?: string;
+        applyFn: (pin: string) => Promise<any>;
+      }
+    >
+  >({});
+  const [isSavingAllApplied, setIsSavingAllApplied] = useState(false);
+
   // Points
-  const [pointsDelta, setPointsDelta] = useState<number>(0);
+  const [pointsDelta, setPointsDelta] = useState<number | ''>('');
   const [pointsReason, setPointsReason] = useState('');
-  const [isSubmittingPoints, setIsSubmittingPoints] = useState(false);
 
   // Limits & Quotas
   const [newStarredLimit, setNewStarredLimit] = useState<number>(15);
   const [limitReason, setLimitReason] = useState('');
-  const [isSubmittingLimit, setIsSubmittingLimit] = useState(false);
 
   const [newLeaderboardLimit, setNewLeaderboardLimit] = useState<number>(10);
   const [leaderboardReason, setLeaderboardReason] = useState('');
-  const [isSubmittingLeaderboardLimit, setIsSubmittingLeaderboardLimit] = useState(false);
 
   const [newReminderLimit, setNewReminderLimit] = useState<number>(3);
   const [reminderLimitReason, setReminderLimitReason] = useState('');
-  const [isSubmittingReminderLimit, setIsSubmittingReminderLimit] = useState(false);
 
   const [newTaskReminderLimit, setNewTaskReminderLimit] = useState<number>(1);
   const [taskReminderLimitReason, setTaskReminderLimitReason] = useState('');
-  const [isSubmittingTaskReminderLimit, setIsSubmittingTaskReminderLimit] = useState(false);
 
   const [newDiscoverGroupsLimit, setNewDiscoverGroupsLimit] = useState<number>(5);
   const [discoverGroupsReason, setDiscoverGroupsReason] = useState('');
-  const [isSubmittingDiscoverGroupsLimit, setIsSubmittingDiscoverGroupsLimit] = useState(false);
 
   const [newProfileImageLimitMb, setNewProfileImageLimitMb] = useState<number>(5);
   const [profileImageLimitReason, setProfileImageLimitReason] = useState('');
-  const [isSubmittingProfileImageLimit, setIsSubmittingProfileImageLimit] = useState(false);
+
+  // Submission Statuses linked to isSavingAllApplied
+  const isSubmittingStreak = isSavingAllApplied;
+  const isSubmittingFreezeControl = isSavingAllApplied;
+  const isSubmittingPoints = isSavingAllApplied;
+  const isSubmittingLimit = isSavingAllApplied;
+  const isSubmittingLeaderboardLimit = isSavingAllApplied;
+  const isSubmittingReminderLimit = isSavingAllApplied;
+  const isSubmittingTaskReminderLimit = isSavingAllApplied;
+  const isSubmittingDiscoverGroupsLimit = isSavingAllApplied;
+  const isSubmittingProfileImageLimit = isSavingAllApplied;
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -467,6 +483,11 @@ export const AdminControlPage: React.FC = () => {
   };
 
   const handleSelectUser = async (user: AdminUser | { id: string }) => {
+    if (selectedUserId !== user.id) {
+      setAppliedChanges({});
+      setPointsDelta('');
+      setPointsReason('');
+    }
     setSelectedUserId(user.id);
     setIsLoadingDetails(true);
     try {
@@ -753,8 +774,47 @@ export const AdminControlPage: React.FC = () => {
     }
   };
 
-  // E. Streak Correction
-  const handleStreakCorrection = async (e: React.FormEvent) => {
+  // Save All Applied Changes with a Single Sensitive Password Prompt
+  const handleSaveAllAppliedChanges = () => {
+    const changesList = Object.values(appliedChanges);
+    if (changesList.length === 0) {
+      toast.info('No changes applied yet. Modify any section and click "Apply" first.');
+      return;
+    }
+
+    const summary = changesList.map((c) => c.label).join(', ');
+
+    openPinPrompt(
+      `Save ${changesList.length} Applied Modification${changesList.length > 1 ? 's' : ''}`,
+      `Enter Super Admin Sensitive Password once to commit all applied modifications: ${summary}.`,
+      async (pin) => {
+        setIsSavingAllApplied(true);
+        try {
+          for (const item of changesList) {
+            await item.applyFn(pin);
+          }
+          toast.success(`Successfully saved all ${changesList.length} modification${changesList.length > 1 ? 's' : ''}!`);
+          setAppliedChanges({});
+          setPointsDelta('');
+          setPointsReason('');
+          setStreakReason('');
+          setFreezeControlReason('');
+          setLimitReason('');
+          setLeaderboardReason('');
+          setReminderLimitReason('');
+          setTaskReminderLimitReason('');
+          refreshCurrentUser();
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to save some applied modifications.'));
+        } finally {
+          setIsSavingAllApplied(false);
+        }
+      }
+    );
+  };
+
+  // E. Streak Correction (Apply to staging)
+  const handleStreakCorrection = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!streakReason.trim()) {
@@ -762,35 +822,42 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    openPinPrompt(
-      'Authorize Streak Correction',
-      'Enter Super Admin Sensitive Password to modify streak records.',
-      async (pin) => {
-        setIsSubmittingStreak(true);
-        try {
-          const res = await correctUserStreak(selectedUserId, {
-            type: streakTargetType,
-            taskId: streakTargetType === 'TASK' ? selectedTaskId : undefined,
-            currentStreak: Number(newCurrentStreak),
-            longestStreak: Number(newLongestStreak),
-            reason: streakReason.trim(),
-            applyToOverall: streakTargetType === 'TASK' ? streakApplyToOverall : undefined,
+    const targetType = streakTargetType;
+    const taskId = targetType === 'TASK' ? selectedTaskId : undefined;
+    const curr = Number(newCurrentStreak) || 0;
+    const long = Number(newLongestStreak) || 0;
+    const reason = streakReason.trim();
+    const applyToOverall = targetType === 'TASK' ? streakApplyToOverall : undefined;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      streaks: {
+        id: 'streaks',
+        label: `Streak (${targetType}): ${curr}d current / ${long}d longest`,
+        description: `Set ${targetType} streak to ${curr}d current, ${long}d longest`,
+        applyFn: async (pin: string) => {
+          return correctUserStreak(selectedUserId, {
+            type: targetType,
+            taskId,
+            currentStreak: curr,
+            longestStreak: long,
+            reason,
+            applyToOverall,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setStreakReason('');
-            refreshCurrentUser();
-          }
-        } finally {
-          setIsSubmittingStreak(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Streak correction applied! Click "Save" at the top to commit.');
   };
 
   // ------------------------------------------
@@ -965,49 +1032,52 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
-  // G. Points Adjustment
-  const handlePointsAdjustment = async (e: React.FormEvent) => {
+  // G. Points Adjustment (Apply to staging)
+  const handlePointsAdjustment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
+    const delta = typeof pointsDelta === 'number' ? pointsDelta : parseInt(String(pointsDelta), 10);
+    if (!delta || isNaN(delta)) {
+      toast.error('Points adjustment cannot be zero.');
+      return;
+    }
     if (!pointsReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    if (pointsDelta === 0) {
-      toast.error('Points adjustment cannot be zero.');
-      return;
-    }
 
-    openPinPrompt(
-      'Authorize Points Adjustment',
-      `Enter Super Admin Sensitive Password to adjust points by ${pointsDelta > 0 ? '+' : ''}${pointsDelta}.`,
-      async (pin) => {
-        setIsSubmittingPoints(true);
-        try {
-          const res = await adjustUserPoints(selectedUserId, {
-            pointsDelta: Number(pointsDelta),
-            reason: pointsReason.trim(),
+    const currentDelta = delta;
+    const currentReason = pointsReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      points: {
+        id: 'points',
+        label: `Points: ${currentDelta > 0 ? '+' : ''}${currentDelta} pts`,
+        description: `Adjust points by ${currentDelta > 0 ? '+' : ''}${currentDelta} pts`,
+        applyFn: async (pin: string) => {
+          return adjustUserPoints(selectedUserId, {
+            pointsDelta: Number(currentDelta),
+            reason: currentReason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setPointsReason('');
-            setPointsDelta(0);
-            refreshCurrentUser();
-          }
-        } finally {
-          setIsSubmittingPoints(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success(`Points adjustment of ${currentDelta > 0 ? '+' : ''}${currentDelta} pts applied! Click "Save" at the top to commit.`);
   };
 
-  // H. Limit of 15 (Starred Notifications) Override
-  const handleLimitOverride = async (e: React.FormEvent) => {
+  // H. Limit of 15 (Starred Notifications) Override (Apply to staging)
+  const handleLimitOverride = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!limitReason.trim()) {
@@ -1015,31 +1085,34 @@ export const AdminControlPage: React.FC = () => {
       return;
     }
 
-    openPinPrompt(
-      'Authorize Notification Limit Override',
-      `Enter Super Admin Sensitive Password to set starred notifications limit to ${newStarredLimit}.`,
-      async (pin) => {
-        setIsSubmittingLimit(true);
-        try {
-          const res = await overrideUserLimit15(selectedUserId, {
-            maxStarredNotifications: Number(newStarredLimit),
-            reason: limitReason.trim(),
+    const limitVal = Number(newStarredLimit);
+    const reason = limitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      starredLimit: {
+        id: 'starredLimit',
+        label: `Starred Limit: ${limitVal}`,
+        description: `Set starred notifications limit to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideUserLimit15(selectedUserId, {
+            maxStarredNotifications: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setLimitReason('');
-            refreshCurrentUser();
-          }
-        } finally {
-          setIsSubmittingLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Starred notifications limit applied! Click "Save" at the top to commit.');
   };
 
   // Heatmap Day Action Submission (Streak or Freeze on any particular day)
@@ -1163,189 +1236,199 @@ export const AdminControlPage: React.FC = () => {
     }
   };
 
-  // Leaderboard Cohort Limit Override
-  const handleOverrideLeaderboard = async (e: React.FormEvent) => {
+  // Leaderboard Cohort Limit Override (Apply to staging)
+  const handleOverrideLeaderboard = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!leaderboardReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    openPinPrompt(
-      'Authorize Leaderboard Limit Override',
-      `Enter Super Admin Sensitive Password to set visible leaderboard cohort to Top ${newLeaderboardLimit}.`,
-      async (pin) => {
-        setIsSubmittingLeaderboardLimit(true);
-        try {
-          const res = await overrideLeaderboardLimit(selectedUserId, {
-            leaderboardLimit: Number(newLeaderboardLimit),
-            reason: leaderboardReason.trim(),
+
+    const limitVal = Number(newLeaderboardLimit);
+    const reason = leaderboardReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      leaderboardLimit: {
+        id: 'leaderboardLimit',
+        label: `Leaderboard Limit: Top ${limitVal}`,
+        description: `Set leaderboard cohort limit to Top ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideLeaderboardLimit(selectedUserId, {
+            leaderboardLimit: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setLeaderboardReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update leaderboard limit.'));
-        } finally {
-          setIsSubmittingLeaderboardLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Leaderboard limit applied! Click "Save" at the top to commit.');
   };
 
-  // Scheduled Reminders Quota Override
-  const handleOverrideReminderLimit = async (e: React.FormEvent) => {
+  // Scheduled Reminders Quota Override (Apply to staging)
+  const handleOverrideReminderLimit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!reminderLimitReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    openPinPrompt(
-      'Authorize Reminders Quota Override',
-      `Enter Super Admin Sensitive Password to change scheduled reminders quota for @${selectedUserDetails?.username} to ${newReminderLimit} reminders.`,
-      async (pin) => {
-        setIsSubmittingReminderLimit(true);
-        try {
-          const res = await overrideReminderLimit(selectedUserId, {
-            reminderLimit: Number(newReminderLimit),
-            reason: reminderLimitReason.trim(),
+
+    const limitVal = Number(newReminderLimit);
+    const reason = reminderLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      reminderLimit: {
+        id: 'reminderLimit',
+        label: `Reminders Quota: ${limitVal}`,
+        description: `Set reminder quota to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideReminderLimit(selectedUserId, {
+            reminderLimit: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setReminderLimitReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update reminder quota limit.'));
-        } finally {
-          setIsSubmittingReminderLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Reminders quota applied! Click "Save" at the top to commit.');
   };
 
-  // Per-Task Scheduled Reminders Quota Override
-  const handleOverrideTaskReminderLimit = async (e: React.FormEvent) => {
+  // Per-Task Scheduled Reminders Quota Override (Apply to staging)
+  const handleOverrideTaskReminderLimit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!taskReminderLimitReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    openPinPrompt(
-      'Authorize Per-Task Reminders Quota Override',
-      `Enter Super Admin Sensitive Password to change per-task reminders quota for @${selectedUserDetails?.username} to ${newTaskReminderLimit} reminder(s) per habit.`,
-      async (pin) => {
-        setIsSubmittingTaskReminderLimit(true);
-        try {
-          const res = await overrideTaskReminderLimit(selectedUserId, {
-            taskReminderLimit: Number(newTaskReminderLimit),
-            reason: taskReminderLimitReason.trim(),
+
+    const limitVal = Number(newTaskReminderLimit);
+    const reason = taskReminderLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      taskReminderLimit: {
+        id: 'taskReminderLimit',
+        label: `Habit Reminders Quota: ${limitVal}/habit`,
+        description: `Set per-habit reminders quota to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideTaskReminderLimit(selectedUserId, {
+            taskReminderLimit: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setTaskReminderLimitReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update per-task reminder quota limit.'));
-        } finally {
-          setIsSubmittingTaskReminderLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Per-task reminders quota applied! Click "Save" at the top to commit.');
   };
 
-  // Top Discover Groups Display Limit Override
-  const handleOverrideDiscoverGroupsLimit = async (e: React.FormEvent) => {
+  // Top Discover Groups Display Limit Override (Apply to staging)
+  const handleOverrideDiscoverGroupsLimit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!discoverGroupsReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    openPinPrompt(
-      'Authorize Discover Groups Display Limit',
-      `Enter Super Admin Sensitive Password to set Discover top groups display quota for @${selectedUserDetails?.username} to Top ${newDiscoverGroupsLimit}.`,
-      async (pin) => {
-        setIsSubmittingDiscoverGroupsLimit(true);
-        try {
-          const res = await overrideDiscoverGroupsLimit(selectedUserId, {
-            discoverGroupsLimit: Number(newDiscoverGroupsLimit),
-            reason: discoverGroupsReason.trim(),
+
+    const limitVal = Number(newDiscoverGroupsLimit);
+    const reason = discoverGroupsReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      discoverGroupsLimit: {
+        id: 'discoverGroupsLimit',
+        label: `Discover Groups Limit: Top ${limitVal}`,
+        description: `Set discover top groups quota to Top ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideDiscoverGroupsLimit(selectedUserId, {
+            discoverGroupsLimit: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setDiscoverGroupsReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update discover groups limit.'));
-        } finally {
-          setIsSubmittingDiscoverGroupsLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Discover groups limit applied! Click "Save" at the top to commit.');
   };
 
-  // Profile Picture Upload Limit Override
-  const handleOverrideProfileImageLimit = async (e: React.FormEvent) => {
+  // Profile Picture Upload Limit Override (Apply to staging)
+  const handleOverrideProfileImageLimit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!profileImageLimitReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    openPinPrompt(
-      'Authorize Profile Picture Quota Override',
-      `Enter Super Admin Sensitive Password to set maximum profile picture upload size for @${selectedUserDetails?.username} to ${newProfileImageLimitMb} MB.`,
-      async (pin) => {
-        setIsSubmittingProfileImageLimit(true);
-        try {
-          const res = await overrideProfileImageLimit(selectedUserId, {
-            profileImageLimitMb: Number(newProfileImageLimitMb),
-            reason: profileImageLimitReason.trim(),
+
+    const limitVal = Number(newProfileImageLimitMb);
+    const reason = profileImageLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      profileImageLimit: {
+        id: 'profileImageLimit',
+        label: `Avatar Quota: ${limitVal}MB`,
+        description: `Set max profile picture size to ${limitVal}MB`,
+        applyFn: async (pin: string) => {
+          return overrideProfileImageLimit(selectedUserId, {
+            profileImageLimitMb: limitVal,
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setProfileImageLimitReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update profile picture quota.'));
-        } finally {
-          setIsSubmittingProfileImageLimit(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success('Profile picture quota applied! Click "Save" at the top to commit.');
   };
 
   // Freeze Shield Scope Switching
@@ -1365,58 +1448,58 @@ export const AdminControlPage: React.FC = () => {
     }
   };
 
-  // Freeze Shield Balance & Shelf Recharge Control
-  const handleUpdateFreezeControl = async (e: React.FormEvent) => {
+  // Freeze Shield Balance & Shelf Recharge Control (Apply to staging)
+  const handleUpdateFreezeControl = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
     if (!freezeControlReason.trim()) {
       toast.error('An administrative reason is mandatory for audit logging.');
       return;
     }
-    const targetLabel =
-      freezeScope === 'overall'
-        ? 'Overall Streak Freeze'
-        : `Task "${selectedUserDetails?.tasks?.find((t: any) => t.id === freezeScope)?.title || freezeScope}"`;
 
-    openPinPrompt(
-      'Authorize Freeze Inventory & Recharge Update',
-      `Enter Super Admin Sensitive Password to update ${targetLabel}: Max Capacity ${newFreezeCapacity}, Shields ${newFreezeBalance}/${newFreezeCapacity}, Recharge ${newFreezeRechargeDays}/7 days for @${selectedUserDetails?.username}.`,
-      async (pin) => {
-        setIsSubmittingFreezeControl(true);
-        try {
+    const scope = freezeScope;
+    const cap = Number(newFreezeCapacity);
+    const bal = Number(newFreezeBalance);
+    const rech = Number(newFreezeRechargeDays);
+    const reason = freezeControlReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      freezes: {
+        id: 'freezes',
+        label: `Freezes (${scope === 'overall' ? 'Overall' : 'Habit'}): ${bal}/${cap} shields`,
+        description: `Set freeze balance to ${bal}/${cap}, recharge ${rech}/7d`,
+        applyFn: async (pin: string) => {
           const payload: any = {
-            reason: freezeControlReason.trim(),
+            reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           };
 
-          if (freezeScope === 'overall') {
-            payload.overallFreezeCapacity = Number(newFreezeCapacity);
-            payload.overallFreezeBalance = Number(newFreezeBalance);
-            payload.overallFreezeRechargeDays = Number(newFreezeRechargeDays);
+          if (scope === 'overall') {
+            payload.overallFreezeCapacity = cap;
+            payload.overallFreezeBalance = bal;
+            payload.overallFreezeRechargeDays = rech;
           } else {
-            payload.taskId = freezeScope;
-            payload.freezeCapacity = Number(newFreezeCapacity);
-            payload.freezeBalance = Number(newFreezeBalance);
-            payload.freezeRechargeDays = Number(newFreezeRechargeDays);
+            payload.taskId = scope;
+            payload.freezeCapacity = cap;
+            payload.freezeBalance = bal;
+            payload.freezeRechargeDays = rech;
           }
 
-          const res = await adjustUserFreezes(selectedUserId, payload);
-          if (res.success) {
-            toast.info(res.message);
-            setFreezeControlReason('');
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to update freeze shields & recharge days.'));
-        } finally {
-          setIsSubmittingFreezeControl(false);
-        }
-      }
-    );
+          return adjustUserFreezes(selectedUserId, payload);
+        },
+      },
+    }));
+
+    toast.success('Freeze adjustment applied! Click "Save" at the top to commit.');
   };
 
   // Group Discovery Functions
@@ -2795,7 +2878,31 @@ export const AdminControlPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                      {/* Save Button on Top */}
+                      <button
+                        type="button"
+                        onClick={handleSaveAllAppliedChanges}
+                        disabled={isSavingAllApplied || Object.keys(appliedChanges).length === 0}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${
+                          Object.keys(appliedChanges).length > 0
+                            ? 'bg-emerald-500 hover:bg-emerald-400 text-zinc-950 shadow-emerald-500/20 ring-2 ring-emerald-400/50 cursor-pointer animate-pulse'
+                            : 'bg-dark-surface border border-dark-border text-zinc-500 cursor-not-allowed opacity-50'
+                        }`}
+                        title={
+                          Object.keys(appliedChanges).length > 0
+                            ? `Save ${Object.keys(appliedChanges).length} applied change(s)`
+                            : 'Modify and Apply changes below, then click Save'
+                        }
+                      >
+                        {isSavingAllApplied ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Save{Object.keys(appliedChanges).length > 0 ? ` (${Object.keys(appliedChanges).length})` : ''}</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -2834,6 +2941,43 @@ export const AdminControlPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
+
+                  {/* Applied Changes Staging Banner */}
+                  {Object.keys(appliedChanges).length > 0 && (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap text-emerald-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="font-extrabold">{Object.keys(appliedChanges).length} change(s) applied:</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {Object.values(appliedChanges).map((item) => (
+                            <span key={item.id} className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-200 font-mono text-[11px]">
+                              {item.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppliedChanges({});
+                            toast.info('Cleared all applied changes.');
+                          }}
+                          className="text-[11px] text-zinc-400 hover:text-zinc-200 underline"
+                        >
+                          Clear All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveAllAppliedChanges}
+                          disabled={isSavingAllApplied}
+                          className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-lg transition-all"
+                        >
+                          Save All Now
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Account Deletion & Recovery Banner */}
                   {selectedUserDetails?.isDeleted && (
@@ -3751,6 +3895,30 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
+                        {appliedChanges['streaks'] && (
+                          <div className="p-3 bg-flame-500/10 border border-flame-500/30 rounded-xl flex items-center justify-between text-xs text-flame-300">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-flame-400" />
+                              <span className="font-bold">Applied: {appliedChanges['streaks'].label}</span>
+                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAppliedChanges((prev) => {
+                                  const next = { ...prev };
+                                  delete next['streaks'];
+                                  return next;
+                                });
+                                toast.info('Streak correction unapplied.');
+                              }}
+                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
                         <button
                           type="submit"
                           disabled={isSubmittingStreak}
@@ -3761,7 +3929,7 @@ export const AdminControlPage: React.FC = () => {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
-                          <span>Apply Streak Correction</span>
+                          <span>{appliedChanges['streaks'] ? 'Re-apply Streak' : 'Apply'}</span>
                         </button>
                       </form>
                     </div>
@@ -4014,6 +4182,30 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
+                        {appliedChanges['freezes'] && (
+                          <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center justify-between text-xs text-sky-300">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-sky-400" />
+                              <span className="font-bold">Applied: {appliedChanges['freezes'].label}</span>
+                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAppliedChanges((prev) => {
+                                  const next = { ...prev };
+                                  delete next['freezes'];
+                                  return next;
+                                });
+                                toast.info('Freeze adjustment unapplied.');
+                              }}
+                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
                         <button
                           type="submit"
                           disabled={isSubmittingFreezeControl}
@@ -4024,7 +4216,7 @@ export const AdminControlPage: React.FC = () => {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
-                          <span>Apply Freeze Inventory, Capacity & Recharge Adjustment</span>
+                          <span>{appliedChanges['freezes'] ? 'Re-apply Freezes' : 'Apply'}</span>
                         </button>
                       </form>
                     </div>
@@ -4453,12 +4645,12 @@ export const AdminControlPage: React.FC = () => {
                           <span className="text-[11px] text-zinc-400 block">Projected Balance After Delta</span>
                           <span
                             className={`font-mono text-base font-bold ${
-                              (selectedUserDetails?.points || 0) + pointsDelta >= 0
+                              (selectedUserDetails?.points || 0) + (typeof pointsDelta === 'number' ? pointsDelta : 0) >= 0
                                 ? 'text-zinc-100'
                                 : 'text-rose-400'
                             }`}
                           >
-                            {Math.max(0, (selectedUserDetails?.points || 0) + pointsDelta).toLocaleString()} pts
+                            {Math.max(0, (selectedUserDetails?.points || 0) + (typeof pointsDelta === 'number' ? pointsDelta : 0)).toLocaleString()} pts
                           </span>
                         </div>
                       </div>
@@ -4471,7 +4663,15 @@ export const AdminControlPage: React.FC = () => {
                           <input
                             type="number"
                             value={pointsDelta}
-                            onChange={(e) => setPointsDelta(parseInt(e.target.value, 10) || 0)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '') {
+                                setPointsDelta('');
+                              } else {
+                                const parsed = parseInt(val, 10);
+                                setPointsDelta(isNaN(parsed) ? '' : parsed);
+                              }
+                            }}
                             placeholder="e.g. 50 or -25"
                             className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                             required
@@ -4489,7 +4689,7 @@ export const AdminControlPage: React.FC = () => {
                             <span className="text-zinc-500">→</span>
                             <span className="text-amber-400 font-bold">
                               Resulting Balance:{' '}
-                              {Math.max(0, (selectedUserDetails?.points || 0) + Number(pointsDelta))} pts
+                              {Math.max(0, (selectedUserDetails?.points || 0) + (typeof pointsDelta === 'number' ? pointsDelta : 0))} pts
                             </span>
                           </div>
                         </div>
@@ -4510,9 +4710,33 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
+                        {appliedChanges['points'] && (
+                          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                              <span className="font-bold">Applied: {appliedChanges['points'].label}</span>
+                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAppliedChanges((prev) => {
+                                  const next = { ...prev };
+                                  delete next['points'];
+                                  return next;
+                                });
+                                toast.info('Points adjustment unapplied.');
+                              }}
+                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
                         <button
                           type="submit"
-                          disabled={isSubmittingPoints || pointsDelta === 0}
+                          disabled={isSubmittingPoints || pointsDelta === '' || pointsDelta === 0}
                           className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
                         >
                           {isSubmittingPoints ? (
@@ -4520,7 +4744,7 @@ export const AdminControlPage: React.FC = () => {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
-                          <span>Record Points Correction in Ledger</span>
+                          <span>{appliedChanges['points'] ? 'Re-apply Points' : 'Apply'}</span>
                         </button>
                       </form>
                     </div>
@@ -5440,6 +5664,30 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
+                        {appliedChanges['starredLimit'] && (
+                          <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl flex items-center justify-between text-xs text-purple-300">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-purple-400" />
+                              <span className="font-bold">Applied: {appliedChanges['starredLimit'].label}</span>
+                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAppliedChanges((prev) => {
+                                  const next = { ...prev };
+                                  delete next['starredLimit'];
+                                  return next;
+                                });
+                                toast.info('Starred notifications limit unapplied.');
+                              }}
+                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+
                         <button
                           type="submit"
                           disabled={isSubmittingLimit}
@@ -5450,7 +5698,7 @@ export const AdminControlPage: React.FC = () => {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
-                          <span>Apply Starred Notification Limit Override</span>
+                          <span>{appliedChanges['starredLimit'] ? 'Re-apply Limit' : 'Apply'}</span>
                         </button>
                       </form>
                     </div>
