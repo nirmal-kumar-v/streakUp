@@ -321,28 +321,19 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-// In-memory mutex map to serialize complete/uncomplete actions per task and user
-const taskOperationLocks = new Map<string, Promise<void>>();
+// In-memory set of active task operations per user:task to immediately reject concurrent clicks without queueing
+const activeTaskLocks = new Set<string>();
 
-async function acquireTaskLock(key: string): Promise<() => void> {
-  while (taskOperationLocks.has(key)) {
-    try {
-      await taskOperationLocks.get(key);
-    } catch {
-      // ignore
-    }
+function tryAcquireTaskLock(key: string): boolean {
+  if (activeTaskLocks.has(key)) {
+    return false; // Already processing: DO NOT QUEUE, DROP IMMEDIATELY!
   }
-  let unlock: () => void = () => {};
-  const lockPromise = new Promise<void>((resolve) => {
-    unlock = resolve;
-  });
-  taskOperationLocks.set(key, lockPromise);
-  return () => {
-    if (taskOperationLocks.get(key) === lockPromise) {
-      taskOperationLocks.delete(key);
-    }
-    unlock();
-  };
+  activeTaskLocks.add(key);
+  return true;
+}
+
+function releaseTaskLock(key: string): void {
+  activeTaskLocks.delete(key);
 }
 
 /**
@@ -351,7 +342,15 @@ async function acquireTaskLock(key: string): Promise<() => void> {
 export async function completeTask(req: AuthenticatedRequest, res: Response) {
   const userId = req.user!.userId;
   const { id } = req.params;
-  const releaseLock = await acquireTaskLock(`${userId}:${id}`);
+  const lockKey = `${userId}:${id}`;
+
+  if (!tryAcquireTaskLock(lockKey)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Task operation already in progress. Please wait.'
+    });
+  }
+
   try {
     const { studyNote } = req.body || {};
 
@@ -521,24 +520,17 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     // Immediately recalculate overall streak accurately based on local calendar dates and freezes
     const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
 
-    // Award +5 points for scheduled habit completion (Requirement 9)
-    let pointsAwarded = 0;
-    let newTotalPoints = 0;
-    if (task.recurrence === 'DAILY' && !task.groupId && !task.isGroupTask) {
-      const pointsRes = await awardCompletionPoints(
-        prisma,
-        userId,
-        task.id,
-        todayDateStr,
-        task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
-        timezone
-      );
-      pointsAwarded = pointsRes.pointsAwarded;
-      newTotalPoints = pointsRes.newTotalPoints;
-    } else {
-      const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
-      newTotalPoints = u?.points || 0;
-    }
+    // Award +5 points for habit completion (5 points per task)
+    const pointsRes = await awardCompletionPoints(
+      prisma,
+      userId,
+      task.id,
+      todayDateStr,
+      task.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
+      timezone
+    );
+    const pointsAwarded = pointsRes.pointsAwarded;
+    const newTotalPoints = pointsRes.newTotalPoints;
 
     // Trigger milestone checks and friend activity alerts (non-blocking)
     checkAndTriggerMilestones({
@@ -590,7 +582,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     console.error('completeTask error:', err);
     return res.status(500).json({ success: false, error: 'Failed to complete task.' });
   } finally {
-    releaseLock();
+    releaseTaskLock(lockKey);
   }
 }
 
@@ -600,7 +592,15 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
 export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
   const userId = req.user!.userId;
   const { id } = req.params;
-  const releaseLock = await acquireTaskLock(`${userId}:${id}`);
+  const lockKey = `${userId}:${id}`;
+
+  if (!tryAcquireTaskLock(lockKey)) {
+    return res.status(429).json({
+      success: false,
+      error: 'Task operation already in progress. Please wait.'
+    });
+  }
+
   try {
     const task = await prisma.task.findUnique({
       where: { id },
@@ -785,7 +785,7 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
     console.error('uncompleteTask error:', err);
     return res.status(500).json({ success: false, error: 'Failed to undo task completion.' });
   } finally {
-    releaseLock();
+    releaseTaskLock(lockKey);
   }
 }
 

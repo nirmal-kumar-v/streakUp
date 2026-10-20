@@ -25,26 +25,11 @@ export async function awardCompletionPoints(
   scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
   timezone: string = DEFAULT_TIMEZONE
 ): Promise<{ pointsAwarded: number; newTotalPoints: number }> {
-  // Group tasks do not award or deduct points, EXCEPT the LinkedIn habit which counts as a whole habit awarding +5 accountability points
-  const task = prisma?.task?.findUnique
-    ? await prisma.task.findUnique({
-        where: { id: taskId },
-        select: { title: true, groupId: true, isGroupTask: true }
-      })
-    : null;
-
-  const isLinkedIn = task ? isLinkedInName(task.title) : false;
-
-  if ((task?.groupId || task?.isGroupTask) && !isLinkedIn) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { points: true }
-    });
-    return { pointsAwarded: 0, newTotalPoints: user?.points || 0 };
-  }
-
   const dayOfWeek = getDayOfWeekFromDateString(completionDateStr, timezone);
-  const isScheduled = scheduledDays.includes(dayOfWeek);
+  const isScheduled =
+    !scheduledDays ||
+    scheduledDays.length === 0 ||
+    scheduledDays.includes(dayOfWeek);
 
   if (!isScheduled) {
     // Unscheduled completion: recorded for streak/history, but no scheduled points awarded

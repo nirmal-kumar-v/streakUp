@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Task } from '../api/tasks';
 import {
@@ -37,6 +37,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 }) => {
   const navigate = useNavigate();
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const isActionLockedRef = useRef(false);
+
+  // Sync ref when parent signals processing has ended
+  if (!isProcessing && isActionLockedRef.current) {
+    isActionLockedRef.current = false;
+  }
 
   const isLinkedIn = Boolean(task.isLinkedIn || (task.isGroupTask && isLinkedInName(task.title)));
   const isArchived = task.status === 'ARCHIVED';
@@ -50,8 +56,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   const handleCheck = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
-    if (!onToggleComplete || !canTick || isArchived || isProcessing) return;
+    if (!onToggleComplete || !canTick || isArchived || isProcessing || isActionLockedRef.current) {
+      return; // Drop click immediately while processing
+    }
+    isActionLockedRef.current = true;
     onToggleComplete(task);
   };
 
@@ -81,11 +91,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {!isArchived && canTick && onToggleComplete ? (
             <button
               onClick={handleCheck}
-              disabled={isProcessing}
+              disabled={isProcessing || isActionLockedRef.current}
               type="button"
               aria-label={task.completedToday ? 'Mark incomplete' : 'Mark complete'}
               className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-150 ${
-                isProcessing
+                isProcessing || isActionLockedRef.current
                   ? 'opacity-60 cursor-not-allowed pointer-events-none'
                   : 'active:scale-90'
               } ${
@@ -94,7 +104,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                   : 'border-zinc-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'
               }`}
             >
-              {isProcessing ? (
+              {isProcessing || isActionLockedRef.current ? (
                 <Loader2 className="w-4 h-4 text-zinc-300 animate-spin" />
               ) : (
                 <Check className={`w-4 h-4 stroke-[3] transition-transform duration-150 ${task.completedToday ? 'scale-100' : 'scale-50'}`} />

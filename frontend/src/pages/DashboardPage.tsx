@@ -230,6 +230,9 @@ export const DashboardPage: React.FC = () => {
             throw new Error('Failed to undo completion');
           }
         } catch (err: any) {
+          if (err?.response?.status === 429) {
+            return;
+          }
           // Rollback
           setTasks(prevTasks);
           if (currentCache) setCachedDashboard(currentCache);
@@ -334,6 +337,9 @@ export const DashboardPage: React.FC = () => {
               }
             }
           } catch (err: any) {
+            if (err?.response?.status === 429) {
+              return;
+            }
             setTasks(prevTasks);
             if (currentCache) setCachedDashboard(currentCache);
             toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
@@ -457,6 +463,9 @@ export const DashboardPage: React.FC = () => {
         }
       }
     } catch (err: any) {
+      if (err?.response?.status === 429) {
+        return;
+      }
       setTasks(prevTasks);
       if (currentCache) setCachedDashboard(currentCache);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
