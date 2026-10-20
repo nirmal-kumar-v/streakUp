@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+
+# Authenticated & Private Routes
+Disallow: /dashboard
+Disallow: /tasks
+Disallow: /friends/tasks
+Disallow: /settings
+Disallow: /notifications
+Disallow: /streakup-karo/
+
+# Sitemap
+Sitemap: https://streak-up-karo.vercel.app/sitemap.xml
