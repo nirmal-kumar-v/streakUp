@@ -262,6 +262,21 @@ export const DashboardPage: React.FC = () => {
     try {
       const res = await completeTask(taskToComplete.id, studyNote);
       if (res.success) {
+        if (res.taskStreak) {
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskToComplete.id
+                ? {
+                    ...t,
+                    completedToday: true,
+                    currentStreak: res.taskStreak.currentStreak,
+                    longestStreak: res.taskStreak.longestStreak,
+                    todayStudyNote: res.studyNote || studyNote,
+                  }
+                : t
+            )
+          );
+        }
         if (res.streak) {
           updateUser({
             currentStreak: res.streak.currentStreak,

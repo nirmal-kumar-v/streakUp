@@ -1106,6 +1106,9 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
       ? Math.round((completedTodayCount / totalActiveTasks) * 100)
       : 0;
 
+    const effectiveUserCurrentStreak = completedTodayCount > 0 ? Math.max(1, user.currentStreak) : user.currentStreak;
+    const effectiveUserLongestStreak = Math.max(user.longestStreak, effectiveUserCurrentStreak);
+
     return res.json({
       success: true,
       user: {
@@ -1113,8 +1116,8 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         name: user.name,
         username: user.username,
         profileImage: user.profileImage,
-        currentStreak: user.currentStreak,
-        longestStreak: user.longestStreak,
+        currentStreak: effectiveUserCurrentStreak,
+        longestStreak: effectiveUserLongestStreak,
         overallFreezeBalance: user.overallFreezeBalance,
         overallFreezeRechargeDays: user.overallFreezeRechargeDays,
         protectedDates: overallFreezeLogs.map(l => l.protectedDate),
