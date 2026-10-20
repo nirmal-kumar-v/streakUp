@@ -37,6 +37,7 @@ import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
+import { calculateOptimisticUserStreak } from '../utils/streak';
 
 const DASHBOARD_CACHE_KEY = 'streakup_dashboard_summary_cache';
 
@@ -226,7 +227,7 @@ export const DashboardPage: React.FC = () => {
         const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
 
         const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
-        const nextUserStreak = !otherCompleted ? (user?.currentStreak || 0) + 1 : (user?.currentStreak || 1);
+        const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
         const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
 
         const optimisticTasks = tasks.map((t) =>
@@ -322,7 +323,7 @@ export const DashboardPage: React.FC = () => {
     const nextLongest = Math.max(taskToComplete.longestStreak || 0, nextStreak);
 
     const otherCompleted = tasks.some((t) => t.id !== taskToComplete.id && t.completedToday);
-    const nextUserStreak = !otherCompleted ? (user?.currentStreak || 0) + 1 : (user?.currentStreak || 1);
+    const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
     const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
 
     const optimisticTasks = tasks.map((t) =>

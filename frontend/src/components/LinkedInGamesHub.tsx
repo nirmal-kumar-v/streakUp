@@ -63,11 +63,22 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
-  const [games, setGames] = useState<LinkedInGameItem[]>([]);
+  const cacheKey = `streakup_linkedin_games_${groupId}`;
+  const [cachedGames] = useState<LinkedInGameItem[] | null>(() => {
+    try {
+      const raw = sessionStorage.getItem(cacheKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [games, setGames] = useState<LinkedInGameItem[]>(() => cachedGames || []);
   const [selectedGameId, setSelectedGameId] = useState<string>(initialGameId);
   const [leaderboard, setLeaderboard] = useState<LinkedInGameLeaderboardEntry[]>([]);
 
-  const [isLoadingAll, setIsLoadingAll] = useState(true);
+  const [isLoadingAll, setIsLoadingAll] = useState(() => !cachedGames || cachedGames.length === 0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [studyNote, setStudyNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
 
@@ -102,11 +113,15 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   );
 
   // Load summary for all 8 games
-  const loadAllGames = useCallback(async () => {
+  const loadAllGames = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setIsRefreshing(true);
     try {
       const res = await fetchLinkedInGames(groupId);
       if (res.success && res.games) {
         setGames(res.games);
+        try {
+          sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(res.games));
+        } catch {}
         const currentActive = res.games.find((g) => g.gameId === selectedGameIdRef.current) || res.games[0];
         if (currentActive?.todayNote) {
           setStudyNote(currentActive.todayNote);
@@ -119,6 +134,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       toastRef.current.error(extractErrorMessage(err, 'Failed to load LinkedIn games.'));
     } finally {
       setIsLoadingAll(false);
+      setIsRefreshing(false);
     }
   }, [groupId, loadGameDetails]);
 
@@ -187,9 +203,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     })
       .then((res) => {
         if (res.success && res.game) {
-          setGames((prev) =>
-            prev.map((g) => (g.gameId === targetGameId ? { ...g, ...res.game } : g))
-          );
+          setGames((prev) => {
+            const updated = prev.map((g) => (g.gameId === targetGameId ? { ...g, ...res.game } : g));
+            try {
+              sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(updated));
+            } catch {}
+            return updated;
+          });
           if (selectedGameIdRef.current === targetGameId && res.leaderboard) {
             setLeaderboard(res.leaderboard);
           }
@@ -197,9 +217,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       })
       .catch((err: any) => {
         // Rollback only on actual failure
-        setGames((prev) =>
-          prev.map((g) => (g.gameId === targetGameId ? prevGame : g))
-        );
+        setGames((prev) => {
+          const rollback = prev.map((g) => (g.gameId === targetGameId ? prevGame : g));
+          try {
+            sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(rollback));
+          } catch {}
+          return rollback;
+        });
         toast.error(extractErrorMessage(err, 'Failed to complete game.'));
       })
       .finally(() => {
@@ -226,8 +250,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     const retainedLongest = Math.max(prevGame.longestStreak || 0, prevGame.currentStreak || 0);
 
     // 1. Instant optimistic UI update
-    setGames((prev) =>
-      prev.map((g) => {
+    setGames((prev) => {
+      const updated = prev.map((g) => {
         if (g.gameId === targetGameId) {
           return {
             ...g,
@@ -239,8 +263,12 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
           };
         }
         return g;
-      })
-    );
+      });
+      try {
+        sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
     setShowNoteInput(false);
     toast.info(`${prevGame.name} marked incomplete`);
 
@@ -248,8 +276,8 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
     uncompleteLinkedInGame(groupId, targetGameId)
       .then((res) => {
         if (res.success && res.game) {
-          setGames((prev) =>
-            prev.map((g) =>
+          setGames((prev) => {
+            const updated = prev.map((g) =>
               g.gameId === targetGameId
                 ? {
                     ...g,
@@ -257,8 +285,12 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
                     longestStreak: Math.max(res.game.longestStreak || 0, g.longestStreak || 0, retainedLongest),
                   }
                 : g
-            )
-          );
+            );
+            try {
+              sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(updated));
+            } catch {}
+            return updated;
+          });
           if (selectedGameIdRef.current === targetGameId && res.leaderboard) {
             setLeaderboard(res.leaderboard);
           }
@@ -266,9 +298,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       })
       .catch((err: any) => {
         // Rollback on error
-        setGames((prev) =>
-          prev.map((g) => (g.gameId === targetGameId ? prevGame : g))
-        );
+        setGames((prev) => {
+          const rollback = prev.map((g) => (g.gameId === targetGameId ? prevGame : g));
+          try {
+            sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(rollback));
+          } catch {}
+          return rollback;
+        });
         toast.error(extractErrorMessage(err, 'Failed to undo game completion.'));
       })
       .finally(() => {
@@ -279,16 +315,24 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
   // Toggle game commitment status
   const handleToggleCommitment = async (gameId: string, targetCommitment: boolean) => {
     // Instant optimistic UI update
-    setGames((prev) =>
-      prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: targetCommitment } : g))
-    );
+    setGames((prev) => {
+      const updated = prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: targetCommitment } : g));
+      try {
+        sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
 
     try {
       const res = await updateLinkedInGameCommitment(groupId, gameId, targetCommitment);
       if (res.success && res.game) {
-        setGames((prev) =>
-          prev.map((g) => (g.gameId === gameId ? { ...g, ...res.game } : g))
-        );
+        setGames((prev) => {
+          const updated = prev.map((g) => (g.gameId === gameId ? { ...g, ...res.game } : g));
+          try {
+            sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
         toastRef.current.info(
           targetCommitment
             ? `Committed to ${res.game.name}. Dashboard tick includes this game.`
@@ -297,9 +341,13 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       }
     } catch (err: any) {
       // Rollback on error
-      setGames((prev) =>
-        prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: !targetCommitment } : g))
-      );
+      setGames((prev) => {
+        const rollback = prev.map((g) => (g.gameId === gameId ? { ...g, isCommitted: !targetCommitment } : g));
+        try {
+          sessionStorage.setItem(`streakup_linkedin_games_${groupId}`, JSON.stringify(rollback));
+        } catch {}
+        return rollback;
+      });
       toastRef.current.error(extractErrorMessage(err, 'Failed to update commitment.'));
     }
   };
@@ -351,15 +399,14 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
 
         <button
           onClick={() => {
-            loadAllGames();
-            if (selectedGameId) loadGameDetails(selectedGameId);
+            loadAllGames(true);
           }}
-          disabled={isLoadingAll}
+          disabled={isRefreshing}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-card hover:bg-dark-hover border border-dark-border text-xs text-zinc-400 hover:text-zinc-200 font-medium transition-colors cursor-pointer"
           title="Refresh Games"
           aria-label="Refresh Games"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAll ? 'animate-spin text-amber-400' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
           <span className="text-[11px] font-mono">Refresh</span>
         </button>
       </div>

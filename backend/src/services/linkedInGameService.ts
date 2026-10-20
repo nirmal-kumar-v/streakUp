@@ -142,7 +142,7 @@ function saveAllRecords(records: Record<string, StoredGameRecord>) {
     ensureDataDir();
     fs.writeFileSync(STORAGE_FILE, JSON.stringify(records, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[LinkedInGameService] Error writing storage file:', err);
+    // Silent failover if file write fails in read-only / serverless environment
   }
 }
 
@@ -174,32 +174,68 @@ export async function initDatabaseTable() {
   }
 }
 
-async function syncRecordToDb(record: StoredGameRecord) {
-  // Execute database synchronization in the background without blocking execution
-  setImmediate(async () => {
-    try {
-      await initDatabaseTable();
-      const id = getRecordKey(record.groupId, record.userId, record.gameId);
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
-         ON CONFLICT ("id") DO UPDATE
-         SET "manual_current_streak" = EXCLUDED."manual_current_streak",
-             "manual_longest_streak" = EXCLUDED."manual_longest_streak",
-             "data" = EXCLUDED."data",
-             "updated_at" = NOW()`,
-        id,
-        record.groupId,
-        record.userId,
-        record.gameId,
-        record.manualCurrentStreak ?? null,
-        record.manualLongestStreak ?? null,
-        JSON.stringify(record)
-      );
-    } catch (err) {
-      // Silent failover to file store
+const loadedMembers = new Set<string>();
+
+export async function ensureMemberRecordsLoaded(groupId: string, userId: string, force = false): Promise<void> {
+  const memberKey = `${groupId}:${userId}`;
+  if (!force && loadedMembers.has(memberKey)) {
+    return;
+  }
+  loadedMembers.add(memberKey);
+  try {
+    await initDatabaseTable();
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      `SELECT "id", "data", "manual_current_streak", "manual_longest_streak" 
+       FROM "linkedin_game_records" 
+       WHERE "group_id" = $1 AND "user_id" = $2`,
+      groupId,
+      userId
+    );
+    if (rows && Array.isArray(rows) && rows.length > 0) {
+      const records = loadAllRecords();
+      for (const row of rows) {
+        if (row && row.data) {
+          const rec = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+          const key = row.id || getRecordKey(groupId, userId, rec.gameId);
+          if (row.manual_current_streak !== null && row.manual_current_streak !== undefined) {
+            rec.manualCurrentStreak = row.manual_current_streak;
+          }
+          if (row.manual_longest_streak !== null && row.manual_longest_streak !== undefined) {
+            rec.manualLongestStreak = row.manual_longest_streak;
+          }
+          records[key] = rec;
+        }
+      }
+      saveAllRecords(records);
     }
-  });
+  } catch (err) {
+    // Failover silently to file store/cache
+  }
+}
+
+async function syncRecordToDb(record: StoredGameRecord): Promise<void> {
+  try {
+    await initDatabaseTable();
+    const id = getRecordKey(record.groupId, record.userId, record.gameId);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+       ON CONFLICT ("id") DO UPDATE
+       SET "manual_current_streak" = EXCLUDED."manual_current_streak",
+           "manual_longest_streak" = EXCLUDED."manual_longest_streak",
+           "data" = EXCLUDED."data",
+           "updated_at" = NOW()`,
+      id,
+      record.groupId,
+      record.userId,
+      record.gameId,
+      record.manualCurrentStreak ?? null,
+      record.manualLongestStreak ?? null,
+      JSON.stringify(record)
+    );
+  } catch (err) {
+    // Silent failover to in-memory/file store
+  }
 }
 
 export function getRawGameRecord(groupId: string, userId: string, gameId: string): StoredGameRecord {
@@ -218,6 +254,11 @@ export function getRawGameRecord(groupId: string, userId: string, gameId: string
       updatedAt: new Date().toISOString(),
     };
     saveAllRecords(records);
+  } else {
+    // Only default to true if isCommitted is strictly undefined (preserve explicit false)
+    if (records[key].isCommitted === undefined) {
+      records[key].isCommitted = true;
+    }
   }
   return records[key];
 }
@@ -315,6 +356,7 @@ export async function getAllGamesForMember(
   userId: string,
   userTimezone: string = DEFAULT_TIMEZONE
 ): Promise<ComputedGameData[]> {
+  await ensureMemberRecordsLoaded(groupId, userId);
   const result: ComputedGameData[] = [];
   for (const game of LINKEDIN_GAMES) {
     const raw = getRawGameRecord(groupId, userId, game.id);
@@ -334,6 +376,7 @@ export async function getSingleGameForMember(
 ): Promise<ComputedGameData | null> {
   const normalized = normalizeGameId(gameId);
   if (!normalized) return null;
+  await ensureMemberRecordsLoaded(groupId, userId);
   const raw = getRawGameRecord(groupId, userId, normalized);
   return computeGameDataForUser(raw, userTimezone);
 }
@@ -354,6 +397,7 @@ export async function completeMemberGame(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const targetDate = completionDate || getTodayInTimezone(userTimezone);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
@@ -387,7 +431,7 @@ export async function completeMemberGame(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
   invalidateGameLeaderboardCache(groupId, normalized);
 
   return computeGameDataForUser(record, userTimezone);
@@ -408,6 +452,7 @@ export async function uncompleteMemberGame(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const targetDate = completionDate || getTodayInTimezone(userTimezone);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
@@ -430,7 +475,7 @@ export async function uncompleteMemberGame(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
   invalidateGameLeaderboardCache(groupId, normalized);
 
   return computeGameDataForUser(record, userTimezone);
@@ -578,6 +623,7 @@ export async function adminCorrectGameStreak(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
@@ -588,10 +634,10 @@ export async function adminCorrectGameStreak(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
   invalidateGameLeaderboardCache(groupId, normalized);
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
 }
 
@@ -610,6 +656,7 @@ export async function adminGrantGameDate(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
@@ -630,10 +677,10 @@ export async function adminGrantGameDate(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
   invalidateGameLeaderboardCache(groupId, normalized);
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
 }
 
@@ -652,6 +699,7 @@ export async function adminFreezeGameDate(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
@@ -672,10 +720,10 @@ export async function adminFreezeGameDate(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
   invalidateGameLeaderboardCache(groupId, normalized);
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
   return computeGameDataForUser(record, user?.timezone || DEFAULT_TIMEZONE);
 }
 
@@ -696,6 +744,7 @@ export async function setGameCommitment(
     throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
   }
 
+  await ensureMemberRecordsLoaded(groupId, userId);
   const records = loadAllRecords();
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
@@ -705,7 +754,7 @@ export async function setGameCommitment(
 
   records[key] = record;
   saveAllRecords(records);
-  syncRecordToDb(record).catch(() => {});
+  await syncRecordToDb(record);
 
   return computeGameDataForUser(record, userTimezone);
 }
@@ -764,27 +813,44 @@ export async function completeCommittedGamesForDashboard(
   const todayDate = completionDate || getTodayInTimezone(userTimezone);
   const games = await getAllGamesForMember(groupId, userId, userTimezone);
   const committedGames = games.filter((g) => g.isCommitted);
+  const records = loadAllRecords();
+  const recordsToSync: StoredGameRecord[] = [];
 
   let newlyCompleted = 0;
   let alreadyCompleted = 0;
 
   for (const game of committedGames) {
+    const key = getRecordKey(groupId, userId, game.gameId);
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     const isDone = raw.completions.some((c) => c.completionDate === todayDate);
     if (isDone) {
       alreadyCompleted++;
     } else {
-      await completeMemberGame(
-        groupId,
-        userId,
-        game.gameId,
-        userTimezone,
-        todayDate,
-        null // No study note requested for LinkedIn dashboard completion
+      raw.completions.push({
+        completionDate: todayDate,
+        completedAt: new Date().toISOString(),
+        studyNote: null,
+      });
+      if (typeof raw.manualCurrentStreak === 'number') {
+        raw.manualCurrentStreak = raw.manualCurrentStreak + 1;
+      }
+      const computed = computeGameDataForUser(raw, userTimezone);
+      raw.manualLongestStreak = Math.max(
+        raw.manualLongestStreak || 0,
+        computed.longestStreak
       );
+      raw.updatedAt = new Date().toISOString();
+      records[key] = raw;
+      recordsToSync.push(raw);
       newlyCompleted++;
     }
   }
+
+  saveAllRecords(records);
+  if (recordsToSync.length > 0) {
+    await Promise.all(recordsToSync.map((rec) => syncRecordToDb(rec)));
+  }
+  invalidateGameLeaderboardCache(groupId);
 
   const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
 
@@ -813,8 +879,9 @@ export async function uncompleteCommittedGamesForDashboard(
   const games = await getAllGamesForMember(groupId, userId, userTimezone);
   const committedGames = games.filter((g) => g.isCommitted);
   const records = loadAllRecords();
+  const recordsToSync: StoredGameRecord[] = [];
 
-  for (const game of games) {
+  for (const game of committedGames) {
     const key = getRecordKey(groupId, userId, game.gameId);
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
@@ -829,9 +896,12 @@ export async function uncompleteCommittedGamesForDashboard(
     }
     raw.updatedAt = new Date().toISOString();
     records[key] = raw;
-    syncRecordToDb(raw).catch(() => {});
+    recordsToSync.push(raw);
   }
   saveAllRecords(records);
+  if (recordsToSync.length > 0) {
+    await Promise.all(recordsToSync.map((rec) => syncRecordToDb(rec)));
+  }
   invalidateGameLeaderboardCache(groupId);
 
   const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
