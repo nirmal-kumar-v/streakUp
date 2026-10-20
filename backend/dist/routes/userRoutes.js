@@ -15,6 +15,7 @@ router.post('/profile-image', authMiddleware_1.requireAuth, userController_1.upl
 router.delete('/profile-image', authMiddleware_1.requireAuth, userController_1.removeProfileImage);
 // Account security updates
 router.post('/change-password', authMiddleware_1.requireAuth, userController_1.changePassword);
+router.get('/username-status', authMiddleware_1.requireAuth, userController_1.getUsernameStatus);
 router.post('/change-username', authMiddleware_1.requireAuth, userController_1.changeUsername);
 // 14-day rate limited registered email change
 router.get('/email-change-status', authMiddleware_1.requireAuth, userController_1.getEmailChangeStatus);

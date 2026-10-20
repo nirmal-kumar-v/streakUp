@@ -313,16 +313,13 @@ export function computeGameDataForUser(
       ? record.manualCurrentStreak
       : streakResult.currentStreak;
 
-  const longestStreak = Math.max(
-    typeof record.manualLongestStreak === 'number' ? record.manualLongestStreak : 0,
-    streakResult.longestStreak,
-    currentStreak
-  );
-
-  // Permanently record all-time highest streak so it never disappears on untick
-  if (longestStreak > (record.manualLongestStreak || 0)) {
-    record.manualLongestStreak = longestStreak;
-  }
+  const longestStreak =
+    typeof record.manualLongestStreak === 'number'
+      ? Math.max(record.manualLongestStreak, currentStreak)
+      : Math.min(
+          Math.max(streakResult.longestStreak, currentStreak),
+          Math.max(record.completions.length, currentStreak)
+        );
 
   // Sort completions descending by date
   const sortedCompletions = [...record.completions].sort((a, b) =>
@@ -886,14 +883,15 @@ export async function uncompleteCommittedGamesForDashboard(
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
     raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
-    // Lock in manualLongestStreak so it is NEVER lost when today is unticked
-    const prevLongest = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
-    raw.manualLongestStreak = prevLongest;
     if (typeof raw.manualCurrentStreak === 'number') {
       raw.manualCurrentStreak = hadCompletion
         ? Math.max(0, raw.manualCurrentStreak - 1)
         : raw.manualCurrentStreak;
     }
+    const uniqueDays = new Set(raw.completions.map((c) => c.completionDate)).size;
+    const maxPossible = Math.max(uniqueDays, raw.manualCurrentStreak || 0);
+    const prevLongest = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
+    raw.manualLongestStreak = Math.min(prevLongest, maxPossible);
     raw.updatedAt = new Date().toISOString();
     records[key] = raw;
     recordsToSync.push(raw);

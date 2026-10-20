@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   fetchTasks,
@@ -42,6 +42,10 @@ export const TasksPage: React.FC = () => {
   const { user, updateUser } = useAuth();
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // In-flight operation lock to block clicks during backend processing
+  const [processingTaskIds, setProcessingTaskIds] = useState<Set<string>>(new Set());
+  const processingTaskIdsRef = useRef<Set<string>>(new Set());
 
   const urlStatus = searchParams.get('status') || searchParams.get('tab');
   const initialStatus: 'ACTIVE' | 'ARCHIVED' =
@@ -118,80 +122,24 @@ export const TasksPage: React.FC = () => {
 
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
-    if (task.completedToday) {
-      // Optimistic untick immediately
-      const prevTasks = [...tasks];
-      const nextTaskStreak = Math.max(0, (task.currentStreak || 1) - 1);
+    if (processingTaskIdsRef.current.has(task.id)) {
+      return;
+    }
+    processingTaskIdsRef.current.add(task.id);
+    setProcessingTaskIds(new Set(processingTaskIdsRef.current));
 
-      const otherCompleted = tasks.filter((t) => t.id !== task.id && t.completedToday).length;
-      const nextUserStreak = otherCompleted === 0 ? Math.max(0, (user?.currentStreak || 1) - 1) : (user?.currentStreak || 0);
-
-      const optimisticTasks = tasks.map((t) =>
-        t.id === task.id
-          ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: nextTaskStreak }
-          : t
-      );
-      setTasks(optimisticTasks);
-
-      // Optimistically update overall streak
-      updateUser({
-        currentStreak: nextUserStreak,
-      });
-
-      try {
-        const res = await uncompleteTask(task.id);
-        if (res.success) {
-          const finalTaskStreak = res.taskStreak?.currentStreak ?? nextTaskStreak;
-          const finalTaskLongest = res.taskStreak?.longestStreak ?? task.longestStreak;
-          const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
-          const finalUserLongest = res.streak?.longestStreak ?? user?.longestStreak;
-
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === task.id
-                ? {
-                    ...t,
-                    completedToday: false,
-                    currentStreak: finalTaskStreak,
-                    longestStreak: finalTaskLongest,
-                  }
-                : t
-            )
-          );
-
-          if (res.streak) {
-            updateUser({
-              currentStreak: finalUserStreak,
-              longestStreak: finalUserLongest,
-            });
-          }
-        } else {
-          throw new Error('Failed to undo completion');
-        }
-      } catch (err: any) {
-        // Rollback
-        setTasks(prevTasks);
-        toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
-      }
-    } else {
-      // If LinkedIn task, complete immediately without requesting a study note
-      const isLinkedIn = Boolean(
-        task.isLinkedIn ||
-        ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
-        isLinkedInName(task.title)
-      );
-      if (isLinkedIn) {
+    try {
+      if (task.completedToday) {
+        // Optimistic untick immediately
         const prevTasks = [...tasks];
-        const nextStreak = (task.currentStreak || 0) + 1;
-        const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
+        const nextTaskStreak = Math.max(0, (task.currentStreak || 1) - 1);
 
-        const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
-        const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
-        const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+        const otherCompleted = tasks.filter((t) => t.id !== task.id && t.completedToday).length;
+        const nextUserStreak = otherCompleted === 0 ? Math.max(0, (user?.currentStreak || 1) - 1) : (user?.currentStreak || 0);
 
         const optimisticTasks = tasks.map((t) =>
           t.id === task.id
-            ? { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest }
+            ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: nextTaskStreak }
             : t
         );
         setTasks(optimisticTasks);
@@ -199,27 +147,22 @@ export const TasksPage: React.FC = () => {
         // Optimistically update overall streak
         updateUser({
           currentStreak: nextUserStreak,
-          longestStreak: nextUserLongest,
-        });
-
-        triggerStreakCelebration({
-          newStreak: nextStreak,
         });
 
         try {
-          const res = await completeTask(task.id, 'LinkedIn games completed');
+          const res = await uncompleteTask(task.id);
           if (res.success) {
-            const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
-            const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+            const finalTaskStreak = res.taskStreak?.currentStreak ?? nextTaskStreak;
+            const finalTaskLongest = res.taskStreak?.longestStreak ?? task.longestStreak;
             const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
-            const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+            const finalUserLongest = res.streak?.longestStreak ?? user?.longestStreak;
 
             setTasks((prev) =>
               prev.map((t) =>
                 t.id === task.id
                   ? {
                       ...t,
-                      completedToday: true,
+                      completedToday: false,
                       currentStreak: finalTaskStreak,
                       longestStreak: finalTaskLongest,
                     }
@@ -227,27 +170,115 @@ export const TasksPage: React.FC = () => {
               )
             );
 
-            if (res.streak) {
+            if (typeof res.totalPoints === 'number') {
+              updateUser({
+                currentStreak: finalUserStreak,
+                longestStreak: finalUserLongest,
+                points: res.totalPoints,
+              });
+            } else if (res.streak) {
               updateUser({
                 currentStreak: finalUserStreak,
                 longestStreak: finalUserLongest,
               });
             }
+          } else {
+            throw new Error('Failed to undo completion');
           }
         } catch (err: any) {
+          // Rollback
           setTasks(prevTasks);
-          toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
+          toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
         }
-        return;
-      }
+      } else {
+        // If LinkedIn task, complete immediately without requesting a study note
+        const isLinkedIn = Boolean(
+          task.isLinkedIn ||
+          ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
+          isLinkedInName(task.title)
+        );
+        if (isLinkedIn) {
+          const prevTasks = [...tasks];
+          const nextStreak = (task.currentStreak || 0) + 1;
+          const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
 
-      setCompletingTask(task);
+          const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
+          const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
+          const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+
+          const optimisticTasks = tasks.map((t) =>
+            t.id === task.id
+              ? { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest }
+              : t
+          );
+          setTasks(optimisticTasks);
+
+          // Optimistically update overall streak
+          updateUser({
+            currentStreak: nextUserStreak,
+            longestStreak: nextUserLongest,
+          });
+
+          triggerStreakCelebration({
+            newStreak: nextStreak,
+          });
+
+          try {
+            const res = await completeTask(task.id, 'LinkedIn games completed');
+            if (res.success) {
+              const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
+              const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+              const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+              const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+
+              setTasks((prev) =>
+                prev.map((t) =>
+                  t.id === task.id
+                    ? {
+                        ...t,
+                        completedToday: true,
+                        currentStreak: finalTaskStreak,
+                        longestStreak: finalTaskLongest,
+                      }
+                    : t
+                )
+              );
+
+              if (typeof res.totalPoints === 'number') {
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                  points: res.totalPoints,
+                });
+              } else if (res.streak) {
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                });
+              }
+            }
+          } catch (err: any) {
+            setTasks(prevTasks);
+            toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
+          }
+          return;
+        }
+
+        setCompletingTask(task);
+      }
+    } finally {
+      processingTaskIdsRef.current.delete(task.id);
+      setProcessingTaskIds(new Set(processingTaskIdsRef.current));
     }
   };
 
   const handleCompleteSubmit = async (studyNote: string) => {
     if (!completingTask || !studyNote) return;
     const taskToComplete = completingTask;
+    if (processingTaskIdsRef.current.has(taskToComplete.id)) return;
+    processingTaskIdsRef.current.add(taskToComplete.id);
+    setProcessingTaskIds(new Set(processingTaskIdsRef.current));
+
     const prevTasks = [...tasks];
     const nextStreak = (taskToComplete.currentStreak || 0) + 1;
     const nextLongest = Math.max(taskToComplete.longestStreak || 0, nextStreak);
@@ -305,7 +336,13 @@ export const TasksPage: React.FC = () => {
           )
         );
 
-        if (res.streak) {
+        if (typeof res.totalPoints === 'number') {
+          updateUser({
+            currentStreak: finalUserStreak,
+            longestStreak: finalUserLongest,
+            points: res.totalPoints,
+          });
+        } else if (res.streak) {
           updateUser({
             currentStreak: finalUserStreak,
             longestStreak: finalUserLongest,
@@ -315,6 +352,9 @@ export const TasksPage: React.FC = () => {
     } catch (err: any) {
       setTasks(prevTasks);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
+    } finally {
+      processingTaskIdsRef.current.delete(taskToComplete.id);
+      setProcessingTaskIds(new Set(processingTaskIdsRef.current));
     }
   };
 
@@ -702,6 +742,7 @@ export const TasksPage: React.FC = () => {
                     key={task.id}
                     task={task}
                     canTick={true}
+                    isProcessing={processingTaskIds.has(task.id)}
                     onToggleComplete={handleToggleComplete}
                     onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {
@@ -731,6 +772,7 @@ export const TasksPage: React.FC = () => {
                     key={task.id}
                     task={task}
                     canTick={true}
+                    isProcessing={processingTaskIds.has(task.id)}
                     onToggleComplete={handleToggleComplete}
                     onViewDetails={(t) => setDetailTaskId(t.id)}
                     onEdit={(t) => {

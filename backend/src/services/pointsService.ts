@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon';
 import { PrismaClient } from '@prisma/client';
 import { getLocalDateString, getYesterdayDateString, DEFAULT_TIMEZONE, isValidTimezone } from './timezoneService';
+import { isLinkedInName } from './linkedInGameService';
 
 /**
  * Returns day of week for a given local date string 'YYYY-MM-DD'
@@ -24,15 +25,17 @@ export async function awardCompletionPoints(
   scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
   timezone: string = DEFAULT_TIMEZONE
 ): Promise<{ pointsAwarded: number; newTotalPoints: number }> {
-  // Group tasks do not award or deduct points (purely streak/completion-based)
+  // Group tasks do not award or deduct points, EXCEPT the LinkedIn habit which counts as a whole habit awarding +5 accountability points
   const task = prisma?.task?.findUnique
     ? await prisma.task.findUnique({
         where: { id: taskId },
-        select: { groupId: true, isGroupTask: true }
+        select: { title: true, groupId: true, isGroupTask: true }
       })
     : null;
 
-  if (task?.groupId || task?.isGroupTask) {
+  const isLinkedIn = task ? isLinkedInName(task.title) : false;
+
+  if ((task?.groupId || task?.isGroupTask) && !isLinkedIn) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { points: true }

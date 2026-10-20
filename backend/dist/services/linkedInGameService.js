@@ -7,6 +7,7 @@ exports.LINKEDIN_GAMES = void 0;
 exports.normalizeGameId = normalizeGameId;
 exports.isLinkedInName = isLinkedInName;
 exports.initDatabaseTable = initDatabaseTable;
+exports.ensureMemberRecordsLoaded = ensureMemberRecordsLoaded;
 exports.getRawGameRecord = getRawGameRecord;
 exports.computeGameDataForUser = computeGameDataForUser;
 exports.getAllGamesForMember = getAllGamesForMember;
@@ -90,7 +91,7 @@ function isLinkedInName(name) {
     if (!name)
         return false;
     const clean = name.trim().toLowerCase().replace(/[\s\-_]+/g, '');
-    return clean === 'linkedin' || clean === 'linkdin' || clean === 'linked';
+    return clean === 'linkedin' || clean === 'linkdin' || clean === 'linked' || clean.includes('linkedin');
 }
 const DATA_DIR = path_1.default.resolve(__dirname, '../../data');
 const STORAGE_FILE = path_1.default.join(DATA_DIR, 'linkedin_games.json');
@@ -132,7 +133,7 @@ function saveAllRecords(records) {
         fs_1.default.writeFileSync(STORAGE_FILE, JSON.stringify(records, null, 2), 'utf-8');
     }
     catch (err) {
-        console.error('[LinkedInGameService] Error writing storage file:', err);
+        // Silent failover if file write fails in read-only / serverless environment
     }
 }
 // Ensure the PostgreSQL backing table exists without relying on Prisma generator renames
@@ -164,24 +165,55 @@ async function initDatabaseTable() {
         // If raw query fails (e.g. permission or network), fallback gracefully to file store
     }
 }
+const loadedMembers = new Set();
+async function ensureMemberRecordsLoaded(groupId, userId, force = false) {
+    const memberKey = `${groupId}:${userId}`;
+    if (!force && loadedMembers.has(memberKey)) {
+        return;
+    }
+    loadedMembers.add(memberKey);
+    try {
+        await initDatabaseTable();
+        const rows = await prisma_1.default.$queryRawUnsafe(`SELECT "id", "data", "manual_current_streak", "manual_longest_streak" 
+       FROM "linkedin_game_records" 
+       WHERE "group_id" = $1 AND "user_id" = $2`, groupId, userId);
+        if (rows && Array.isArray(rows) && rows.length > 0) {
+            const records = loadAllRecords();
+            for (const row of rows) {
+                if (row && row.data) {
+                    const rec = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+                    const key = row.id || getRecordKey(groupId, userId, rec.gameId);
+                    if (row.manual_current_streak !== null && row.manual_current_streak !== undefined) {
+                        rec.manualCurrentStreak = row.manual_current_streak;
+                    }
+                    if (row.manual_longest_streak !== null && row.manual_longest_streak !== undefined) {
+                        rec.manualLongestStreak = row.manual_longest_streak;
+                    }
+                    records[key] = rec;
+                }
+            }
+            saveAllRecords(records);
+        }
+    }
+    catch (err) {
+        // Failover silently to file store/cache
+    }
+}
 async function syncRecordToDb(record) {
-    // Execute database synchronization in the background without blocking execution
-    setImmediate(async () => {
-        try {
-            await initDatabaseTable();
-            const id = getRecordKey(record.groupId, record.userId, record.gameId);
-            await prisma_1.default.$executeRawUnsafe(`INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
-         ON CONFLICT ("id") DO UPDATE
-         SET "manual_current_streak" = EXCLUDED."manual_current_streak",
-             "manual_longest_streak" = EXCLUDED."manual_longest_streak",
-             "data" = EXCLUDED."data",
-             "updated_at" = NOW()`, id, record.groupId, record.userId, record.gameId, record.manualCurrentStreak ?? null, record.manualLongestStreak ?? null, JSON.stringify(record));
-        }
-        catch (err) {
-            // Silent failover to file store
-        }
-    });
+    try {
+        await initDatabaseTable();
+        const id = getRecordKey(record.groupId, record.userId, record.gameId);
+        await prisma_1.default.$executeRawUnsafe(`INSERT INTO "linkedin_game_records" ("id", "group_id", "user_id", "game_id", "manual_current_streak", "manual_longest_streak", "data", "updated_at")
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+       ON CONFLICT ("id") DO UPDATE
+       SET "manual_current_streak" = EXCLUDED."manual_current_streak",
+           "manual_longest_streak" = EXCLUDED."manual_longest_streak",
+           "data" = EXCLUDED."data",
+           "updated_at" = NOW()`, id, record.groupId, record.userId, record.gameId, record.manualCurrentStreak ?? null, record.manualLongestStreak ?? null, JSON.stringify(record));
+    }
+    catch (err) {
+        // Silent failover to in-memory/file store
+    }
 }
 function getRawGameRecord(groupId, userId, gameId) {
     const records = loadAllRecords();
@@ -199,6 +231,12 @@ function getRawGameRecord(groupId, userId, gameId) {
             updatedAt: new Date().toISOString(),
         };
         saveAllRecords(records);
+    }
+    else {
+        // Only default to true if isCommitted is strictly undefined (preserve explicit false)
+        if (records[key].isCommitted === undefined) {
+            records[key].isCommitted = true;
+        }
     }
     return records[key];
 }
@@ -221,8 +259,8 @@ function computeGameDataForUser(record, userTimezone = timezoneService_1.DEFAULT
         ? record.manualCurrentStreak
         : streakResult.currentStreak;
     const longestStreak = typeof record.manualLongestStreak === 'number'
-        ? record.manualLongestStreak
-        : Math.max(streakResult.longestStreak, currentStreak);
+        ? Math.max(record.manualLongestStreak, currentStreak)
+        : Math.min(Math.max(streakResult.longestStreak, currentStreak), Math.max(record.completions.length, currentStreak));
     // Sort completions descending by date
     const sortedCompletions = [...record.completions].sort((a, b) => b.completionDate.localeCompare(a.completionDate));
     return {
@@ -247,6 +285,7 @@ function computeGameDataForUser(record, userTimezone = timezoneService_1.DEFAULT
  * Retrieves all 8 games for a specific group member
  */
 async function getAllGamesForMember(groupId, userId, userTimezone = timezoneService_1.DEFAULT_TIMEZONE) {
+    await ensureMemberRecordsLoaded(groupId, userId);
     const result = [];
     for (const game of exports.LINKEDIN_GAMES) {
         const raw = getRawGameRecord(groupId, userId, game.id);
@@ -261,6 +300,7 @@ async function getSingleGameForMember(groupId, userId, gameId, userTimezone = ti
     const normalized = normalizeGameId(gameId);
     if (!normalized)
         return null;
+    await ensureMemberRecordsLoaded(groupId, userId);
     const raw = getRawGameRecord(groupId, userId, normalized);
     return computeGameDataForUser(raw, userTimezone);
 }
@@ -272,6 +312,7 @@ async function completeMemberGame(groupId, userId, gameId, userTimezone = timezo
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const targetDate = completionDate || (0, timezoneService_1.getTodayInTimezone)(userTimezone);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
@@ -291,13 +332,16 @@ async function completeMemberGame(groupId, userId, gameId, userTimezone = timezo
             studyNote: studyNote || null,
         });
     }
-    // Clear any manual override once real completion arrives
-    record.manualCurrentStreak = null;
-    record.manualLongestStreak = null;
+    // Increment manual current streak if set by admin, otherwise calculated naturally
+    if (typeof record.manualCurrentStreak === 'number') {
+        record.manualCurrentStreak = record.manualCurrentStreak + 1;
+    }
+    const computed = computeGameDataForUser(record, userTimezone);
+    record.manualLongestStreak = Math.max(record.manualLongestStreak || 0, computed.longestStreak);
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     invalidateGameLeaderboardCache(groupId, normalized);
     return computeGameDataForUser(record, userTimezone);
 }
@@ -309,17 +353,25 @@ async function uncompleteMemberGame(groupId, userId, gameId, userTimezone = time
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const targetDate = completionDate || (0, timezoneService_1.getTodayInTimezone)(userTimezone);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
     const record = getRawGameRecord(groupId, userId, normalized);
+    const prevComputed = computeGameDataForUser(record, userTimezone);
+    const hadCompletion = record.completions.some((c) => c.completionDate === targetDate);
     record.completions = record.completions.filter((c) => c.completionDate !== targetDate);
-    record.manualCurrentStreak = null;
-    record.manualLongestStreak = null;
+    // Ensure the longest streak already achieved is preserved
+    record.manualLongestStreak = Math.max(record.manualLongestStreak || 0, prevComputed.longestStreak || 0);
+    if (typeof record.manualCurrentStreak === 'number') {
+        record.manualCurrentStreak = hadCompletion
+            ? Math.max(0, record.manualCurrentStreak - 1)
+            : record.manualCurrentStreak;
+    }
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     invalidateGameLeaderboardCache(groupId, normalized);
     return computeGameDataForUser(record, userTimezone);
 }
@@ -427,6 +479,7 @@ async function adminCorrectGameStreak(groupId, userId, gameId, currentStreak, lo
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
     const record = getRawGameRecord(groupId, userId, normalized);
@@ -435,9 +488,9 @@ async function adminCorrectGameStreak(groupId, userId, gameId, currentStreak, lo
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     invalidateGameLeaderboardCache(groupId, normalized);
-    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
     return computeGameDataForUser(record, user?.timezone || timezoneService_1.DEFAULT_TIMEZONE);
 }
 /**
@@ -448,6 +501,7 @@ async function adminGrantGameDate(groupId, userId, gameId, date, studyNote) {
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
     const record = getRawGameRecord(groupId, userId, normalized);
@@ -463,13 +517,12 @@ async function adminGrantGameDate(groupId, userId, gameId, date, studyNote) {
         });
     }
     record.manualCurrentStreak = null;
-    record.manualLongestStreak = null;
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     invalidateGameLeaderboardCache(groupId, normalized);
-    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
     return computeGameDataForUser(record, user?.timezone || timezoneService_1.DEFAULT_TIMEZONE);
 }
 /**
@@ -480,6 +533,7 @@ async function adminFreezeGameDate(groupId, userId, gameId, date, isFrozen) {
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
     const record = getRawGameRecord(groupId, userId, normalized);
@@ -495,13 +549,12 @@ async function adminFreezeGameDate(groupId, userId, gameId, date, isFrozen) {
         record.freezeLogs = record.freezeLogs.filter((f) => f.protectedDate !== date);
     }
     record.manualCurrentStreak = null;
-    record.manualLongestStreak = null;
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     invalidateGameLeaderboardCache(groupId, normalized);
-    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+    const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { timezone: true } }).catch(() => null);
     return computeGameDataForUser(record, user?.timezone || timezoneService_1.DEFAULT_TIMEZONE);
 }
 /**
@@ -514,6 +567,7 @@ async function setGameCommitment(groupId, userId, gameId, isCommitted, userTimez
     if (!normalized) {
         throw new Error(`Invalid LinkedIn game ID: ${gameId}`);
     }
+    await ensureMemberRecordsLoaded(groupId, userId);
     const records = loadAllRecords();
     const key = getRecordKey(groupId, userId, normalized);
     const record = getRawGameRecord(groupId, userId, normalized);
@@ -521,7 +575,7 @@ async function setGameCommitment(groupId, userId, gameId, isCommitted, userTimez
     record.updatedAt = new Date().toISOString();
     records[key] = record;
     saveAllRecords(records);
-    syncRecordToDb(record).catch(() => { });
+    await syncRecordToDb(record);
     return computeGameDataForUser(record, userTimezone);
 }
 /**
@@ -554,20 +608,39 @@ async function completeCommittedGamesForDashboard(groupId, userId, userTimezone 
     const todayDate = completionDate || (0, timezoneService_1.getTodayInTimezone)(userTimezone);
     const games = await getAllGamesForMember(groupId, userId, userTimezone);
     const committedGames = games.filter((g) => g.isCommitted);
+    const records = loadAllRecords();
+    const recordsToSync = [];
     let newlyCompleted = 0;
     let alreadyCompleted = 0;
     for (const game of committedGames) {
+        const key = getRecordKey(groupId, userId, game.gameId);
         const raw = getRawGameRecord(groupId, userId, game.gameId);
         const isDone = raw.completions.some((c) => c.completionDate === todayDate);
         if (isDone) {
             alreadyCompleted++;
         }
         else {
-            await completeMemberGame(groupId, userId, game.gameId, userTimezone, todayDate, null // No study note requested for LinkedIn dashboard completion
-            );
+            raw.completions.push({
+                completionDate: todayDate,
+                completedAt: new Date().toISOString(),
+                studyNote: null,
+            });
+            if (typeof raw.manualCurrentStreak === 'number') {
+                raw.manualCurrentStreak = raw.manualCurrentStreak + 1;
+            }
+            const computed = computeGameDataForUser(raw, userTimezone);
+            raw.manualLongestStreak = Math.max(raw.manualLongestStreak || 0, computed.longestStreak);
+            raw.updatedAt = new Date().toISOString();
+            records[key] = raw;
+            recordsToSync.push(raw);
             newlyCompleted++;
         }
     }
+    saveAllRecords(records);
+    if (recordsToSync.length > 0) {
+        await Promise.all(recordsToSync.map((rec) => syncRecordToDb(rec)));
+    }
+    invalidateGameLeaderboardCache(groupId);
     const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
     return {
         highestStreak: dashSummary.currentStreak,
@@ -585,17 +658,29 @@ async function uncompleteCommittedGamesForDashboard(groupId, userId, userTimezon
     const games = await getAllGamesForMember(groupId, userId, userTimezone);
     const committedGames = games.filter((g) => g.isCommitted);
     const records = loadAllRecords();
+    const recordsToSync = [];
     for (const game of committedGames) {
         const key = getRecordKey(groupId, userId, game.gameId);
         const raw = getRawGameRecord(groupId, userId, game.gameId);
+        const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
         raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
-        raw.manualCurrentStreak = null;
-        raw.manualLongestStreak = null;
+        if (typeof raw.manualCurrentStreak === 'number') {
+            raw.manualCurrentStreak = hadCompletion
+                ? Math.max(0, raw.manualCurrentStreak - 1)
+                : raw.manualCurrentStreak;
+        }
+        const uniqueDays = new Set(raw.completions.map((c) => c.completionDate)).size;
+        const maxPossible = Math.max(uniqueDays, raw.manualCurrentStreak || 0);
+        const prevLongest = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
+        raw.manualLongestStreak = Math.min(prevLongest, maxPossible);
         raw.updatedAt = new Date().toISOString();
         records[key] = raw;
-        syncRecordToDb(raw).catch(() => { });
+        recordsToSync.push(raw);
     }
     saveAllRecords(records);
+    if (recordsToSync.length > 0) {
+        await Promise.all(recordsToSync.map((rec) => syncRecordToDb(rec)));
+    }
     invalidateGameLeaderboardCache(groupId);
     const dashSummary = await getLinkedInDashboardStreak(groupId, userId, userTimezone);
     return {

@@ -150,10 +150,10 @@ export async function recalculateUserStreaks(
     }
   }
 
-  const effectiveLongestStreak = Math.max(
-    user?.longestStreak || 0,
-    freezeResult.longestStreak,
-    freezeResult.currentStreak
+  const maxPossibleUserLongest = Math.max(freezeResult.totalCompletedDays, freezeResult.currentStreak);
+  const effectiveLongestStreak = Math.min(
+    Math.max(user?.longestStreak || 0, freezeResult.longestStreak, freezeResult.currentStreak),
+    maxPossibleUserLongest
   );
 
   // Update user with recalculated streaks and freezes
@@ -264,10 +264,10 @@ export async function recalculateTaskStreaks(
     }
   }
 
-  const effectiveLongestStreak = Math.max(
-    task.longestStreak || 0,
-    freezeResult.longestStreak,
-    freezeResult.currentStreak
+  const maxPossibleTaskLongest = Math.max(freezeResult.totalCompletedDays, freezeResult.currentStreak);
+  const effectiveLongestStreak = Math.min(
+    Math.max(task.longestStreak || 0, freezeResult.longestStreak, freezeResult.currentStreak),
+    maxPossibleTaskLongest
   );
 
   await prisma.task.update({

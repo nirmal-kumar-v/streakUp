@@ -42,6 +42,7 @@ exports.uploadProfileImage = uploadProfileImage;
 exports.removeProfileImage = removeProfileImage;
 exports.changePassword = changePassword;
 exports.changeUsername = changeUsername;
+exports.getUsernameStatus = getUsernameStatus;
 exports.getTimezones = getTimezones;
 exports.getEmailChangeStatus = getEmailChangeStatus;
 exports.requestChangeEmail = requestChangeEmail;
@@ -49,6 +50,7 @@ exports.verifyChangeEmail = verifyChangeEmail;
 exports.deleteAccount = deleteAccount;
 const zod_1 = require("zod");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const streakService_1 = require("../services/streakService");
@@ -57,6 +59,8 @@ const otpService_1 = require("../services/otpService");
 const emailService_1 = require("../services/emailService");
 const adminConfigService_1 = require("../services/adminConfigService");
 const imageValidator_1 = require("../utils/imageValidator");
+const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
+const JWT_EXPIRES_IN = '365d';
 const updateProfileSchema = zod_1.z.object({
     name: zod_1.z.string().min(2).max(50).optional(),
     profileImage: zod_1.z.string().max(500).optional().nullable(),
@@ -405,15 +409,17 @@ async function changeUsername(req, res) {
             });
         }
         // Check 14-day rate limit
+        const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
         if (user.lastUsernameChangeAt) {
-            const now = new Date();
-            const diffMs = now.getTime() - new Date(user.lastUsernameChangeAt).getTime();
-            const diffDays = diffMs / (1000 * 60 * 60 * 24);
-            if (diffDays < 14) {
-                const remainingDays = Math.ceil(14 - diffDays);
+            const msElapsed = Date.now() - new Date(user.lastUsernameChangeAt).getTime();
+            if (msElapsed < FOURTEEN_DAYS_MS) {
+                const remainingDays = Math.ceil((FOURTEEN_DAYS_MS - msElapsed) / (24 * 60 * 60 * 1000));
+                const nextDate = new Date(new Date(user.lastUsernameChangeAt).getTime() + FOURTEEN_DAYS_MS);
                 return res.status(400).json({
                     success: false,
-                    error: `Username can only be changed once every 14 days. You can change your username in ${remainingDays} day${remainingDays > 1 ? 's' : ''}.`
+                    error: `Username can only be changed once every 14 days. You can next change it on ${nextDate.toISOString().split('T')[0]} (in ${remainingDays} day${remainingDays > 1 ? 's' : ''}).`,
+                    nextAllowedChangeDate: nextDate,
+                    daysRemaining: remainingDays,
                 });
             }
         }
@@ -447,15 +453,62 @@ async function changeUsername(req, res) {
                 lastUsernameChangeAt: true
             }
         });
+        // Generate fresh JWT token with updated username
+        const token = jsonwebtoken_1.default.sign({
+            userId: updatedUser.id,
+            username: updatedUser.username,
+            email: updatedUser.email,
+            timezone: updatedUser.timezone,
+        }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
         return res.json({
             success: true,
             message: 'Username changed successfully.',
-            user: updatedUser
+            user: updatedUser,
+            token,
         });
     }
     catch (err) {
         console.error('changeUsername error:', err);
         return res.status(500).json({ success: false, error: 'Failed to change username.' });
+    }
+}
+/**
+ * Get 14-day username change status and next allowed change date
+ */
+async function getUsernameStatus(req, res) {
+    try {
+        const userId = req.user.userId;
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { username: true, lastUsernameChangeAt: true },
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+        let canChangeNow = true;
+        let nextAllowedChangeDate = null;
+        let daysRemaining = 0;
+        if (user.lastUsernameChangeAt) {
+            const msElapsed = Date.now() - new Date(user.lastUsernameChangeAt).getTime();
+            if (msElapsed < FOURTEEN_DAYS_MS) {
+                canChangeNow = false;
+                nextAllowedChangeDate = new Date(new Date(user.lastUsernameChangeAt).getTime() + FOURTEEN_DAYS_MS);
+                daysRemaining = Math.ceil((FOURTEEN_DAYS_MS - msElapsed) / (24 * 60 * 60 * 1000));
+            }
+        }
+        return res.json({
+            success: true,
+            currentUsername: user.username,
+            lastUsernameChangeAt: user.lastUsernameChangeAt,
+            canChangeNow,
+            nextAllowedChangeDate,
+            daysRemaining,
+        });
+    }
+    catch (err) {
+        console.error('getUsernameStatus error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve username change status.' });
     }
 }
 /**
@@ -684,10 +737,28 @@ async function verifyChangeEmail(req, res) {
                 isCustomEmailVerified: false,
             },
         });
+        // Create in-app system notification
+        await prisma_1.default.notification.create({
+            data: {
+                userId,
+                category: client_1.NotificationCategory.SYSTEM,
+                title: 'Registered Email Updated',
+                message: `Your login and registered email was changed to ${cleanNewEmail}.`,
+                eventKey: `EMAIL_CHANGED:${userId}:${Date.now()}`,
+            },
+        });
+        // Generate fresh JWT token with updated email
+        const token = jsonwebtoken_1.default.sign({
+            userId: updatedUser.id,
+            username: updatedUser.username,
+            email: updatedUser.email,
+            timezone: updatedUser.timezone || 'Asia/Kolkata',
+        }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
         return res.json({
             success: true,
             message: 'Your registered email address has been updated successfully.',
             user: updatedUser,
+            token,
         });
     }
     catch (err) {

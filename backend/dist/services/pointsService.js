@@ -6,6 +6,7 @@ exports.reconcileMissedPointsForUser = reconcileMissedPointsForUser;
 exports.getUserPointsStats = getUserPointsStats;
 const luxon_1 = require("luxon");
 const timezoneService_1 = require("./timezoneService");
+const linkedInGameService_1 = require("./linkedInGameService");
 /**
  * Returns day of week for a given local date string 'YYYY-MM-DD'
  * 0 = Sunday, 1 = Monday, ..., 6 = Saturday
@@ -20,14 +21,15 @@ function getDayOfWeekFromDateString(dateStr, timezone = timezoneService_1.DEFAUL
  * Idempotent: upserts into PointLedger and updates cached User.points.
  */
 async function awardCompletionPoints(prisma, userId, taskId, completionDateStr, scheduledDays = [0, 1, 2, 3, 4, 5, 6], timezone = timezoneService_1.DEFAULT_TIMEZONE) {
-    // Group tasks do not award or deduct points (purely streak/completion-based)
+    // Group tasks do not award or deduct points, EXCEPT the LinkedIn habit which counts as a whole habit awarding +5 accountability points
     const task = prisma?.task?.findUnique
         ? await prisma.task.findUnique({
             where: { id: taskId },
-            select: { groupId: true, isGroupTask: true }
+            select: { title: true, groupId: true, isGroupTask: true }
         })
         : null;
-    if (task?.groupId || task?.isGroupTask) {
+    const isLinkedIn = task ? (0, linkedInGameService_1.isLinkedInName)(task.title) : false;
+    if ((task?.groupId || task?.isGroupTask) && !isLinkedIn) {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { points: true }

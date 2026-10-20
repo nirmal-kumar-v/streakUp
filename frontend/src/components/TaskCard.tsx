@@ -10,6 +10,7 @@ import {
   Repeat,
   Flame,
   RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import { isLinkedInName } from '../utils/linkedin';
 
@@ -21,6 +22,7 @@ interface TaskCardProps {
   onDelete: (task: Task) => Promise<void>;
   onViewDetails?: (task: Task) => void;
   canTick?: boolean;
+  isProcessing?: boolean;
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({
@@ -31,6 +33,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onDelete,
   onViewDetails,
   canTick = true,
+  isProcessing = false,
 }) => {
   const navigate = useNavigate();
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -48,7 +51,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
   const handleCheck = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!onToggleComplete || !canTick || isArchived) return;
+    if (!onToggleComplete || !canTick || isArchived || isProcessing) return;
     onToggleComplete(task);
   };
 
@@ -78,15 +81,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           {!isArchived && canTick && onToggleComplete ? (
             <button
               onClick={handleCheck}
+              disabled={isProcessing}
               type="button"
               aria-label={task.completedToday ? 'Mark incomplete' : 'Mark complete'}
-              className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-150 active:scale-90 ${
+              className={`flex-shrink-0 w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center border transition-all duration-150 ${
+                isProcessing
+                  ? 'opacity-60 cursor-not-allowed pointer-events-none'
+                  : 'active:scale-90'
+              } ${
                 task.completedToday
                   ? 'bg-emerald-500 border-emerald-500 text-zinc-950 shadow-sm shadow-emerald-500/20'
                   : 'border-zinc-600 hover:border-emerald-400 hover:bg-emerald-500/10 text-transparent'
               }`}
             >
-              <Check className={`w-4 h-4 stroke-[3] transition-transform duration-150 ${task.completedToday ? 'scale-100' : 'scale-50'}`} />
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 text-zinc-300 animate-spin" />
+              ) : (
+                <Check className={`w-4 h-4 stroke-[3] transition-transform duration-150 ${task.completedToday ? 'scale-100' : 'scale-50'}`} />
+              )}
             </button>
           ) : isArchived ? (
             <div

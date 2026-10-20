@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchDashboardSummary,
@@ -98,6 +98,10 @@ export const DashboardPage: React.FC = () => {
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [checklistTab, setChecklistTab] = useState<'today' | 'archived'>('today');
 
+  // In-flight operation lock to block clicks during backend processing
+  const [processingTaskIds, setProcessingTaskIds] = useState<Set<string>>(new Set());
+  const processingTaskIdsRef = useRef<Set<string>>(new Set());
+
   const loadDashboard = useCallback(async () => {
     try {
       const sumRes = await fetchDashboardSummary();
@@ -133,119 +137,35 @@ export const DashboardPage: React.FC = () => {
 
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
-    if (task.completedToday) {
-      // Optimistic untick immediately
-      const prevTasks = [...tasks];
-      const nextTaskStreak = Math.max(0, (task.currentStreak || 1) - 1);
+    if (processingTaskIdsRef.current.has(task.id)) {
+      return;
+    }
+    processingTaskIdsRef.current.add(task.id);
+    setProcessingTaskIds(new Set(processingTaskIdsRef.current));
 
-      // Determine if there are other tasks completed today
-      const otherCompleted = tasks.filter((t) => t.id !== task.id && t.completedToday).length;
-      const nextUserStreak = otherCompleted === 0 ? Math.max(0, (user?.currentStreak || 1) - 1) : (user?.currentStreak || 0);
-
-      const optimisticTasks = tasks.map((t) =>
-        t.id === task.id
-          ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: nextTaskStreak }
-          : t
-      );
-      setTasks(optimisticTasks);
-
-      // Optimistically update user overall streak in navbar
-      updateUser({
-        currentStreak: nextUserStreak,
-      });
-
-      // Optimistically update sessionStorage cache immediately so refresh NEVER shows ticked
-      const currentCache = getCachedDashboard();
-      if (currentCache) {
-        setCachedDashboard({
-          ...currentCache,
-          todayTasks: optimisticTasks,
-          user: {
-            ...currentCache.user,
-            currentStreak: nextUserStreak,
-          },
-        });
-      }
-
-      try {
-        const res = await uncompleteTask(task.id);
-        if (res.success) {
-          const finalTaskStreak = res.taskStreak?.currentStreak ?? nextTaskStreak;
-          const finalTaskLongest = res.taskStreak?.longestStreak ?? task.longestStreak;
-          const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
-          const finalUserLongest = res.streak?.longestStreak ?? user?.longestStreak;
-
-          const syncedTasks = optimisticTasks.map((t) =>
-            t.id === task.id
-              ? {
-                  ...t,
-                  completedToday: false,
-                  currentStreak: finalTaskStreak,
-                  longestStreak: finalTaskLongest,
-                }
-              : t
-          );
-          setTasks(syncedTasks);
-
-          if (res.streak) {
-            updateUser({
-              currentStreak: finalUserStreak,
-              longestStreak: finalUserLongest,
-            });
-          }
-
-          if (currentCache) {
-            setCachedDashboard({
-              ...currentCache,
-              todayTasks: syncedTasks,
-              user: {
-                ...currentCache.user,
-                currentStreak: finalUserStreak,
-                longestStreak: finalUserLongest,
-              },
-            });
-          }
-        } else {
-          throw new Error('Failed to undo completion');
-        }
-      } catch (err: any) {
-        // Rollback
-        setTasks(prevTasks);
-        if (currentCache) setCachedDashboard(currentCache);
-        toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
-      }
-    } else {
-      // If LinkedIn task, complete immediately without requesting a study note
-      const isLinkedIn = Boolean(
-        task.isLinkedIn ||
-        ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
-        isLinkedInName(task.title)
-      );
-      if (isLinkedIn) {
+    try {
+      if (task.completedToday) {
+        // Optimistic untick immediately
         const prevTasks = [...tasks];
-        const nextStreak = (task.currentStreak || 0) + 1;
-        const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
+        const nextTaskStreak = Math.max(0, (task.currentStreak || 1) - 1);
 
-        const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
-        const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
-        const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+        // Determine if there are other tasks completed today
+        const otherCompleted = tasks.filter((t) => t.id !== task.id && t.completedToday).length;
+        const nextUserStreak = otherCompleted === 0 ? Math.max(0, (user?.currentStreak || 1) - 1) : (user?.currentStreak || 0);
 
         const optimisticTasks = tasks.map((t) =>
           t.id === task.id
-            ? { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest }
+            ? { ...t, completedToday: false, todayStudyNote: null, currentStreak: nextTaskStreak }
             : t
         );
-
-        // Optimistic complete immediately: user perceives 0ms completion!
         setTasks(optimisticTasks);
 
-        // Optimistically update overall streak
+        // Optimistically update user overall streak in navbar
         updateUser({
           currentStreak: nextUserStreak,
-          longestStreak: nextUserLongest,
         });
 
-        // Optimistically update sessionStorage cache immediately
+        // Optimistically update sessionStorage cache immediately so refresh NEVER shows ticked
         const currentCache = getCachedDashboard();
         if (currentCache) {
           setCachedDashboard({
@@ -254,28 +174,23 @@ export const DashboardPage: React.FC = () => {
             user: {
               ...currentCache.user,
               currentStreak: nextUserStreak,
-              longestStreak: nextUserLongest,
             },
           });
         }
 
-        triggerStreakCelebration({
-          newStreak: nextStreak,
-        });
-
         try {
-          const res = await completeTask(task.id, 'LinkedIn games completed');
+          const res = await uncompleteTask(task.id);
           if (res.success) {
-            const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
-            const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+            const finalTaskStreak = res.taskStreak?.currentStreak ?? nextTaskStreak;
+            const finalTaskLongest = res.taskStreak?.longestStreak ?? task.longestStreak;
             const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
-            const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+            const finalUserLongest = res.streak?.longestStreak ?? user?.longestStreak;
 
             const syncedTasks = optimisticTasks.map((t) =>
               t.id === task.id
                 ? {
                     ...t,
-                    completedToday: true,
+                    completedToday: false,
                     currentStreak: finalTaskStreak,
                     longestStreak: finalTaskLongest,
                   }
@@ -283,7 +198,16 @@ export const DashboardPage: React.FC = () => {
             );
             setTasks(syncedTasks);
 
-            if (res.streak) {
+            if (typeof res.totalPoints === 'number') {
+              setPointsStats((prev) =>
+                prev ? { ...prev, totalPoints: res.totalPoints! } : null
+              );
+              updateUser({
+                currentStreak: finalUserStreak,
+                longestStreak: finalUserLongest,
+                points: res.totalPoints,
+              });
+            } else if (res.streak) {
               updateUser({
                 currentStreak: finalUserStreak,
                 longestStreak: finalUserLongest,
@@ -298,26 +222,141 @@ export const DashboardPage: React.FC = () => {
                   ...currentCache.user,
                   currentStreak: finalUserStreak,
                   longestStreak: finalUserLongest,
+                  points: typeof res.totalPoints === 'number' ? res.totalPoints : currentCache.user?.points,
                 },
               });
             }
+          } else {
+            throw new Error('Failed to undo completion');
           }
         } catch (err: any) {
+          // Rollback
           setTasks(prevTasks);
           if (currentCache) setCachedDashboard(currentCache);
-          toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
+          toast.error(extractErrorMessage(err, 'Failed to undo habit completion.'));
         }
-        return;
-      }
+      } else {
+        // If LinkedIn task, complete immediately without requesting a study note
+        const isLinkedIn = Boolean(
+          task.isLinkedIn ||
+          ((task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)) ||
+          isLinkedInName(task.title)
+        );
+        if (isLinkedIn) {
+          const prevTasks = [...tasks];
+          const nextStreak = (task.currentStreak || 0) + 1;
+          const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
 
-      // Open study note modal before completing for all ordinary tasks
-      setCompletingTask(task);
+          const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
+          const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
+          const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+
+          const optimisticTasks = tasks.map((t) =>
+            t.id === task.id
+              ? { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest }
+              : t
+          );
+
+          // Optimistic complete immediately: user perceives 0ms completion!
+          setTasks(optimisticTasks);
+
+          // Optimistically update overall streak
+          updateUser({
+            currentStreak: nextUserStreak,
+            longestStreak: nextUserLongest,
+          });
+
+          // Optimistically update sessionStorage cache immediately
+          const currentCache = getCachedDashboard();
+          if (currentCache) {
+            setCachedDashboard({
+              ...currentCache,
+              todayTasks: optimisticTasks,
+              user: {
+                ...currentCache.user,
+                currentStreak: nextUserStreak,
+                longestStreak: nextUserLongest,
+              },
+            });
+          }
+
+          triggerStreakCelebration({
+            newStreak: nextStreak,
+          });
+
+          try {
+            const res = await completeTask(task.id, 'LinkedIn games completed');
+            if (res.success) {
+              const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
+              const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+              const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+              const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+
+              const syncedTasks = optimisticTasks.map((t) =>
+                t.id === task.id
+                  ? {
+                      ...t,
+                      completedToday: true,
+                      currentStreak: finalTaskStreak,
+                      longestStreak: finalTaskLongest,
+                    }
+                  : t
+              );
+              setTasks(syncedTasks);
+
+              if (typeof res.totalPoints === 'number') {
+                setPointsStats((prev) =>
+                  prev ? { ...prev, totalPoints: res.totalPoints! } : null
+                );
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                  points: res.totalPoints,
+                });
+              } else if (res.streak) {
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                });
+              }
+
+              if (currentCache) {
+                setCachedDashboard({
+                  ...currentCache,
+                  todayTasks: syncedTasks,
+                  user: {
+                    ...currentCache.user,
+                    currentStreak: finalUserStreak,
+                    longestStreak: finalUserLongest,
+                    points: typeof res.totalPoints === 'number' ? res.totalPoints : currentCache.user?.points,
+                  },
+                });
+              }
+            }
+          } catch (err: any) {
+            setTasks(prevTasks);
+            if (currentCache) setCachedDashboard(currentCache);
+            toast.error(extractErrorMessage(err, 'Failed to complete LinkedIn habit.'));
+          }
+          return;
+        }
+
+        // Open study note modal before completing for all ordinary tasks
+        setCompletingTask(task);
+      }
+    } finally {
+      processingTaskIdsRef.current.delete(task.id);
+      setProcessingTaskIds(new Set(processingTaskIdsRef.current));
     }
   };
 
   const handleCompleteSubmit = async (studyNote: string) => {
     if (!completingTask || !studyNote) return;
     const taskToComplete = completingTask;
+    if (processingTaskIdsRef.current.has(taskToComplete.id)) return;
+    processingTaskIdsRef.current.add(taskToComplete.id);
+    setProcessingTaskIds(new Set(processingTaskIdsRef.current));
+
     const prevTasks = [...tasks];
     const nextStreak = (taskToComplete.currentStreak || 0) + 1;
     const nextLongest = Math.max(taskToComplete.longestStreak || 0, nextStreak);
@@ -388,7 +427,16 @@ export const DashboardPage: React.FC = () => {
         );
         setTasks(syncedTasks);
 
-        if (res.streak) {
+        if (typeof res.totalPoints === 'number') {
+          setPointsStats((prev) =>
+            prev ? { ...prev, totalPoints: res.totalPoints! } : null
+          );
+          updateUser({
+            currentStreak: finalUserStreak,
+            longestStreak: finalUserLongest,
+            points: res.totalPoints,
+          });
+        } else if (res.streak) {
           updateUser({
             currentStreak: finalUserStreak,
             longestStreak: finalUserLongest,
@@ -403,6 +451,7 @@ export const DashboardPage: React.FC = () => {
               ...currentCache.user,
               currentStreak: finalUserStreak,
               longestStreak: finalUserLongest,
+              points: typeof res.totalPoints === 'number' ? res.totalPoints : currentCache.user?.points,
             },
           });
         }
@@ -411,6 +460,9 @@ export const DashboardPage: React.FC = () => {
       setTasks(prevTasks);
       if (currentCache) setCachedDashboard(currentCache);
       toast.error(extractErrorMessage(err, 'Failed to complete habit.'));
+    } finally {
+      processingTaskIdsRef.current.delete(taskToComplete.id);
+      setProcessingTaskIds(new Set(processingTaskIdsRef.current));
     }
   };
 
@@ -842,6 +894,7 @@ export const DashboardPage: React.FC = () => {
                   key={task.id}
                   task={task}
                   canTick={true}
+                  isProcessing={processingTaskIds.has(task.id)}
                   onToggleComplete={handleToggleComplete}
                   onViewDetails={(t) => setDetailTaskId(t.id)}
                   onEdit={(t) => {

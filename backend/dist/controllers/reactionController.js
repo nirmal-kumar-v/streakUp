@@ -89,29 +89,30 @@ async function toggleReaction(req, res) {
                 error: 'Forbidden. You can only react to notes from accepted friends or group members.'
             });
         }
-        // Check if reaction of this type already exists for this user on this completion
-        const existing = await prisma_1.default.studyNoteReaction.findUnique({
+        // Check if user has ANY existing reaction on this completion
+        const existingReactions = await prisma_1.default.studyNoteReaction.findMany({
             where: {
-                userId_completionId_emoji: {
-                    userId,
-                    completionId,
-                    emoji
-                }
+                userId,
+                completionId,
             }
         });
-        if (existing) {
-            // Toggle off: remove reaction
-            await prisma_1.default.studyNoteReaction.delete({
-                where: { id: existing.id }
+        const alreadyReacted = existingReactions.length > 0;
+        if (alreadyReacted) {
+            // Toggle off: remove all reactions for this user on this note
+            await prisma_1.default.studyNoteReaction.deleteMany({
+                where: {
+                    userId,
+                    completionId,
+                }
             });
         }
         else {
-            // Add reaction
+            // Add single LIKE reaction
             await prisma_1.default.studyNoteReaction.create({
                 data: {
                     userId,
                     completionId,
-                    emoji
+                    emoji: 'LIKE'
                 }
             });
         }
@@ -123,7 +124,7 @@ async function toggleReaction(req, res) {
         const formatted = formatReactions(allReactions, userId);
         return res.json({
             success: true,
-            message: existing ? 'Reaction removed.' : 'Reaction added.',
+            message: alreadyReacted ? 'Reaction removed.' : 'Reaction added.',
             completionId,
             ...formatted
         });

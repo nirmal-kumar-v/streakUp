@@ -321,13 +321,38 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+// In-memory mutex map to serialize complete/uncomplete actions per task and user
+const taskOperationLocks = new Map<string, Promise<void>>();
+
+async function acquireTaskLock(key: string): Promise<() => void> {
+  while (taskOperationLocks.has(key)) {
+    try {
+      await taskOperationLocks.get(key);
+    } catch {
+      // ignore
+    }
+  }
+  let unlock: () => void = () => {};
+  const lockPromise = new Promise<void>((resolve) => {
+    unlock = resolve;
+  });
+  taskOperationLocks.set(key, lockPromise);
+  return () => {
+    if (taskOperationLocks.get(key) === lockPromise) {
+      taskOperationLocks.delete(key);
+    }
+    unlock();
+  };
+}
+
 /**
  * Mark a task as completed (Tick) with mandatory study note
  */
 export async function completeTask(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  const { id } = req.params;
+  const releaseLock = await acquireTaskLock(`${userId}:${id}`);
   try {
-    const userId = req.user!.userId;
-    const { id } = req.params;
     const { studyNote } = req.body || {};
 
     const task = await prisma.task.findUnique({
@@ -390,8 +415,17 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       // Recalculate overall streak accurately based on local calendar dates and freezes
       const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
 
-      const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
-      const newTotalPoints = u?.points || 0;
+      // Award +5 points for completing LinkedIn habit as a whole
+      const pointsRes = await awardCompletionPoints(
+        prisma,
+        userId,
+        task.id,
+        todayDateStr,
+        [0, 1, 2, 3, 4, 5, 6],
+        timezone
+      );
+      const pointsAwarded = pointsRes.pointsAwarded;
+      const newTotalPoints = pointsRes.newTotalPoints;
 
       // Trigger milestone checks and friend activity alerts (non-blocking)
       checkAndTriggerMilestones({
@@ -413,7 +447,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         userId,
         category: NotificationCategory.TASK_REMINDER,
         title: `Habit Completed: ${task.title}`,
-        message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}.`,
+        message: `You completed committed LinkedIn games! Current streak: ${liResult.highestStreak} day${liResult.highestStreak === 1 ? '' : 's'}${pointsAwarded > 0 ? ` (+${pointsAwarded} pts)` : ''}.`,
         actionUrl: `/dashboard`,
         eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
       }).catch((err) => console.error('[completeTask:LinkedIn] User completion notification error:', err));
@@ -429,7 +463,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         },
         overallStreak,
         streak: overallStreak,
-        pointsAwarded: 0,
+        pointsAwarded,
         totalPoints: newTotalPoints,
       });
     }
@@ -555,6 +589,8 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     console.error('completeTask error:', err);
     return res.status(500).json({ success: false, error: 'Failed to complete task.' });
+  } finally {
+    releaseLock();
   }
 }
 
@@ -562,10 +598,10 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
  * Untick a task (Undo completion)
  */
 export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
+  const userId = req.user!.userId;
+  const { id } = req.params;
+  const releaseLock = await acquireTaskLock(`${userId}:${id}`);
   try {
-    const userId = req.user!.userId;
-    const { id } = req.params;
-
     const task = await prisma.task.findUnique({
       where: { id },
       include: { user: { select: { timezone: true } } }
@@ -595,6 +631,27 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       });
       const wasCompletedToday = deleteResult.count > 0;
 
+      // Remove any completion points awarded for today for this habit
+      await prisma.pointLedger.deleteMany({
+        where: {
+          userId,
+          taskId: id,
+          date: todayDateStr,
+          reason: 'COMPLETION'
+        }
+      });
+
+      // Recompute total user points from ledger
+      const aggregate = await prisma.pointLedger.aggregate({
+        where: { userId },
+        _sum: { points: true }
+      });
+      const updatedTotalPoints = aggregate._sum.points || 0;
+      await prisma.user.update({
+        where: { id: userId },
+        data: { points: updatedTotalPoints }
+      });
+
       const liResult = task.groupId
         ? await uncompleteCommittedGamesForDashboard(task.groupId, userId, timezone, todayDateStr)
         : { highestStreak: 0, longestStreak: 0 };
@@ -604,7 +661,13 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
         ? Math.max(0, (task.currentStreak || 1) - 1)
         : (task.currentStreak || 0);
       const newCurrentStreak = Math.max(liResult.highestStreak, targetStreak);
-      const effectiveLongest = Math.max(task.longestStreak, liResult.longestStreak, newCurrentStreak);
+
+      const totalCompletionsCount = await prisma.taskCompletion.count({ where: { taskId: id } });
+      const maxPossibleLongest = Math.max(totalCompletionsCount, newCurrentStreak);
+      const effectiveLongest = Math.min(
+        Math.max(liResult.longestStreak, newCurrentStreak),
+        maxPossibleLongest
+      );
 
       await prisma.task.update({
         where: { id },
@@ -627,7 +690,7 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
         },
         overallStreak,
         streak: overallStreak,
-        totalPoints: userBefore?.points || 0,
+        totalPoints: updatedTotalPoints,
       });
     }
 
@@ -680,7 +743,12 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       ? Math.max(0, (task.currentStreak || 1) - 1)
       : (task.currentStreak || 0);
     const newCurrentStreak = Math.max(calculatedTaskStreak.currentStreak, targetTaskStreak);
-    const effectiveLongest = Math.max(task.longestStreak, calculatedTaskStreak.longestStreak, newCurrentStreak);
+    const totalCompletionsCount = await prisma.taskCompletion.count({ where: { taskId: id } });
+    const maxPossibleLongest = Math.max(totalCompletionsCount, newCurrentStreak);
+    const effectiveLongest = Math.min(
+      Math.max(calculatedTaskStreak.longestStreak, newCurrentStreak),
+      maxPossibleLongest
+    );
 
     await prisma.task.update({
       where: { id },
@@ -716,6 +784,8 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     console.error('uncompleteTask error:', err);
     return res.status(500).json({ success: false, error: 'Failed to undo task completion.' });
+  } finally {
+    releaseLock();
   }
 }
 

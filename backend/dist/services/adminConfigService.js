@@ -61,24 +61,29 @@ function writeAllConfigs(configs) {
 }
 // Background sync to PostgreSQL database
 function syncToDatabase(userId, config) {
-    prisma_1.default.userAdminConfig.upsert({
-        where: { userId },
-        create: {
-            userId,
-            leaderboardLimit: config.leaderboardLimit ?? 10,
-            reminderLimit: config.reminderLimit ?? 3,
-            discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
-            profileImageLimitMb: config.profileImageLimitMb ?? 5,
-        },
-        update: {
-            leaderboardLimit: config.leaderboardLimit ?? 10,
-            reminderLimit: config.reminderLimit ?? 3,
-            discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
-            profileImageLimitMb: config.profileImageLimitMb ?? 5,
-        },
-    }).catch((err) => {
+    prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true } })
+        .then((existingUser) => {
+        if (!existingUser)
+            return;
+        return prisma_1.default.userAdminConfig.upsert({
+            where: { userId },
+            create: {
+                userId,
+                leaderboardLimit: config.leaderboardLimit ?? 10,
+                reminderLimit: config.reminderLimit ?? 3,
+                discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
+                profileImageLimitMb: config.profileImageLimitMb ?? 5,
+            },
+            update: {
+                leaderboardLimit: config.leaderboardLimit ?? 10,
+                reminderLimit: config.reminderLimit ?? 3,
+                discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
+                profileImageLimitMb: config.profileImageLimitMb ?? 5,
+            },
+        });
+    })
+        .catch(() => {
         // Non-blocking catch for serverless resilience
-        console.warn(`[adminConfigService] DB sync for user ${userId} warning:`, err?.message || err);
     });
 }
 /**
@@ -203,7 +208,7 @@ function deleteUserAdminConfig(userId) {
         delete configs[userId];
         writeAllConfigs(configs);
     }
-    prisma_1.default.userAdminConfig.delete({
+    prisma_1.default.userAdminConfig.deleteMany({
         where: { userId },
     }).catch(() => { });
 }

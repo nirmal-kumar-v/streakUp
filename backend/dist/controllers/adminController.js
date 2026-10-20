@@ -730,7 +730,7 @@ async function overrideUsernameCooldown(req, res) {
 async function correctStreaks(req, res) {
     try {
         const { userId } = req.params;
-        const { type, taskId, currentStreak, longestStreak, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        const { type, taskId, currentStreak, longestStreak, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, applyToOverall = false, } = req.body;
         if (!reason || typeof reason !== 'string') {
             return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
         }
@@ -759,7 +759,30 @@ async function correctStreaks(req, res) {
                 },
                 select: { id: true, title: true, currentStreak: true, longestStreak: true },
             });
-            const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
+            if (task.groupId && (0, linkedInGameService_1.isLinkedInName)(task.title)) {
+                try {
+                    const allGames = await (0, linkedInGameService_1.getAllGamesForMember)(task.groupId, userId);
+                    const committed = allGames.filter((g) => g.isCommitted);
+                    const targetGame = committed.length > 0 ? committed[0] : allGames[0];
+                    if (targetGame) {
+                        await (0, linkedInGameService_1.adminCorrectGameStreak)(task.groupId, userId, targetGame.gameId, currentStreak, newLongest);
+                    }
+                }
+                catch (e) {
+                    console.error('[correctStreaks:LinkedIn] Error synchronizing primary game streak:', e);
+                }
+            }
+            if (applyToOverall) {
+                const nextUserLongest = Math.max(user.longestStreak || 0, newLongest);
+                await prisma_1.default.user.update({
+                    where: { id: userId },
+                    data: {
+                        currentStreak,
+                        longestStreak: nextUserLongest,
+                    },
+                });
+            }
+            const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
             await recordAuditLog({
                 adminUsername: req.admin.username,
                 action: 'TASK_STREAK_CORRECTION',
@@ -1425,6 +1448,14 @@ async function overrideEmailCooldown(req, res) {
                     emailLastChangedAt: new Date(),
                 },
                 select: { id: true, email: true, emailLastChangedAt: true },
+            });
+            // Clear customNotificationEmail so notifications route to the newly assigned email
+            await prisma_1.default.notificationPreference.updateMany({
+                where: { userId },
+                data: {
+                    customNotificationEmail: null,
+                    isCustomEmailVerified: false,
+                },
             });
         }
         const changesSummary = resetCooldownOnly
@@ -3160,7 +3191,7 @@ async function getMemberLinkedInGamesAdmin(req, res) {
 async function adminCorrectLinkedInGameStreak(req, res) {
     try {
         const { userId, groupId } = req.params;
-        const { gameId, currentStreak, longestStreak, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        const { gameId, currentStreak, longestStreak, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, applyToOverall = false, } = req.body;
         if (!reason || typeof reason !== 'string') {
             return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
         }
@@ -3187,7 +3218,30 @@ async function adminCorrectLinkedInGameStreak(req, res) {
         }
         const beforeState = await (0, linkedInGameService_1.getSingleGameForMember)(groupId, userId, normalizedGameId, user.timezone);
         const updatedGame = await (0, linkedInGameService_1.adminCorrectGameStreak)(groupId, userId, normalizedGameId, currentStreak, typeof longestStreak === 'number' ? longestStreak : currentStreak);
-        const changesSummary = `LinkedIn game "${updatedGame.name}" streak corrected: ${beforeState?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedGame.longestStreak}d).`;
+        if (applyToOverall) {
+            const uCurrent = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { longestStreak: true } });
+            const nextLongest = Math.max(uCurrent?.longestStreak || 0, updatedGame.longestStreak, currentStreak);
+            await prisma_1.default.user.update({
+                where: { id: userId },
+                data: {
+                    currentStreak,
+                    longestStreak: nextLongest,
+                },
+            });
+        }
+        // Also sync the parent LinkedIn task in Prisma for this user
+        await prisma_1.default.task.updateMany({
+            where: {
+                userId,
+                groupId,
+                status: { in: ['ACTIVE', 'ARCHIVED'] },
+            },
+            data: {
+                currentStreak,
+                longestStreak: updatedGame.longestStreak,
+            },
+        });
+        const changesSummary = `LinkedIn game "${updatedGame.name}" streak corrected: ${beforeState?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedGame.longestStreak}d)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
         await recordAuditLog({
             adminUsername: req.admin.username,
             action: 'LINKEDIN_GAME_STREAK_CORRECTION',
@@ -3225,7 +3279,7 @@ async function adminCorrectLinkedInGameStreak(req, res) {
 async function adminGrantLinkedInGameDate(req, res) {
     try {
         const { userId, groupId } = req.params;
-        const { gameId, date, studyNote, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        const { gameId, date, studyNote, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, applyToOverall = false, } = req.body;
         if (!reason || typeof reason !== 'string') {
             return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
         }
@@ -3252,6 +3306,33 @@ async function adminGrantLinkedInGameDate(req, res) {
         }
         const beforeState = await (0, linkedInGameService_1.getSingleGameForMember)(groupId, userId, normalizedGameId, user.timezone);
         const updatedGame = await (0, linkedInGameService_1.adminGrantGameDate)(groupId, userId, normalizedGameId, date, studyNote);
+        if (applyToOverall) {
+            const parentTask = await prisma_1.default.task.findFirst({
+                where: { userId, groupId, status: { in: ['ACTIVE', 'ARCHIVED'] } },
+            });
+            if (parentTask) {
+                await prisma_1.default.taskCompletion.upsert({
+                    where: {
+                        taskId_completionDate: {
+                            taskId: parentTask.id,
+                            completionDate: date,
+                        },
+                    },
+                    create: {
+                        userId,
+                        taskId: parentTask.id,
+                        completionDate: date,
+                        completedAt: new Date(`${date}T12:00:00Z`),
+                        studyNote: studyNote || `Granted by admin for ${updatedGame.name}`,
+                    },
+                    update: {
+                        studyNote: studyNote || undefined,
+                    },
+                });
+                await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, parentTask.id, userId, user.timezone);
+                await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, user.timezone);
+            }
+        }
         const changesSummary = `LinkedIn game "${updatedGame.name}" check-in granted for date ${date}. New streak: ${updatedGame.currentStreak}d.`;
         await recordAuditLog({
             adminUsername: req.admin.username,
