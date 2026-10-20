@@ -196,6 +196,9 @@ export const AdminControlPage: React.FC = () => {
   const [newLongestStreak, setNewLongestStreak] = useState<number>(0);
   const [streakReason, setStreakReason] = useState('');
   const [isSubmittingStreak, setIsSubmittingStreak] = useState(false);
+  const [streakApplyToOverall, setStreakApplyToOverall] = useState(false);
+  const [adminGameApplyToOverall, setAdminGameApplyToOverall] = useState(false);
+  const [adminGameGrantApplyToOverall, setAdminGameGrantApplyToOverall] = useState(false);
 
   // Freeze Shield Balance & Shelf Recharge Control (Scope Isolated)
   const [freezeScope, setFreezeScope] = useState<'overall' | string>('overall');
@@ -771,6 +774,7 @@ export const AdminControlPage: React.FC = () => {
             currentStreak: Number(newCurrentStreak),
             longestStreak: Number(newLongestStreak),
             reason: streakReason.trim(),
+            applyToOverall: streakTargetType === 'TASK' ? streakApplyToOverall : undefined,
             sensitivePin: pin,
             sendInApp: notifyInApp,
             sendEmail: notifyEmail,
@@ -861,6 +865,7 @@ export const AdminControlPage: React.FC = () => {
             currentStreak: Number(adminGameCurrentStreak),
             longestStreak: Number(adminGameLongestStreak),
             reason,
+            applyToOverall: adminGameApplyToOverall,
             sensitivePin: pin,
             sendInApp: notifyInApp,
             sendEmail: notifyEmail,
@@ -899,6 +904,7 @@ export const AdminControlPage: React.FC = () => {
             date: adminGameGrantDate,
             studyNote: adminGameGrantNote.trim() || undefined,
             reason,
+            applyToOverall: adminGameGrantApplyToOverall,
             sensitivePin: pin,
             sendInApp: notifyInApp,
             sendEmail: notifyEmail,
@@ -3652,6 +3658,18 @@ export const AdminControlPage: React.FC = () => {
                                   <span>LinkedIn Group Task: 8 individual games (Pinpoint, Crossclimb, Queens, etc.) are managed independently in the dedicated panel below.</span>
                                 </p>
                               )}
+                              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dark-border">
+                                <input
+                                  type="checkbox"
+                                  id="streakApplyToOverall"
+                                  checked={streakApplyToOverall}
+                                  onChange={(e) => setStreakApplyToOverall(e.target.checked)}
+                                  className="w-4 h-4 rounded border-dark-border bg-dark-surface text-flame-500 focus:ring-flame-500 cursor-pointer"
+                                />
+                                <label htmlFor="streakApplyToOverall" className="text-xs text-zinc-300 font-semibold cursor-pointer select-none">
+                                  Affect Overall Streak (also reflect changes to user's overall streak & best streak)
+                                </label>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -4253,6 +4271,19 @@ export const AdminControlPage: React.FC = () => {
                                       />
                                     </div>
 
+                                    <div className="flex items-center gap-2 pt-1 pb-1">
+                                      <input
+                                        type="checkbox"
+                                        id="adminGameApplyToOverall"
+                                        checked={adminGameApplyToOverall}
+                                        onChange={(e) => setAdminGameApplyToOverall(e.target.checked)}
+                                        className="w-4 h-4 rounded border-dark-border bg-dark-card text-amber-500 focus:ring-amber-500 cursor-pointer"
+                                      />
+                                      <label htmlFor="adminGameApplyToOverall" className="text-xs text-zinc-300 font-medium cursor-pointer select-none">
+                                        Affect Overall Streak (also update user's overall streak)
+                                      </label>
+                                    </div>
+
                                     {renderNotificationOptions()}
 
                                     <button
@@ -4307,6 +4338,19 @@ export const AdminControlPage: React.FC = () => {
                                         className="w-full px-2.5 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100"
                                         required
                                       />
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1 pb-1">
+                                      <input
+                                        type="checkbox"
+                                        id="adminGameGrantApplyToOverall"
+                                        checked={adminGameGrantApplyToOverall}
+                                        onChange={(e) => setAdminGameGrantApplyToOverall(e.target.checked)}
+                                        className="w-4 h-4 rounded border-dark-border bg-dark-card text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                                      />
+                                      <label htmlFor="adminGameGrantApplyToOverall" className="text-xs text-zinc-300 font-medium cursor-pointer select-none">
+                                        Affect Overall Streak (also credit overall streak for this date)
+                                      </label>
                                     </div>
 
                                     {renderNotificationOptions()}

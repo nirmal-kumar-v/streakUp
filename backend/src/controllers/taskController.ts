@@ -387,8 +387,36 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
         },
       });
 
+      // Check if this is the first completion today
+      const todayCompletionsCount = await prisma.taskCompletion.count({
+        where: {
+          userId,
+          completionDate: todayDateStr,
+        }
+      });
+
+      const uBefore = await prisma.user.findUnique({ where: { id: userId }, select: { currentStreak: true, longestStreak: true } });
       // Recalculate overall streak
-      const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+      const calculatedOverall = await recalculateUserStreaks(prisma, userId, timezone);
+      const targetUserStreak = todayCompletionsCount === 1
+        ? Math.max(calculatedOverall.currentStreak, (uBefore?.currentStreak || 0) + 1)
+        : Math.max(calculatedOverall.currentStreak, uBefore?.currentStreak || 1);
+      const targetUserLongest = Math.max(uBefore?.longestStreak || 0, calculatedOverall.longestStreak, targetUserStreak);
+
+      if (targetUserStreak > calculatedOverall.currentStreak || targetUserLongest > calculatedOverall.longestStreak) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            currentStreak: targetUserStreak,
+            longestStreak: targetUserLongest,
+          },
+        });
+      }
+      const overallStreak = {
+        ...calculatedOverall,
+        currentStreak: targetUserStreak,
+        longestStreak: targetUserLongest,
+      };
 
       const u = await prisma.user.findUnique({ where: { id: userId }, select: { points: true } });
       const newTotalPoints = u?.points || 0;
@@ -499,22 +527,35 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       taskStreak.longestStreak = nextTaskLongest;
     }
 
-    // Immediately recalculate overall streak
-    const overallStreak = await recalculateUserStreaks(prisma, userId, timezone);
+    const todayCompletionsCount = await prisma.taskCompletion.count({
+      where: {
+        userId,
+        completionDate: todayDateStr,
+      }
+    });
+
     const uBefore = await prisma.user.findUnique({ where: { id: userId }, select: { currentStreak: true, longestStreak: true } });
-    const nextUserStreak = Math.max(overallStreak.currentStreak, (uBefore?.currentStreak || 0) + 1);
-    const nextUserLongest = Math.max(uBefore?.longestStreak || 0, overallStreak.longestStreak, nextUserStreak);
-    if (nextUserStreak > overallStreak.currentStreak || nextUserLongest > overallStreak.longestStreak) {
+    // Immediately recalculate overall streak
+    const calculatedOverall = await recalculateUserStreaks(prisma, userId, timezone);
+    const targetUserStreak = todayCompletionsCount === 1
+      ? Math.max(calculatedOverall.currentStreak, (uBefore?.currentStreak || 0) + 1)
+      : Math.max(calculatedOverall.currentStreak, uBefore?.currentStreak || 1);
+    const targetUserLongest = Math.max(uBefore?.longestStreak || 0, calculatedOverall.longestStreak, targetUserStreak);
+
+    if (targetUserStreak > calculatedOverall.currentStreak || targetUserLongest > calculatedOverall.longestStreak) {
       await prisma.user.update({
         where: { id: userId },
         data: {
-          currentStreak: nextUserStreak,
-          longestStreak: nextUserLongest,
+          currentStreak: targetUserStreak,
+          longestStreak: targetUserLongest,
         },
       });
-      overallStreak.currentStreak = nextUserStreak;
-      overallStreak.longestStreak = nextUserLongest;
     }
+    const overallStreak = {
+      ...calculatedOverall,
+      currentStreak: targetUserStreak,
+      longestStreak: targetUserLongest,
+    };
 
     // Award +5 points for scheduled habit completion (Requirement 9)
     let pointsAwarded = 0;

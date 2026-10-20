@@ -778,6 +778,7 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
       sendEmail: shouldSendEmail,
       includeReason = true,
       includeChanges = true,
+      applyToOverall = false,
     } = req.body;
 
     if (!reason || typeof reason !== 'string') {
@@ -827,7 +828,18 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         }
       }
 
-      const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
+      if (applyToOverall) {
+        const nextUserLongest = Math.max(user.longestStreak || 0, newLongest);
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            currentStreak,
+            longestStreak: nextUserLongest,
+          },
+        });
+      }
+
+      const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
 
       await recordAuditLog({
         adminUsername: req.admin!.username,
@@ -3664,6 +3676,7 @@ export async function adminCorrectLinkedInGameStreak(req: AdminAuthenticatedRequ
       sendEmail: shouldSendEmail,
       includeReason = true,
       includeChanges = true,
+      applyToOverall = false,
     } = req.body;
 
     if (!reason || typeof reason !== 'string') {
@@ -3705,7 +3718,32 @@ export async function adminCorrectLinkedInGameStreak(req: AdminAuthenticatedRequ
       typeof longestStreak === 'number' ? longestStreak : currentStreak
     );
 
-    const changesSummary = `LinkedIn game "${updatedGame.name}" streak corrected: ${beforeState?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedGame.longestStreak}d).`;
+    if (applyToOverall) {
+      const uCurrent = await prisma.user.findUnique({ where: { id: userId }, select: { longestStreak: true } });
+      const nextLongest = Math.max(uCurrent?.longestStreak || 0, updatedGame.longestStreak, currentStreak);
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          currentStreak,
+          longestStreak: nextLongest,
+        },
+      });
+    }
+
+    // Also sync the parent LinkedIn task in Prisma for this user
+    await prisma.task.updateMany({
+      where: {
+        userId,
+        groupId,
+        status: { in: ['ACTIVE', 'ARCHIVED'] },
+      },
+      data: {
+        currentStreak,
+        longestStreak: updatedGame.longestStreak,
+      },
+    });
+
+    const changesSummary = `LinkedIn game "${updatedGame.name}" streak corrected: ${beforeState?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedGame.longestStreak}d)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
@@ -3755,6 +3793,7 @@ export async function adminGrantLinkedInGameDate(req: AdminAuthenticatedRequest,
       sendEmail: shouldSendEmail,
       includeReason = true,
       includeChanges = true,
+      applyToOverall = false,
     } = req.body;
 
     if (!reason || typeof reason !== 'string') {
@@ -3788,6 +3827,34 @@ export async function adminGrantLinkedInGameDate(req: AdminAuthenticatedRequest,
     const beforeState = await getSingleGameForMember(groupId, userId, normalizedGameId, user.timezone);
 
     const updatedGame = await adminGrantGameDate(groupId, userId, normalizedGameId, date, studyNote);
+
+    if (applyToOverall) {
+      const parentTask = await prisma.task.findFirst({
+        where: { userId, groupId, status: { in: ['ACTIVE', 'ARCHIVED'] } },
+      });
+      if (parentTask) {
+        await prisma.taskCompletion.upsert({
+          where: {
+            taskId_completionDate: {
+              taskId: parentTask.id,
+              completionDate: date,
+            },
+          },
+          create: {
+            userId,
+            taskId: parentTask.id,
+            completionDate: date,
+            completedAt: new Date(`${date}T12:00:00Z`),
+            studyNote: studyNote || `Granted by admin for ${updatedGame.name}`,
+          },
+          update: {
+            studyNote: studyNote || undefined,
+          },
+        });
+        await recalculateTaskStreaks(prisma, parentTask.id, userId, user.timezone);
+        await recalculateUserStreaks(prisma, userId, user.timezone);
+      }
+    }
 
     const changesSummary = `LinkedIn game "${updatedGame.name}" check-in granted for date ${date}. New streak: ${updatedGame.currentStreak}d.`;
 

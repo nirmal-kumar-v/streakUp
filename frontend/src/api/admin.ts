@@ -212,6 +212,7 @@ export async function correctUserStreak(
     currentStreak: number;
     longestStreak?: number;
     reason: string;
+    applyToOverall?: boolean;
   } & AdminNotificationPayload
 ) {
   const { sensitivePin, ...body } = data;
@@ -781,6 +782,7 @@ export async function adminCorrectLinkedInGameStreak(
     currentStreak: number;
     longestStreak?: number;
     reason: string;
+    applyToOverall?: boolean;
   } & AdminNotificationPayload
 ) {
   const { sensitivePin, ...body } = data;
@@ -802,6 +804,7 @@ export async function adminGrantLinkedInGameDate(
     date: string;
     studyNote?: string;
     reason: string;
+    applyToOverall?: boolean;
   } & AdminNotificationPayload
 ) {
   const { sensitivePin, ...body } = data;
