@@ -354,15 +354,14 @@ export const AdminControlPage: React.FC = () => {
   const [adminGameCurrentStreak, setAdminGameCurrentStreak] = useState<number>(0);
   const [adminGameLongestStreak, setAdminGameLongestStreak] = useState<number>(0);
   const [adminGameStreakReason, setAdminGameStreakReason] = useState<string>('');
-  const [isSubmittingAdminGameStreak, setIsSubmittingAdminGameStreak] = useState(false);
-
   const [adminGameGrantDate, setAdminGameGrantDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [adminGameGrantNote, setAdminGameGrantNote] = useState<string>('');
   const [adminGameGrantReason, setAdminGameGrantReason] = useState<string>('');
-  const [isSubmittingAdminGameGrant, setIsSubmittingAdminGameGrant] = useState(false);
-
   const [adminGameCommitmentReason, setAdminGameCommitmentReason] = useState<string>('');
-  const [isSubmittingAdminGameCommitment, setIsSubmittingAdminGameCommitment] = useState(false);
+
+  const isSubmittingAdminGameStreak = isSavingAllApplied;
+  const isSubmittingAdminGameGrant = isSavingAllApplied;
+  const isSubmittingAdminGameCommitment = isSavingAllApplied;
 
   // ------------------------------------------
   const ADMIN_INACTIVITY_LIMIT_MS = 5 * 60 * 1000; // 5 minutes inactivity timeout (Admin alone)
@@ -803,6 +802,14 @@ export const AdminControlPage: React.FC = () => {
           setLeaderboardReason('');
           setReminderLimitReason('');
           setTaskReminderLimitReason('');
+          setAdminGameStreakReason('');
+          setAdminGameGrantReason('');
+          setAdminGameGrantNote('');
+          setAdminGameCommitmentReason('');
+
+          if (selectedUserId && linkedInGroup?.id) {
+            await loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
+          }
           refreshCurrentUser();
         } catch (err: any) {
           toast.error(extractErrorMessage(err, 'Failed to save some applied modifications.'));
@@ -813,7 +820,7 @@ export const AdminControlPage: React.FC = () => {
     );
   };
 
-  // E. Streak Correction (Apply to staging)
+  // E. Streak Correction (Apply to staging per task / overall)
   const handleStreakCorrection = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) return;
@@ -824,6 +831,8 @@ export const AdminControlPage: React.FC = () => {
 
     const targetType = streakTargetType;
     const taskId = targetType === 'TASK' ? selectedTaskId : undefined;
+    const taskObj = targetType === 'TASK' ? selectedUserDetails?.tasks?.find((x: any) => x.id === taskId) : null;
+    const taskTitle = taskObj?.title || 'Habit';
     const curr = Number(newCurrentStreak) || 0;
     const long = Number(newLongestStreak) || 0;
     const reason = streakReason.trim();
@@ -833,12 +842,17 @@ export const AdminControlPage: React.FC = () => {
     const includeReason = notifyIncludeReason;
     const includeChanges = notifyIncludeChanges;
 
+    const changeKey = targetType === 'OVERALL' ? 'streak_overall' : `streak_task_${taskId}`;
+    const displayLabel = targetType === 'OVERALL'
+      ? `Overall Streak: ${curr}d curr / ${long}d best`
+      : `Streak (${taskTitle}): ${curr}d curr / ${long}d best`;
+
     setAppliedChanges((prev) => ({
       ...prev,
-      streaks: {
-        id: 'streaks',
-        label: `Streak (${targetType}): ${curr}d current / ${long}d longest`,
-        description: `Set ${targetType} streak to ${curr}d current, ${long}d longest`,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Set ${targetType === 'OVERALL' ? 'overall' : taskTitle} streak to ${curr}d current, ${long}d longest`,
         applyFn: async (pin: string) => {
           return correctUserStreak(selectedUserId, {
             type: targetType,
@@ -857,7 +871,7 @@ export const AdminControlPage: React.FC = () => {
       },
     }));
 
-    toast.success('Streak correction applied! Click "Save" at the top to commit.');
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
   // ------------------------------------------
@@ -914,86 +928,97 @@ export const AdminControlPage: React.FC = () => {
     }
   }, [selectedAdminGameId, adminLinkedInGames]);
 
-  const handleAdminCorrectGameStreak = async (e: React.FormEvent) => {
+  const handleAdminCorrectGameStreak = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId || !linkedInGroup?.id) return;
     const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
     const gameName = game ? game.name : selectedAdminGameId;
+    const gameId = selectedAdminGameId;
+    const curr = Number(adminGameCurrentStreak);
+    const long = Number(adminGameLongestStreak);
     const reason = adminGameStreakReason.trim() || `Admin corrected ${gameName} streak for @${selectedUserDetails?.username}`;
+    const applyToOverall = adminGameApplyToOverall;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = linkedInGroup.id;
 
-    openPinPrompt(
-      `Authorize ${gameName} Streak Correction`,
-      `Enter Super Admin Sensitive Password to adjust ${gameName} streak to ${adminGameCurrentStreak}d (best: ${adminGameLongestStreak}d) for @${selectedUserDetails?.username}.`,
-      async (pin) => {
-        setIsSubmittingAdminGameStreak(true);
-        try {
-          const res = await adminCorrectLinkedInGameStreak(selectedUserId, linkedInGroup.id, {
-            gameId: selectedAdminGameId,
-            currentStreak: Number(adminGameCurrentStreak),
-            longestStreak: Number(adminGameLongestStreak),
+    const changeKey = `linkedin_streak_${gameId}`;
+    const displayLabel = `LinkedIn ${gameName} Streak: ${curr}d curr / ${long}d best`;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Correct ${gameName} streak to ${curr}d curr, ${long}d best`,
+        applyFn: async (pin: string) => {
+          return adminCorrectLinkedInGameStreak(selectedUserId, groupId, {
+            gameId,
+            currentStreak: curr,
+            longestStreak: long,
             reason,
-            applyToOverall: adminGameApplyToOverall,
+            applyToOverall,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setAdminGameStreakReason('');
-            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, `Failed to correct ${gameName} streak.`));
-        } finally {
-          setIsSubmittingAdminGameStreak(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
-  const handleAdminGrantGameDate = async (e: React.FormEvent) => {
+  const handleAdminGrantGameDate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUserId || !linkedInGroup?.id) return;
+    if (!selectedUserId || !linkedInGroup?.id || !adminGameGrantDate) return;
     const game = LINKEDIN_GAMES_LIST.find((g) => g.id === selectedAdminGameId);
     const gameName = game ? game.name : selectedAdminGameId;
-    const reason = adminGameGrantReason.trim() || `Admin granted ${gameName} completion on ${adminGameGrantDate}`;
+    const gameId = selectedAdminGameId;
+    const grantDate = adminGameGrantDate;
+    const note = adminGameGrantNote.trim() || undefined;
+    const reason = adminGameGrantReason.trim() || `Admin granted ${gameName} completion on ${grantDate}`;
+    const applyToOverall = adminGameGrantApplyToOverall;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = linkedInGroup.id;
 
-    openPinPrompt(
-      `Authorize ${gameName} Date Grant`,
-      `Enter Super Admin Sensitive Password to grant completion for ${gameName} on ${adminGameGrantDate} for @${selectedUserDetails?.username}.`,
-      async (pin) => {
-        setIsSubmittingAdminGameGrant(true);
-        try {
-          const res = await adminGrantLinkedInGameDate(selectedUserId, linkedInGroup.id, {
-            gameId: selectedAdminGameId,
-            date: adminGameGrantDate,
-            studyNote: adminGameGrantNote.trim() || undefined,
+    const changeKey = `linkedin_grant_${gameId}_${grantDate}`;
+    const displayLabel = `LinkedIn ${gameName} Grant: ${grantDate}`;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Grant completion for ${gameName} on ${grantDate}`,
+        applyFn: async (pin: string) => {
+          return adminGrantLinkedInGameDate(selectedUserId, groupId, {
+            gameId,
+            date: grantDate,
+            studyNote: note,
             reason,
-            applyToOverall: adminGameGrantApplyToOverall,
+            applyToOverall,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setAdminGameGrantReason('');
-            setAdminGameGrantNote('');
-            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, `Failed to grant ${gameName} date.`));
-        } finally {
-          setIsSubmittingAdminGameGrant(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
-  const handleAdminSetGameCommitment = async (gameId: string, isCommitted: boolean) => {
+  const handleAdminSetGameCommitment = (gameId: string, isCommitted: boolean) => {
     if (!selectedUserId || !linkedInGroup?.id) return;
     const game = LINKEDIN_GAMES_LIST.find((g) => g.id === gameId);
     const gameName = game ? game.name : gameId;
@@ -1001,35 +1026,37 @@ export const AdminControlPage: React.FC = () => {
     const reason =
       adminGameCommitmentReason.trim() ||
       `Admin set ${gameName} commitment to ${actionLabel.toUpperCase()} for @${selectedUserDetails?.username}`;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = linkedInGroup.id;
 
-    openPinPrompt(
-      `Authorize ${gameName} ${actionLabel}`,
-      `Enter Super Admin Sensitive Password to change commitment for ${gameName} on @${selectedUserDetails?.username} to ${actionLabel.toUpperCase()}.`,
-      async (pin) => {
-        setIsSubmittingAdminGameCommitment(true);
-        try {
-          const res = await adminSetLinkedInGameCommitment(selectedUserId, linkedInGroup.id, {
+    const changeKey = `linkedin_commitment_${gameId}`;
+    const displayLabel = `LinkedIn ${gameName}: ${actionLabel}`;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Set commitment for ${gameName} to ${actionLabel.toUpperCase()}`,
+        applyFn: async (pin: string) => {
+          return adminSetLinkedInGameCommitment(selectedUserId, groupId, {
             gameId,
             isCommitted,
             reason,
             sensitivePin: pin,
-            sendInApp: notifyInApp,
-            sendEmail: notifyEmail,
-            includeReason: notifyIncludeReason,
-            includeChanges: notifyIncludeChanges,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
           });
-          if (res.success) {
-            toast.info(res.message);
-            setAdminGameCommitmentReason('');
-            loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, `Failed to update ${gameName} commitment.`));
-        } finally {
-          setIsSubmittingAdminGameCommitment(false);
-        }
-      }
-    );
+        },
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
   // G. Points Adjustment (Apply to staging)
@@ -1458,6 +1485,8 @@ export const AdminControlPage: React.FC = () => {
     }
 
     const scope = freezeScope;
+    const taskObj = scope !== 'overall' ? selectedUserDetails?.tasks?.find((t: any) => t.id === scope) : null;
+    const taskTitle = taskObj?.title || 'Habit';
     const cap = Number(newFreezeCapacity);
     const bal = Number(newFreezeBalance);
     const rech = Number(newFreezeRechargeDays);
@@ -1467,12 +1496,17 @@ export const AdminControlPage: React.FC = () => {
     const includeReason = notifyIncludeReason;
     const includeChanges = notifyIncludeChanges;
 
+    const changeKey = scope === 'overall' ? 'freeze_overall' : `freeze_task_${scope}`;
+    const displayLabel = scope === 'overall'
+      ? `Overall Freezes: ${bal}/${cap} shields`
+      : `Freezes (${taskTitle}): ${bal}/${cap} shields`;
+
     setAppliedChanges((prev) => ({
       ...prev,
-      freezes: {
-        id: 'freezes',
-        label: `Freezes (${scope === 'overall' ? 'Overall' : 'Habit'}): ${bal}/${cap} shields`,
-        description: `Set freeze balance to ${bal}/${cap}, recharge ${rech}/7d`,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Set ${scope === 'overall' ? 'overall' : taskTitle} freeze balance to ${bal}/${cap}, recharge ${rech}/7d`,
         applyFn: async (pin: string) => {
           const payload: any = {
             reason,
@@ -1499,7 +1533,7 @@ export const AdminControlPage: React.FC = () => {
       },
     }));
 
-    toast.success('Freeze adjustment applied! Click "Save" at the top to commit.');
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
   // Group Discovery Functions
@@ -3895,42 +3929,50 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
-                        {appliedChanges['streaks'] && (
-                          <div className="p-3 bg-flame-500/10 border border-flame-500/30 rounded-xl flex items-center justify-between text-xs text-flame-300">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="w-4 h-4 text-flame-400" />
-                              <span className="font-bold">Applied: {appliedChanges['streaks'].label}</span>
-                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAppliedChanges((prev) => {
-                                  const next = { ...prev };
-                                  delete next['streaks'];
-                                  return next;
-                                });
-                                toast.info('Streak correction unapplied.');
-                              }}
-                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        )}
+                        {(() => {
+                          const currentStreakChangeKey = streakTargetType === 'OVERALL' ? 'streak_overall' : `streak_task_${selectedTaskId}`;
+                          const isStaged = !!appliedChanges[currentStreakChangeKey];
+                          return (
+                            <>
+                              {isStaged && (
+                                <div className="p-3 bg-flame-500/10 border border-flame-500/30 rounded-xl flex items-center justify-between text-xs text-flame-300">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-flame-400 shrink-0" />
+                                    <span className="font-bold truncate">Applied: {appliedChanges[currentStreakChangeKey].label}</span>
+                                    <span className="text-[11px] text-zinc-400 shrink-0">(Click "Save" on top to commit)</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAppliedChanges((prev) => {
+                                        const next = { ...prev };
+                                        delete next[currentStreakChangeKey];
+                                        return next;
+                                      });
+                                      toast.info('Streak correction unapplied.');
+                                    }}
+                                    className="text-zinc-400 hover:text-zinc-200 underline text-[11px] shrink-0 ml-2"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
 
-                        <button
-                          type="submit"
-                          disabled={isSubmittingStreak}
-                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
-                        >
-                          {isSubmittingStreak ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-4 h-4" />
-                          )}
-                          <span>{appliedChanges['streaks'] ? 'Re-apply Streak' : 'Apply'}</span>
-                        </button>
+                              <button
+                                type="submit"
+                                disabled={isSubmittingStreak}
+                                className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                              >
+                                {isSubmittingStreak ? (
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                                <span>{isStaged ? 'Re-apply Streak' : 'Apply'}</span>
+                              </button>
+                            </>
+                          );
+                        })()}
                       </form>
                     </div>
 
@@ -4182,42 +4224,50 @@ export const AdminControlPage: React.FC = () => {
 
                         {renderNotificationOptions()}
 
-                        {appliedChanges['freezes'] && (
-                          <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center justify-between text-xs text-sky-300">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="w-4 h-4 text-sky-400" />
-                              <span className="font-bold">Applied: {appliedChanges['freezes'].label}</span>
-                              <span className="text-[11px] text-zinc-400">(Click "Save" on top to commit)</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAppliedChanges((prev) => {
-                                  const next = { ...prev };
-                                  delete next['freezes'];
-                                  return next;
-                                });
-                                toast.info('Freeze adjustment unapplied.');
-                              }}
-                              className="text-zinc-400 hover:text-zinc-200 underline text-[11px]"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        )}
+                        {(() => {
+                          const currentFreezeChangeKey = freezeScope === 'overall' ? 'freeze_overall' : `freeze_task_${freezeScope}`;
+                          const isStaged = !!appliedChanges[currentFreezeChangeKey];
+                          return (
+                            <>
+                              {isStaged && (
+                                <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl flex items-center justify-between text-xs text-sky-300">
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
+                                    <span className="font-bold truncate">Applied: {appliedChanges[currentFreezeChangeKey].label}</span>
+                                    <span className="text-[11px] text-zinc-400 shrink-0">(Click "Save" on top to commit)</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAppliedChanges((prev) => {
+                                        const next = { ...prev };
+                                        delete next[currentFreezeChangeKey];
+                                        return next;
+                                      });
+                                      toast.info('Freeze adjustment unapplied.');
+                                    }}
+                                    className="text-zinc-400 hover:text-zinc-200 underline text-[11px] shrink-0 ml-2"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
 
-                        <button
-                          type="submit"
-                          disabled={isSubmittingFreezeControl}
-                          className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
-                        >
-                          {isSubmittingFreezeControl ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="w-4 h-4" />
-                          )}
-                          <span>{appliedChanges['freezes'] ? 'Re-apply Freezes' : 'Apply'}</span>
-                        </button>
+                              <button
+                                type="submit"
+                                disabled={isSubmittingFreezeControl}
+                                className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                              >
+                                {isSubmittingFreezeControl ? (
+                                  <RefreshCw className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-4 h-4" />
+                                )}
+                                <span>{isStaged ? 'Re-apply Freezes' : 'Apply'}</span>
+                              </button>
+                            </>
+                          );
+                        })()}
                       </form>
                     </div>
 
@@ -4259,6 +4309,12 @@ export const AdminControlPage: React.FC = () => {
                             const isSelected = selectedAdminGameId === game.id;
                             const record = adminLinkedInGames.find((g) => g.id === game.id || g.gameId === game.id);
                             const isCommitted = record?.isCommitted !== false;
+                            const hasStagedForGame = Object.keys(appliedChanges).some(
+                              (k) =>
+                                k === `linkedin_streak_${game.id}` ||
+                                k === `linkedin_commitment_${game.id}` ||
+                                k.startsWith(`linkedin_grant_${game.id}_`)
+                            );
                             return (
                               <button
                                 key={game.id}
@@ -4272,11 +4328,18 @@ export const AdminControlPage: React.FC = () => {
                               >
                                 <div className="flex items-center justify-between">
                                   <span className="font-bold text-xs truncate">{game.name}</span>
-                                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
-                                    isSelected ? 'bg-amber-500/30 text-amber-200' : 'bg-dark-card text-zinc-500'
-                                  }`}>
-                                    🔥 {record?.currentStreak ?? 0}d
-                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    {hasStagedForGame && (
+                                      <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500 text-zinc-950 font-mono">
+                                        Applied
+                                      </span>
+                                    )}
+                                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                                      isSelected ? 'bg-amber-500/30 text-amber-200' : 'bg-dark-card text-zinc-500'
+                                    }`}>
+                                      🔥 {record?.currentStreak ?? 0}d
+                                    </span>
+                                  </div>
                                 </div>
                                 <div className="flex items-center justify-between text-[10px] font-mono mt-1 text-dark-muted">
                                   <span className={`px-1 py-0.2 rounded text-[9px] font-bold ${
@@ -4389,6 +4452,31 @@ export const AdminControlPage: React.FC = () => {
                                     </div>
 
                                     {renderNotificationOptions()}
+
+                                    {appliedChanges[`linkedin_commitment_${selectedAdminGameId}`] && (
+                                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex items-center justify-between text-xs text-emerald-300">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                          <span className="font-semibold text-[11px] truncate">
+                                            Applied: {appliedChanges[`linkedin_commitment_${selectedAdminGameId}`].label}
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setAppliedChanges((prev) => {
+                                              const next = { ...prev };
+                                              delete next[`linkedin_commitment_${selectedAdminGameId}`];
+                                              return next;
+                                            });
+                                            toast.info('Commitment change unapplied.');
+                                          }}
+                                          className="text-zinc-400 hover:text-zinc-200 underline text-[10px] shrink-0 ml-2"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
 
                                   <button
@@ -4406,12 +4494,12 @@ export const AdminControlPage: React.FC = () => {
                                     ) : isCommitted ? (
                                       <>
                                         <X className="w-3.5 h-3.5" />
-                                        <span>Uncommit {activeGame?.name}</span>
+                                        <span>{appliedChanges[`linkedin_commitment_${selectedAdminGameId}`] ? `Re-apply Uncommit ${activeGame?.name}` : `Uncommit ${activeGame?.name}`}</span>
                                       </>
                                     ) : (
                                       <>
                                         <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>Commit {activeGame?.name}</span>
+                                        <span>{appliedChanges[`linkedin_commitment_${selectedAdminGameId}`] ? `Re-apply Commit ${activeGame?.name}` : `Commit ${activeGame?.name}`}</span>
                                       </>
                                     )}
                                   </button>
@@ -4478,13 +4566,38 @@ export const AdminControlPage: React.FC = () => {
 
                                     {renderNotificationOptions()}
 
+                                    {appliedChanges[`linkedin_streak_${selectedAdminGameId}`] && (
+                                      <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center justify-between text-xs text-amber-300">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                          <span className="font-semibold text-[11px] truncate">
+                                            Applied: {appliedChanges[`linkedin_streak_${selectedAdminGameId}`].label}
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setAppliedChanges((prev) => {
+                                              const next = { ...prev };
+                                              delete next[`linkedin_streak_${selectedAdminGameId}`];
+                                              return next;
+                                            });
+                                            toast.info('Streak change unapplied.');
+                                          }}
+                                          className="text-zinc-400 hover:text-zinc-200 underline text-[10px] shrink-0 ml-2"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    )}
+
                                     <button
                                       type="submit"
                                       disabled={isSubmittingAdminGameStreak}
                                       className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
                                     >
                                       {isSubmittingAdminGameStreak ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                                      <span>Apply Streak Change</span>
+                                      <span>{appliedChanges[`linkedin_streak_${selectedAdminGameId}`] ? 'Re-apply Streak Change' : 'Apply Streak Change'}</span>
                                     </button>
                                   </form>
                                 </div>
@@ -4547,13 +4660,38 @@ export const AdminControlPage: React.FC = () => {
 
                                     {renderNotificationOptions()}
 
+                                    {appliedChanges[`linkedin_grant_${selectedAdminGameId}_${adminGameGrantDate}`] && (
+                                      <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex items-center justify-between text-xs text-emerald-300">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                          <span className="font-semibold text-[11px] truncate">
+                                            Applied: {appliedChanges[`linkedin_grant_${selectedAdminGameId}_${adminGameGrantDate}`].label}
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setAppliedChanges((prev) => {
+                                              const next = { ...prev };
+                                              delete next[`linkedin_grant_${selectedAdminGameId}_${adminGameGrantDate}`];
+                                              return next;
+                                            });
+                                            toast.info('Grant date unapplied.');
+                                          }}
+                                          className="text-zinc-400 hover:text-zinc-200 underline text-[10px] shrink-0 ml-2"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    )}
+
                                     <button
                                       type="submit"
                                       disabled={isSubmittingAdminGameGrant}
                                       className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5"
                                     >
                                       {isSubmittingAdminGameGrant ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                                      <span>Grant Completion Date</span>
+                                      <span>{appliedChanges[`linkedin_grant_${selectedAdminGameId}_${adminGameGrantDate}`] ? 'Re-apply Grant Date' : 'Apply Grant Date'}</span>
                                     </button>
                                   </form>
                                 </div>
