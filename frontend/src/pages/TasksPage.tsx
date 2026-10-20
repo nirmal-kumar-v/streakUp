@@ -130,6 +130,20 @@ export const TasksPage: React.FC = () => {
       try {
         const res = await uncompleteTask(task.id);
         if (res.success) {
+          if (res.taskStreak) {
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === task.id
+                  ? {
+                      ...t,
+                      completedToday: false,
+                      currentStreak: res.taskStreak.currentStreak,
+                      longestStreak: res.taskStreak.longestStreak,
+                    }
+                  : t
+              )
+            );
+          }
           if (res.streak) {
             updateUser({
               currentStreak: res.streak.currentStreak,
@@ -172,7 +186,12 @@ export const TasksPage: React.FC = () => {
             setTasks((prev) =>
               prev.map((t) =>
                 t.id === task.id
-                  ? { ...t, completedToday: true, currentStreak: res.streak?.currentStreak ?? t.currentStreak }
+                  ? {
+                      ...t,
+                      completedToday: true,
+                      currentStreak: res.taskStreak?.currentStreak ?? t.currentStreak,
+                      longestStreak: res.taskStreak?.longestStreak ?? t.longestStreak,
+                    }
                   : t
               )
             );

@@ -272,10 +272,16 @@ export function computeGameDataForUser(
       ? record.manualCurrentStreak
       : streakResult.currentStreak;
 
-  const longestStreak =
-    typeof record.manualLongestStreak === 'number'
-      ? Math.max(record.manualLongestStreak, streakResult.longestStreak, currentStreak)
-      : Math.max(streakResult.longestStreak, currentStreak);
+  const longestStreak = Math.max(
+    typeof record.manualLongestStreak === 'number' ? record.manualLongestStreak : 0,
+    streakResult.longestStreak,
+    currentStreak
+  );
+
+  // Permanently record all-time highest streak so it never disappears on untick
+  if (longestStreak > (record.manualLongestStreak || 0)) {
+    record.manualLongestStreak = longestStreak;
+  }
 
   // Sort completions descending by date
   const sortedCompletions = [...record.completions].sort((a, b) =>
@@ -372,6 +378,11 @@ export async function completeMemberGame(
   if (typeof record.manualCurrentStreak === 'number') {
     record.manualCurrentStreak = record.manualCurrentStreak + 1;
   }
+  const computed = computeGameDataForUser(record, userTimezone);
+  record.manualLongestStreak = Math.max(
+    record.manualLongestStreak || 0,
+    computed.longestStreak
+  );
   record.updatedAt = new Date().toISOString();
 
   records[key] = record;
@@ -402,8 +413,14 @@ export async function uncompleteMemberGame(
   const key = getRecordKey(groupId, userId, normalized);
   const record = getRawGameRecord(groupId, userId, normalized);
 
+  const prevComputed = computeGameDataForUser(record, userTimezone);
   const hadCompletion = record.completions.some((c) => c.completionDate === targetDate);
   record.completions = record.completions.filter((c) => c.completionDate !== targetDate);
+  // Ensure the longest streak already achieved is preserved
+  record.manualLongestStreak = Math.max(
+    record.manualLongestStreak || 0,
+    prevComputed.longestStreak || 0
+  );
   if (typeof record.manualCurrentStreak === 'number') {
     record.manualCurrentStreak = hadCompletion
       ? Math.max(0, record.manualCurrentStreak - 1)
@@ -802,6 +819,9 @@ export async function uncompleteCommittedGamesForDashboard(
     const raw = getRawGameRecord(groupId, userId, game.gameId);
     const hadCompletion = raw.completions.some((c) => c.completionDate === targetDate);
     raw.completions = raw.completions.filter((c) => c.completionDate !== targetDate);
+    // Lock in manualLongestStreak so it is NEVER lost when today is unticked
+    const prevLongest = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
+    raw.manualLongestStreak = prevLongest;
     if (typeof raw.manualCurrentStreak === 'number') {
       raw.manualCurrentStreak = hadCompletion
         ? Math.max(0, raw.manualCurrentStreak - 1)

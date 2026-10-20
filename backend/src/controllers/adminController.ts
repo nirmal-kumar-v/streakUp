@@ -814,6 +814,19 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         select: { id: true, title: true, currentStreak: true, longestStreak: true },
       });
 
+      if (task.groupId && isLinkedInName(task.title)) {
+        try {
+          const allGames = await getAllGamesForMember(task.groupId, userId);
+          const committed = allGames.filter((g) => g.isCommitted);
+          const targetGame = committed.length > 0 ? committed[0] : allGames[0];
+          if (targetGame) {
+            await adminCorrectGameStreak(task.groupId, userId, targetGame.gameId, currentStreak, newLongest);
+          }
+        } catch (e) {
+          console.error('[correctStreaks:LinkedIn] Error synchronizing primary game streak:', e);
+        }
+      }
+
       const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
 
       await recordAuditLog({

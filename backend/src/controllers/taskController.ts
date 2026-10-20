@@ -428,10 +428,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
           longestStreak: nextLongestStreak,
         },
         overallStreak,
-        streak: {
-          currentStreak: nextTaskStreak,
-          longestStreak: nextLongestStreak,
-        },
+        streak: overallStreak,
         pointsAwarded: 0,
         totalPoints: newTotalPoints,
       });
@@ -690,10 +687,7 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
           longestStreak: effectiveLongest,
         },
         overallStreak,
-        streak: {
-          currentStreak: newCurrentStreak,
-          longestStreak: effectiveLongest,
-        },
+        streak: overallStreak,
         totalPoints: userBefore?.points || 0,
       });
     }

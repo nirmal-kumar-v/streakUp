@@ -223,6 +223,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
 
     const prevGame = { ...targetGame };
     const newStreak = Math.max(0, (prevGame.currentStreak || 1) - 1);
+    const retainedLongest = Math.max(prevGame.longestStreak || 0, prevGame.currentStreak || 0);
 
     // 1. Instant optimistic UI update
     setGames((prev) =>
@@ -232,6 +233,7 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
             ...g,
             completedToday: false,
             currentStreak: newStreak,
+            longestStreak: retainedLongest,
             todayNote: null,
             totalCompletions: Math.max(0, (prevGame.totalCompletions || 1) - 1),
           };
@@ -247,7 +249,15 @@ export const LinkedInGamesHub: React.FC<LinkedInGamesHubProps> = ({
       .then((res) => {
         if (res.success && res.game) {
           setGames((prev) =>
-            prev.map((g) => (g.gameId === targetGameId ? { ...g, ...res.game } : g))
+            prev.map((g) =>
+              g.gameId === targetGameId
+                ? {
+                    ...g,
+                    ...res.game,
+                    longestStreak: Math.max(res.game.longestStreak || 0, g.longestStreak || 0, retainedLongest),
+                  }
+                : g
+            )
           );
           if (selectedGameIdRef.current === targetGameId && res.leaderboard) {
             setLeaderboard(res.leaderboard);
