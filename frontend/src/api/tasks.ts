@@ -300,6 +300,7 @@ export interface ActivityHistoryResponse {
   timezone?: string;
   availableYears?: number[];
   activity: ActivityDateItem[];
+  freezeDates?: Array<{ date: string; scopeKey?: string }>;
   totalCompletions: number;
   activeDaysCount?: number;
 }

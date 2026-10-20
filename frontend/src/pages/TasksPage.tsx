@@ -204,7 +204,6 @@ export const TasksPage: React.FC = () => {
         triggerStreakCelebration({
           newStreak: nextStreak,
         });
-        toast.success('Done! 🔥');
 
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');

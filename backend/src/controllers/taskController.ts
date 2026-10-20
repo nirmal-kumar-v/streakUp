@@ -1217,21 +1217,33 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
     }
 
     // Fetch completions within date range
-    const completions = await prisma.taskCompletion.findMany({
-      where: {
-        userId,
-        completionDate: {
-          gte: rangeStart,
-          lte: rangeEnd
-        }
-      },
-      include: {
-        task: {
-          select: { title: true, category: true }
-        }
-      },
-      orderBy: { completionDate: 'asc' }
-    });
+    const [completions, freezeLogs] = await Promise.all([
+      prisma.taskCompletion.findMany({
+        where: {
+          userId,
+          completionDate: {
+            gte: rangeStart,
+            lte: rangeEnd
+          }
+        },
+        include: {
+          task: {
+            select: { title: true, category: true }
+          }
+        },
+        orderBy: { completionDate: 'asc' }
+      }),
+      prisma.freezeLog.findMany({
+        where: {
+          userId,
+          protectedDate: {
+            gte: rangeStart,
+            lte: rangeEnd
+          }
+        },
+        select: { protectedDate: true, scopeKey: true }
+      })
+    ]);
 
     // Group completions by date (shield future dates from having completed activity)
     const dateMap: Record<string, { count: number; tasks: Array<{ title: string; note: string | null }> }> = {};
@@ -1282,6 +1294,11 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
     }
     const availableYears = Array.from(yearsSet).sort((a, b) => a - b);
 
+    const freezeDates = freezeLogs.map((f: { protectedDate: string; scopeKey: string }) => ({
+      date: f.protectedDate,
+      scopeKey: f.scopeKey
+    }));
+
     return res.json({
       success: true,
       year: targetYear,
@@ -1291,6 +1308,7 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
       timezone,
       availableYears,
       activity: activityList,
+      freezeDates,
       totalCompletions: completions.length,
       activeDaysCount: activityList.filter((a) => a.count > 0).length
     });

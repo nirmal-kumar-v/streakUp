@@ -13,11 +13,13 @@ import { useBodyScrollLock } from '../utils/scrollLock';
 interface ActivityHeatmapProps {
   timezone?: string;
   currentStreak?: number;
+  todayTasks?: Array<{ title: string; completedToday?: boolean; todayStudyNote?: string | null }>;
 }
 
 export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   timezone = 'Asia/Kolkata',
   currentStreak,
+  todayTasks,
 }) => {
   const { user } = useAuth();
   const streak = currentStreak !== undefined ? currentStreak : (user?.currentStreak || 0);
@@ -27,11 +29,14 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     return DateTime.now().setZone(timezone).startOf('day');
   }, [timezone]);
 
+  const todayStr = useMemo(() => todayDt.toFormat('yyyy-MM-dd'), [todayDt]);
+
   // Rolling 365 consecutive calendar days ending today
   const startDate = useMemo(() => todayDt.minus({ days: 364 }), [todayDt]);
   const endDate = todayDt;
 
   const [activityMap, setActivityMap] = useState<Map<string, { count: number; tasks: ActivityTaskInfo[] }>>(new Map());
+  const [freezeMap, setFreezeMap] = useState<Map<string, string>>(new Map());
   const [activeDaysCount, setActiveDaysCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +49,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     dateStr: string;
     formattedDate: string;
     count: number;
+    isFrozen?: boolean;
+    freezeScope?: string;
     tasks: ActivityTaskInfo[];
   } | null>(null);
 
@@ -69,6 +76,13 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       });
     });
     setActivityMap(map);
+
+    const fMap = new Map<string, string>();
+    if (res.freezeDates) {
+      res.freezeDates.forEach((f) => fMap.set(f.date, f.scopeKey || 'OVERALL'));
+    }
+    setFreezeMap(fMap);
+
     setActiveDaysCount(res.activeDaysCount || 0);
   };
 
@@ -107,6 +121,19 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     loadActivityData();
   }, [loadActivityData]);
 
+  // Derive today's live completion state if todayTasks provided
+  const liveTodayData = useMemo(() => {
+    if (!todayTasks) return null;
+    const completed = todayTasks.filter((t) => t.completedToday);
+    return {
+      count: completed.length,
+      tasks: completed.map((t) => ({
+        title: t.title,
+        note: t.todayStudyNote || null,
+      })),
+    };
+  }, [todayTasks]);
+
   // Construct calendar grid: columns = weeks (Sun..Sat), aligned to first Sunday
   const firstGridSunday = startDate.minus({ days: startDate.weekday % 7 });
   const daysDiff = Math.ceil(endDate.diff(firstGridSunday, 'days').days) + 1;
@@ -118,6 +145,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     isFuture: boolean;
     dayOfWeek: number;
     count: number;
+    isFrozen: boolean;
+    freezeScope?: string;
     tasks: ActivityTaskInfo[];
     formattedDate: string;
   }>> = [];
@@ -133,7 +162,14 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       const dateStr = curDt.toFormat('yyyy-MM-dd');
       const isInRange = curDt >= startDate && curDt <= endDate;
       const isFuture = curDt > todayDt;
-      const data = !isFuture && isInRange ? (activityMap.get(dateStr) || { count: 0, tasks: [] }) : { count: 0, tasks: [] };
+
+      let data = !isFuture && isInRange ? (activityMap.get(dateStr) || { count: 0, tasks: [] }) : { count: 0, tasks: [] };
+      if (dateStr === todayStr && liveTodayData !== null) {
+        data = liveTodayData;
+      }
+
+      const isFrozen = !isFuture && isInRange && freezeMap.has(dateStr);
+      const freezeScope = freezeMap.get(dateStr);
 
       // Track month transitions for accurate column alignment
       if (isInRange && curDt.month !== lastMonth && d === 0) {
@@ -150,6 +186,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
         isFuture,
         dayOfWeek: curDt.weekday % 7,
         count: isFuture ? 0 : data.count,
+        isFrozen,
+        freezeScope,
         tasks: isFuture ? [] : data.tasks,
         formattedDate: curDt.toFormat('cccc, MMMM d, yyyy'),
       });
@@ -157,10 +195,13 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     weeks.push(weekDays);
   }
 
-  // Intensity color function (GitHub emerald aesthetic tailored for StreakUp dark theme)
-  const getCellColor = (count: number, isInRange: boolean, isFuture: boolean) => {
+  // Intensity color function (GitHub emerald aesthetic tailored for StreakUp dark theme + Ice Blue freeze shield)
+  const getCellColor = (count: number, isInRange: boolean, isFuture: boolean, isFrozen: boolean) => {
     if (!isInRange) return 'bg-transparent border-transparent opacity-0 pointer-events-none';
     if (isFuture) return 'bg-dark-surface/30 border-dark-border/20 cursor-not-allowed opacity-40';
+    if (count === 0 && isFrozen) {
+      return 'bg-cyan-950/90 border-cyan-500 text-cyan-200 ring-1 ring-cyan-400/50 hover:border-cyan-300 shadow-sm shadow-cyan-500/20 cursor-pointer';
+    }
     if (count === 0) return 'bg-dark-surface/70 border-dark-border/60 hover:border-zinc-400 cursor-pointer';
     if (count === 1) return 'bg-emerald-950 border-emerald-800 text-emerald-200 hover:border-emerald-500 cursor-pointer';
     if (count === 2) return 'bg-emerald-800 border-emerald-600 text-emerald-100 hover:border-emerald-400 shadow-sm shadow-emerald-700/20 cursor-pointer';
@@ -173,6 +214,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     isInRange: boolean;
     isFuture: boolean;
     count: number;
+    isFrozen: boolean;
+    freezeScope?: string;
     tasks: ActivityTaskInfo[];
     formattedDate: string;
   }) => {
@@ -181,6 +224,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       dateStr: day.dateStr,
       formattedDate: day.formattedDate,
       count: day.count,
+      isFrozen: day.isFrozen,
+      freezeScope: day.freezeScope,
       tasks: day.tasks,
     });
   };
@@ -279,12 +324,15 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
                       title={
                         day.isFuture
                           ? `${day.formattedDate}: Future date`
+                          : day.isFrozen && day.count === 0
+                          ? `${day.formattedDate}: ❄️ Streak Shield Active (Protected)`
                           : `${day.formattedDate}: ${day.count} habit${day.count === 1 ? '' : 's'} completed`
                       }
                       className={`aspect-square w-full rounded-sm border transition-all duration-100 ${getCellColor(
                         day.count,
                         day.isInRange,
-                        day.isFuture
+                        day.isFuture,
+                        day.isFrozen
                       )}`}
                     />
                   ))
@@ -309,6 +357,9 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
           <div className="w-3 h-3 rounded-sm bg-emerald-600 border border-emerald-400" title="3-4 completions" />
           <div className="w-3 h-3 rounded-sm bg-emerald-400 border border-emerald-300" title="5+ completions" />
           <span className="text-[10px]">More</span>
+          <span className="text-[10px] text-dark-muted px-1">|</span>
+          <div className="w-3 h-3 rounded-sm bg-cyan-950/90 border border-cyan-500 shadow-sm shadow-cyan-500/20" title="Freeze Shield Protected" />
+          <span className="text-[10px] text-cyan-300 font-semibold">❄️ Frozen</span>
         </div>
       </div>
 
@@ -327,8 +378,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
           >
             <div className="flex items-center justify-between border-b border-dark-border pb-3 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4" />
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${selectedDateDetail.isFrozen && selectedDateDetail.count === 0 ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'}`}>
+                  {selectedDateDetail.isFrozen && selectedDateDetail.count === 0 ? <span className="text-sm">❄️</span> : <CheckCircle2 className="w-4 h-4" />}
                 </div>
                 <div>
                   <h4 id="heatmap-date-title" className="text-sm font-bold text-zinc-100">
@@ -348,9 +399,19 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
               </button>
             </div>
 
+            {selectedDateDetail.isFrozen && (
+              <div className="p-3 bg-cyan-950/40 border border-cyan-500/30 rounded-xl flex items-center gap-2.5 text-xs text-cyan-200 font-medium">
+                <span className="text-base">❄️</span>
+                <div>
+                  <p className="font-bold">Streak Shield Protected</p>
+                  <p className="text-[11px] text-cyan-300/80">A freeze shield protected this missed day so your streak remained intact.</p>
+                </div>
+              </div>
+            )}
+
             {selectedDateDetail.tasks.length === 0 ? (
               <div className="py-6 text-center text-xs text-dark-muted flex-1">
-                No habit completions recorded on this date.
+                {selectedDateDetail.isFrozen ? 'Protected from streak break.' : 'No habit completions recorded on this date.'}
               </div>
             ) : (
               <div className="space-y-2.5 min-h-0 overflow-y-auto pr-1 flex-1">

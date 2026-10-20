@@ -261,7 +261,6 @@ export const DashboardPage: React.FC = () => {
         triggerStreakCelebration({
           newStreak: nextStreak,
         });
-        toast.success('Done! 🔥');
 
         try {
           const res = await completeTask(task.id, 'LinkedIn games completed');
@@ -966,6 +965,7 @@ export const DashboardPage: React.FC = () => {
       <ActivityHeatmap
         timezone={user?.timezone || 'Asia/Kolkata'}
         currentStreak={user?.currentStreak || 0}
+        todayTasks={tasks}
       />
 
       {/* Task Creation / Edit Modal */}
