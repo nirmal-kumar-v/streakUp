@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { DateTime } from 'luxon';
+import { getTodayInTimezone } from '../src/services/timezoneService';
 import {
   LINKEDIN_GAMES,
   normalizeGameId,
@@ -95,10 +97,14 @@ describe('LinkedIn Group Games & Independent Streaks', () => {
   });
 
   it('5. Sequential multi-day completions build independent streak and historical records', async () => {
-    // Complete Queens on 3 consecutive dates: 2026-10-17, 2026-10-18, 2026-10-19
-    await completeMemberGame(testGroupId, user2, 'queens', timezone, '2026-10-17', 'Row 1 crown');
-    await completeMemberGame(testGroupId, user2, 'queens', timezone, '2026-10-18', 'Row 2 crown');
-    const queensDay3 = await completeMemberGame(testGroupId, user2, 'queens', timezone, '2026-10-19', 'Row 3 crown');
+    const d3 = getTodayInTimezone(timezone);
+    const d2 = DateTime.now().setZone(timezone).minus({ days: 1 }).toFormat('yyyy-MM-dd');
+    const d1 = DateTime.now().setZone(timezone).minus({ days: 2 }).toFormat('yyyy-MM-dd');
+
+    // Complete Queens on 3 consecutive dates: d1, d2, d3
+    await completeMemberGame(testGroupId, user2, 'queens', timezone, d1, 'Row 1 crown');
+    await completeMemberGame(testGroupId, user2, 'queens', timezone, d2, 'Row 2 crown');
+    const queensDay3 = await completeMemberGame(testGroupId, user2, 'queens', timezone, d3, 'Row 3 crown');
 
     expect(queensDay3.currentStreak).toBe(3);
     expect(queensDay3.longestStreak).toBe(3);

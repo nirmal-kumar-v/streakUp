@@ -16,8 +16,8 @@ export function calculateOptimisticUserStreak(
     return Math.max(1, currentStreak);
   }
 
-  // If user account was created today (same local calendar date), streak is at most 1
-  if (userCreatedAt) {
+  // If user account was created today (same local calendar date) and streak is 0, streak is 1
+  if (userCreatedAt && currentStreak === 0) {
     try {
       const now = new Date();
       const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;

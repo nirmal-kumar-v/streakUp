@@ -100,11 +100,15 @@ export function calculateStreaks(
 export async function recalculateUserStreaks(
   prisma: any,
   userId: string,
-  userTimezone?: string
+  userTimezone?: string,
+  options?: {
+    targetCurrentStreak?: number;
+    targetLongestStreak?: number;
+  }
 ): Promise<StreakResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true }
+    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true, currentStreak: true }
   });
   const tz = userTimezone || user?.timezone || DEFAULT_TIMEZONE;
   const maxCapacity = user?.overallFreezeCapacity || 1;
@@ -150,17 +154,22 @@ export async function recalculateUserStreaks(
     }
   }
 
-  const maxPossibleUserLongest = Math.max(freezeResult.totalCompletedDays, freezeResult.currentStreak);
-  const effectiveLongestStreak = Math.min(
-    Math.max(user?.longestStreak || 0, freezeResult.longestStreak, freezeResult.currentStreak),
-    maxPossibleUserLongest
+  const effectiveCurrentStreak = options?.targetCurrentStreak !== undefined
+    ? Math.max(freezeResult.currentStreak, options.targetCurrentStreak)
+    : Math.max(freezeResult.currentStreak, user?.currentStreak || 0);
+
+  const effectiveLongestStreak = Math.max(
+    user?.longestStreak || 0,
+    options?.targetLongestStreak || 0,
+    freezeResult.longestStreak,
+    effectiveCurrentStreak
   );
 
   // Update user with recalculated streaks and freezes
   await prisma.user.update({
     where: { id: userId },
     data: {
-      currentStreak: freezeResult.currentStreak,
+      currentStreak: effectiveCurrentStreak,
       longestStreak: effectiveLongestStreak,
       overallFreezeBalance: freezeResult.freezeBalance,
       overallFreezeRechargeDays: freezeResult.freezeRechargeDays,
@@ -169,7 +178,7 @@ export async function recalculateUserStreaks(
   });
 
   return {
-    currentStreak: freezeResult.currentStreak,
+    currentStreak: effectiveCurrentStreak,
     longestStreak: effectiveLongestStreak,
     hasCompletedToday: freezeResult.hasCompletedToday,
     lastCompletedDate: freezeResult.lastCompletedDate,
@@ -187,11 +196,15 @@ export async function recalculateTaskStreaks(
   prisma: any,
   taskId: string,
   userId: string,
-  userTimezone?: string
+  userTimezone?: string,
+  options?: {
+    targetCurrentStreak?: number;
+    targetLongestStreak?: number;
+  }
 ): Promise<TimelineStreakResult> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true }
+    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true, currentStreak: true }
   });
 
   if (!task || task.recurrence === 'ONE_TIME') {
@@ -264,16 +277,21 @@ export async function recalculateTaskStreaks(
     }
   }
 
-  const maxPossibleTaskLongest = Math.max(freezeResult.totalCompletedDays, freezeResult.currentStreak);
-  const effectiveLongestStreak = Math.min(
-    Math.max(task.longestStreak || 0, freezeResult.longestStreak, freezeResult.currentStreak),
-    maxPossibleTaskLongest
+  const effectiveCurrentStreak = options?.targetCurrentStreak !== undefined
+    ? Math.max(freezeResult.currentStreak, options.targetCurrentStreak)
+    : Math.max(freezeResult.currentStreak, task.currentStreak || 0);
+
+  const effectiveLongestStreak = Math.max(
+    task.longestStreak || 0,
+    options?.targetLongestStreak || 0,
+    freezeResult.longestStreak,
+    effectiveCurrentStreak
   );
 
   await prisma.task.update({
     where: { id: taskId },
     data: {
-      currentStreak: freezeResult.currentStreak,
+      currentStreak: effectiveCurrentStreak,
       longestStreak: effectiveLongestStreak,
       freezeBalance: freezeResult.freezeBalance,
       freezeRechargeDays: freezeResult.freezeRechargeDays,
@@ -283,6 +301,7 @@ export async function recalculateTaskStreaks(
 
   return {
     ...freezeResult,
+    currentStreak: effectiveCurrentStreak,
     longestStreak: effectiveLongestStreak
   };
 }

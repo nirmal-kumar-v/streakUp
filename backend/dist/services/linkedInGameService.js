@@ -669,10 +669,7 @@ async function uncompleteCommittedGamesForDashboard(groupId, userId, userTimezon
                 ? Math.max(0, raw.manualCurrentStreak - 1)
                 : raw.manualCurrentStreak;
         }
-        const uniqueDays = new Set(raw.completions.map((c) => c.completionDate)).size;
-        const maxPossible = Math.max(uniqueDays, raw.manualCurrentStreak || 0);
-        const prevLongest = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
-        raw.manualLongestStreak = Math.min(prevLongest, maxPossible);
+        raw.manualLongestStreak = Math.max(raw.manualLongestStreak || 0, game.longestStreak || 0, raw.manualCurrentStreak || 0);
         raw.updatedAt = new Date().toISOString();
         records[key] = raw;
         recordsToSync.push(raw);
