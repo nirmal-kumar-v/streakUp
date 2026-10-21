@@ -201,8 +201,13 @@ async function checkAndTriggerMilestones(params) {
     const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
     if (!user)
         return;
-    // 3. User's Own Milestone Notification (In-app celebratory notification only; no email on streak/task completion)
+    // 3. User's Own Milestone Notification
     const scopeDesc = scope === client_1.FreezeScope.OVERALL ? 'overall' : taskTitle || 'task';
+    const myEmail = (0, emailService_1.buildMyMilestoneEmail)({
+        name: user.name,
+        scopeDescription: scopeDesc,
+        milestone: currentStreak,
+    });
     await createNotification({
         userId,
         category: client_1.NotificationCategory.MY_MILESTONE,
@@ -211,6 +216,8 @@ async function checkAndTriggerMilestones(params) {
         taskId: scope === client_1.FreezeScope.TASK ? scopeId : null,
         actionUrl: scope === client_1.FreezeScope.TASK ? `/tasks` : `/dashboard`,
         eventKey: `MILESTONE:SELF:${userId}:${scopeKey}:${currentStreak}`,
+        emailSubject: myEmail.subject,
+        emailText: myEmail.text,
     });
     // 4. Find all Accepted Friends to notify them
     const friendships = await prisma_1.default.friendship.findMany({

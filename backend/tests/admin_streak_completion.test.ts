@@ -134,11 +134,13 @@ describe('Admin Streak Correction & Account Tick Progression', () => {
     expect(updatedUserData.longestStreak).toBe(25);
   });
 
-  it('4. Completing a streak milestone creates in-app notification without sending email', async () => {
+  it('4. Completing a streak milestone sends milestone celebration email', async () => {
     const prismaModule = await import('../src/config/prisma');
     const prisma = prismaModule.default;
+    const emailModule = await import('../src/services/emailService');
 
     let capturedNotification: any = null;
+    let capturedEmail: any = null;
 
     const findMilestoneSpy = vi.spyOn(prisma.milestoneEvent, 'findUnique').mockResolvedValue(null as any);
     const createMilestoneSpy = vi.spyOn(prisma.milestoneEvent, 'create').mockResolvedValue({ id: 'm-1' } as any);
@@ -156,21 +158,26 @@ describe('Admin Streak Correction & Account Tick Progression', () => {
       return { id: 'n-1', ...data } as any;
     });
     const findFriendshipSpy = vi.spyOn(prisma.friendship, 'findMany').mockResolvedValue([]);
+    const sendEmailSpy = vi.spyOn(emailModule, 'sendEmail').mockImplementation(async (opts: any) => {
+      capturedEmail = opts;
+      return { success: true };
+    });
 
     try {
       await checkAndTriggerMilestones({
         userId: 'u-1',
         scope: FreezeScope.OVERALL,
         scopeId: 'OVERALL',
-        currentStreak: 10, // Milestone!
+        currentStreak: 10, // Qualifying Milestone!
       });
 
       expect(capturedNotification).not.toBeNull();
       expect(capturedNotification.category).toBe(NotificationCategory.MY_MILESTONE);
       expect(capturedNotification.title).toContain('10-Day Streak Milestone');
-      // Verify NO email subject or email text was passed for user's milestone
-      expect(capturedNotification.emailSubject).toBeUndefined();
-      expect(capturedNotification.emailText).toBeUndefined();
+      // Milestone email is sent
+      expect(capturedEmail).not.toBeNull();
+      expect(capturedEmail.subject).toContain('10-day streak');
+      expect(capturedEmail.text).toContain('Tester');
     } finally {
       findMilestoneSpy.mockRestore();
       createMilestoneSpy.mockRestore();
@@ -179,6 +186,7 @@ describe('Admin Streak Correction & Account Tick Progression', () => {
       findNotifSpy.mockRestore();
       createNotifSpy.mockRestore();
       findFriendshipSpy.mockRestore();
+      sendEmailSpy.mockRestore();
     }
   });
 
