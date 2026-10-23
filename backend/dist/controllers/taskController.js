@@ -98,13 +98,24 @@ async function getTasks(req, res) {
                 }
             }
         });
+        const updatedTasksMap = new Map();
+        await Promise.all(tasks
+            .filter(t => t.status === 'ACTIVE' && t.recurrence === 'DAILY' && t.currentStreak > 0)
+            .map(async (t) => {
+            const res = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, t.id, userId, timezone);
+            updatedTasksMap.set(t.id, {
+                currentStreak: res.currentStreak,
+                longestStreak: res.longestStreak,
+            });
+        }));
         // Transform tasks to attach completedToday flag and todayStudyNote
         const formattedTasks = await Promise.all(tasks.map(async (task) => {
             let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
-            let currentStreak = task.currentStreak;
-            let longestStreak = task.longestStreak;
+            const updatedInfo = updatedTasksMap.get(task.id);
+            let currentStreak = updatedInfo ? updatedInfo.currentStreak : task.currentStreak;
+            let longestStreak = updatedInfo ? updatedInfo.longestStreak : task.longestStreak;
             const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
             if (isLinkedIn && task.groupId) {
                 const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
@@ -323,7 +334,7 @@ async function completeTask(req, res) {
         const { studyNote } = req.body || {};
         const task = await prisma_1.default.task.findUnique({
             where: { id },
-            include: { user: { select: { timezone: true, currentStreak: true, longestStreak: true } } }
+            include: { user: { select: { timezone: true, currentStreak: true, longestStreak: true, overallFreezeBalance: true, updatedAt: true } } }
         });
         if (!task) {
             return res.status(404).json({ success: false, error: 'Task not found.' });
@@ -372,9 +383,19 @@ async function completeTask(req, res) {
                     studyNote: null,
                 },
             });
+            const yesterdayDateStr = (0, timezoneService_1.getYesterdayDateString)(timezone);
+            const wasUserActiveYesterday = (await prisma_1.default.taskCompletion.count({
+                where: { userId, completionDate: yesterdayDateStr }
+            })) > 0 ||
+                (await prisma_1.default.freezeLog.count({
+                    where: { userId, scope: 'OVERALL', protectedDate: yesterdayDateStr }
+                })) > 0;
+            const userUpdatedLocalDate = task.user?.updatedAt ? (0, timezoneService_1.getLocalDateString)(timezone, new Date(task.user.updatedAt)) : null;
+            const wasUserRecentlyUpdated = userUpdatedLocalDate === todayDateStr || userUpdatedLocalDate === yesterdayDateStr;
+            const canMaintainUserStreak = wasUserActiveYesterday || wasUserAlreadyCompletedToday || wasUserRecentlyUpdated || ((task.user?.overallFreezeBalance || 0) >= 1);
             const targetUserStreak = wasUserAlreadyCompletedToday
-                ? (task.user?.currentStreak || 1)
-                : ((task.user?.currentStreak || 0) + 1);
+                ? Math.max(1, task.user?.currentStreak || 1)
+                : (canMaintainUserStreak ? ((task.user?.currentStreak || 0) + 1) : 1);
             const targetUserLongest = Math.max(task.user?.longestStreak || 0, targetUserStreak);
             // Recalculate overall streak accurately based on local calendar dates and freezes
             const overallStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone, {
@@ -470,14 +491,36 @@ async function completeTask(req, res) {
                 data: { isCompleted: true }
             });
         }
-        const targetTaskStreak = wasTaskAlreadyCompletedToday
-            ? (task.currentStreak || 1)
-            : ((task.currentStreak || 0) + 1);
-        const targetTaskLongest = Math.max(task.longestStreak || 0, targetTaskStreak);
+        const yesterdayDateStr = (0, timezoneService_1.getYesterdayDateString)(timezone);
+        const wasUserActiveYesterday = (await prisma_1.default.taskCompletion.count({
+            where: { userId, completionDate: yesterdayDateStr }
+        })) > 0 ||
+            (await prisma_1.default.freezeLog.count({
+                where: { userId, scope: 'OVERALL', protectedDate: yesterdayDateStr }
+            })) > 0;
+        const userUpdatedLocalDate = task.user?.updatedAt ? (0, timezoneService_1.getLocalDateString)(timezone, new Date(task.user.updatedAt)) : null;
+        const wasUserRecentlyUpdated = userUpdatedLocalDate === todayDateStr || userUpdatedLocalDate === yesterdayDateStr;
+        const canMaintainUserStreak = wasUserActiveYesterday || wasUserAlreadyCompletedToday || wasUserRecentlyUpdated || ((task.user?.overallFreezeBalance || 0) >= 1);
         const targetUserStreak = wasUserAlreadyCompletedToday
-            ? (task.user?.currentStreak || 1)
-            : ((task.user?.currentStreak || 0) + 1);
+            ? Math.max(1, task.user?.currentStreak || 1)
+            : (canMaintainUserStreak ? ((task.user?.currentStreak || 0) + 1) : 1);
         const targetUserLongest = Math.max(task.user?.longestStreak || 0, targetUserStreak);
+        const wasTaskActiveYesterday = (await prisma_1.default.taskCompletion.count({
+            where: { taskId: id, completionDate: yesterdayDateStr }
+        })) > 0 ||
+            (await prisma_1.default.freezeLog.count({
+                where: { taskId: id, scope: 'TASK', protectedDate: yesterdayDateStr }
+            })) > 0;
+        const taskUpdatedLocalDate = task.updatedAt ? (0, timezoneService_1.getLocalDateString)(timezone, new Date(task.updatedAt)) : null;
+        const wasTaskRecentlyUpdated = taskUpdatedLocalDate === todayDateStr || taskUpdatedLocalDate === yesterdayDateStr;
+        const yesterdayDayOfWeek = luxon_1.DateTime.fromISO(yesterdayDateStr, { zone: timezone }).weekday % 7;
+        const taskScheduledDays = task.scheduledDays || [0, 1, 2, 3, 4, 5, 6];
+        const isYesterdayScheduled = taskScheduledDays.includes(yesterdayDayOfWeek);
+        const canMaintainTaskStreak = wasTaskActiveYesterday || wasTaskAlreadyCompletedToday || wasTaskRecentlyUpdated || !isYesterdayScheduled || ((task.freezeBalance || 0) >= 1);
+        const targetTaskStreak = wasTaskAlreadyCompletedToday
+            ? Math.max(1, task.currentStreak || 1)
+            : (canMaintainTaskStreak ? ((task.currentStreak || 0) + 1) : 1);
+        const targetTaskLongest = Math.max(task.longestStreak || 0, targetTaskStreak);
         // Immediately recalculate independent task streak
         const taskStreak = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, id, userId, timezone, {
             targetCurrentStreak: targetTaskStreak,
@@ -916,6 +959,8 @@ async function getDashboardSummary(req, res) {
         const timezone = user.timezone || 'Asia/Kolkata';
         const todayDateStr = (0, timezoneService_1.getLocalDateString)(timezone);
         const clockInfo = (0, timezoneService_1.getLocalTimeInfo)(timezone);
+        // Reconcile overall user streak and freezes accurately
+        const freshUserStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone);
         // Reconcile missed points for user asynchronously in background to keep dashboard loads instant
         (0, pointsService_1.reconcileMissedPointsForUser)(prisma_1.default, userId, timezone).catch((e) => console.error('Missed points reconcile error:', e));
         // Concurrently fetch points stats, overall freeze logs, and all user tasks
@@ -938,18 +983,34 @@ async function getDashboardSummary(req, res) {
                 }
             })
         ]);
+        // Reconcile active daily tasks streak and freezes
+        const updatedTasksMap = new Map();
+        await Promise.all(allUserTasks
+            .filter(t => t.status === 'ACTIVE' && t.recurrence === 'DAILY' && t.currentStreak > 0)
+            .map(async (t) => {
+            const res = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, t.id, userId, timezone);
+            updatedTasksMap.set(t.id, {
+                currentStreak: res.currentStreak,
+                longestStreak: res.longestStreak,
+                freezeBalance: res.freezeBalance,
+                freezeRechargeDays: res.freezeRechargeDays,
+            });
+        }));
         // Calculate completed vs pending today
         const tasksWithStatus = await Promise.all(allUserTasks.map(async (task) => {
             let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
-            let currentStreak = task.currentStreak;
-            let longestStreak = task.longestStreak;
+            const updatedTask = updatedTasksMap.get(task.id);
+            let currentStreak = updatedTask ? updatedTask.currentStreak : task.currentStreak;
+            let longestStreak = updatedTask ? updatedTask.longestStreak : task.longestStreak;
+            let freezeBalance = updatedTask ? updatedTask.freezeBalance : task.freezeBalance;
+            let freezeRechargeDays = updatedTask ? updatedTask.freezeRechargeDays : task.freezeRechargeDays;
             const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
             if (isLinkedIn && task.groupId) {
                 const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
                 currentStreak = Math.max(currentStreak, li.currentStreak);
-                longestStreak = Math.max(task.longestStreak, li.longestStreak);
+                longestStreak = Math.max(longestStreak, li.longestStreak);
                 completedToday = Boolean(task.completions.length > 0 || li.completedToday);
             }
             const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
@@ -965,8 +1026,8 @@ async function getDashboardSummary(req, res) {
                 status: task.status,
                 currentStreak,
                 longestStreak,
-                freezeBalance: task.freezeBalance,
-                freezeRechargeDays: task.freezeRechargeDays,
+                freezeBalance,
+                freezeRechargeDays,
                 completedToday,
                 todayStudyNote,
                 groupId: task.groupId,
@@ -981,8 +1042,8 @@ async function getDashboardSummary(req, res) {
         const completionPercentage = totalActiveTasks > 0
             ? Math.round((completedTodayCount / totalActiveTasks) * 100)
             : 0;
-        const effectiveUserCurrentStreak = completedTodayCount > 0 ? Math.max(1, user.currentStreak) : user.currentStreak;
-        const effectiveUserLongestStreak = Math.max(user.longestStreak, effectiveUserCurrentStreak);
+        const effectiveUserCurrentStreak = completedTodayCount > 0 ? Math.max(1, freshUserStreak.currentStreak) : freshUserStreak.currentStreak;
+        const effectiveUserLongestStreak = Math.max(freshUserStreak.longestStreak, effectiveUserCurrentStreak);
         return res.json({
             success: true,
             user: {
@@ -992,9 +1053,9 @@ async function getDashboardSummary(req, res) {
                 profileImage: user.profileImage,
                 currentStreak: effectiveUserCurrentStreak,
                 longestStreak: effectiveUserLongestStreak,
-                overallFreezeBalance: user.overallFreezeBalance,
-                overallFreezeRechargeDays: user.overallFreezeRechargeDays,
-                protectedDates: overallFreezeLogs.map(l => l.protectedDate),
+                overallFreezeBalance: freshUserStreak.freezeBalance ?? user.overallFreezeBalance,
+                overallFreezeRechargeDays: freshUserStreak.freezeRechargeDays ?? user.overallFreezeRechargeDays,
+                protectedDates: freshUserStreak.protectedDates ?? overallFreezeLogs.map(l => l.protectedDate),
                 timezone,
                 points: pointsStats.totalPoints,
             },

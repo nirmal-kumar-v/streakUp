@@ -205,4 +205,94 @@ describe('Admin Streak Correction & Account Tick Progression', () => {
     const optimisticSecondTask = calculateOptimisticUserStreak(11, true, today);
     expect(optimisticSecondTask).toBe(11);
   });
+
+  it('6. Streak automatically reduces to 0 when user misses days without freeze protection', async () => {
+    // User had streak 2 from 3 days ago, and hasn't visited/completed for the past 2 days
+    const mockUser = {
+      id: 'user-streak-lapsed',
+      timezone,
+      currentStreak: 2,
+      longestStreak: 2,
+      overallFreezeCapacity: 1,
+      updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
+    };
+
+    let updatedUserData: any = null;
+
+    const mockPrisma = {
+      user: {
+        findUnique: vi.fn().mockResolvedValue(mockUser),
+        update: vi.fn().mockImplementation(async ({ data }) => {
+          updatedUserData = data;
+          return { ...mockUser, ...data };
+        }),
+      },
+      taskCompletion: {
+        // Last completion was 3 days ago, nothing yesterday or today
+        findMany: vi.fn().mockResolvedValue([
+          { completionDate: '2026-10-18' },
+          { completionDate: '2026-10-19' },
+        ]),
+      },
+      freezeLog: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    };
+
+    // User visits website without options
+    const result = await recalculateUserStreaks(mockPrisma, 'user-streak-lapsed', timezone);
+
+    // Current streak must automatically reduce to 0!
+    expect(result.currentStreak).toBe(0);
+    // Historical longest streak must be preserved at 2
+    expect(result.longestStreak).toBe(2);
+    expect(updatedUserData.currentStreak).toBe(0);
+    expect(updatedUserData.longestStreak).toBe(2);
+  });
+
+  it('7. Task streak automatically reduces to 0 when user misses days without freeze protection', async () => {
+    const mockTask = {
+      id: 'task-streak-lapsed',
+      recurrence: 'DAILY',
+      scheduledDays: [0, 1, 2, 3, 4, 5, 6],
+      freezeCapacity: 1,
+      currentStreak: 2,
+      longestStreak: 2,
+      updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+    };
+
+    let updatedTaskData: any = null;
+
+    const mockPrisma = {
+      task: {
+        findUnique: vi.fn().mockResolvedValue(mockTask),
+        update: vi.fn().mockImplementation(async ({ data }) => {
+          updatedTaskData = data;
+          return { ...mockTask, ...data };
+        }),
+      },
+      user: {
+        findUnique: vi.fn().mockResolvedValue({ timezone }),
+      },
+      taskCompletion: {
+        // Last completions were 3 days ago
+        findMany: vi.fn().mockResolvedValue([
+          { completionDate: '2026-10-18' },
+          { completionDate: '2026-10-19' },
+        ]),
+      },
+      freezeLog: {
+        findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    };
+
+    const result = await recalculateTaskStreaks(mockPrisma, 'task-streak-lapsed', 'user-1', timezone);
+
+    expect(result.currentStreak).toBe(0);
+    expect(result.longestStreak).toBe(2);
+    expect(updatedTaskData.currentStreak).toBe(0);
+    expect(updatedTaskData.longestStreak).toBe(2);
+  });
 });

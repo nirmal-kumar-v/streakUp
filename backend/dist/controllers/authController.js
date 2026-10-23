@@ -56,6 +56,7 @@ const otpService_1 = require("../services/otpService");
 const emailService_1 = require("../services/emailService");
 const notificationService_1 = require("../services/notificationService");
 const adminConfigService_1 = require("../services/adminConfigService");
+const streakService_1 = require("../services/streakService");
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
 const JWT_EXPIRES_IN = '365d';
 // Registration schema validation
@@ -756,8 +757,22 @@ async function getMe(req, res) {
         }
         const { _count, ...userData } = user;
         const connectionsCount = (_count?.friendshipsAsUser1 || 0) + (_count?.friendshipsAsUser2 || 0);
+        let currentStreak = user.currentStreak;
+        let longestStreak = user.longestStreak;
+        if (user.currentStreak > 0) {
+            try {
+                const refreshed = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, user.timezone);
+                currentStreak = refreshed.currentStreak;
+                longestStreak = refreshed.longestStreak;
+            }
+            catch (e) {
+                console.error('getMe recalculateUserStreaks error:', e);
+            }
+        }
         const safeUser = {
             ...userData,
+            currentStreak,
+            longestStreak,
             connectionsCount,
             profileImageLimitMb: (0, adminConfigService_1.getUserProfileImageLimitMb)(user.id),
         };

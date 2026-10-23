@@ -108,7 +108,7 @@ export async function recalculateUserStreaks(
 ): Promise<StreakResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true, currentStreak: true }
+    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true }
   });
   const tz = userTimezone || user?.timezone || DEFAULT_TIMEZONE;
   const maxCapacity = user?.overallFreezeCapacity || 1;
@@ -154,15 +154,31 @@ export async function recalculateUserStreaks(
     }
   }
 
-  const effectiveCurrentStreak = options?.targetCurrentStreak !== undefined
-    ? Math.max(freezeResult.currentStreak, options.targetCurrentStreak)
-    : Math.max(freezeResult.currentStreak, user?.currentStreak || 0);
+  const todayStr = getLocalDateString(tz);
+  const yesterdayStr = getYesterdayDateString(tz);
+
+  const isYesterdayActive = completionDates.includes(yesterdayStr) || freezeResult.protectedDates.includes(yesterdayStr);
+  const isTodayActive = freezeResult.hasCompletedToday || freezeResult.isTodayProtected;
+  const userUpdatedLocalDate = user?.updatedAt ? getLocalDateString(tz, new Date(user.updatedAt)) : null;
+  const wasRecentlyUpdated = userUpdatedLocalDate === todayStr || userUpdatedLocalDate === yesterdayStr;
+
+  const isStreakIntact = isYesterdayActive || isTodayActive || wasRecentlyUpdated;
+
+  let effectiveCurrentStreak = 0;
+  if (options?.targetCurrentStreak !== undefined) {
+    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, options.targetCurrentStreak);
+  } else if (isStreakIntact) {
+    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, user?.currentStreak || 0);
+  } else {
+    effectiveCurrentStreak = freezeResult.currentStreak; // 0 when missed without freeze
+  }
 
   const effectiveLongestStreak = Math.max(
     user?.longestStreak || 0,
     options?.targetLongestStreak || 0,
     freezeResult.longestStreak,
-    effectiveCurrentStreak
+    effectiveCurrentStreak,
+    user?.currentStreak || 0
   );
 
   // Update user with recalculated streaks and freezes
@@ -204,7 +220,7 @@ export async function recalculateTaskStreaks(
 ): Promise<TimelineStreakResult> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true, currentStreak: true }
+    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true }
   });
 
   if (!task || task.recurrence === 'ONE_TIME') {
@@ -277,15 +293,29 @@ export async function recalculateTaskStreaks(
     }
   }
 
-  const effectiveCurrentStreak = options?.targetCurrentStreak !== undefined
-    ? Math.max(freezeResult.currentStreak, options.targetCurrentStreak)
-    : Math.max(freezeResult.currentStreak, task.currentStreak || 0);
+  const todayStr = getLocalDateString(tz);
+  const yesterdayStr = getYesterdayDateString(tz);
+
+  const taskUpdatedLocalDate = task?.updatedAt ? getLocalDateString(tz, new Date(task.updatedAt)) : null;
+  const wasTaskRecentlyUpdated = taskUpdatedLocalDate === todayStr || taskUpdatedLocalDate === yesterdayStr;
+
+  const isTaskStreakIntact = freezeResult.currentStreak > 0 || wasTaskRecentlyUpdated;
+
+  let effectiveCurrentStreak = 0;
+  if (options?.targetCurrentStreak !== undefined) {
+    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, options.targetCurrentStreak);
+  } else if (isTaskStreakIntact) {
+    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, task?.currentStreak || 0);
+  } else {
+    effectiveCurrentStreak = freezeResult.currentStreak; // 0 when scheduled days missed without freeze
+  }
 
   const effectiveLongestStreak = Math.max(
-    task.longestStreak || 0,
+    task?.longestStreak || 0,
     options?.targetLongestStreak || 0,
     freezeResult.longestStreak,
-    effectiveCurrentStreak
+    effectiveCurrentStreak,
+    task?.currentStreak || 0
   );
 
   await prisma.task.update({
