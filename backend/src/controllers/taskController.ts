@@ -311,13 +311,42 @@ export async function deleteTask(req: AuthenticatedRequest, res: Response) {
       return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
 
-    if (existingTask.isGroupTask && existingTask.groupId) {
-      // Group task deleted from dashboard: archive it so membership and group streaks remain intact!
+    if (existingTask.status === 'ACTIVE' && existingTask.isGroupTask && existingTask.groupId) {
+      // Group task deleted from active dashboard: archive it so membership and group streaks remain intact!
       await prisma.task.update({
         where: { id },
         data: { status: 'ARCHIVED' },
       });
     } else {
+      // Permanent deletion (for archived habits or personal tasks)
+      // Safely clean up all child references first to avoid database foreign key violations
+      const completions = await prisma.taskCompletion.findMany({
+        where: { taskId: id },
+        select: { id: true },
+      });
+      if (completions.length > 0) {
+        const completionIds = completions.map((c) => c.id);
+        await prisma.studyNoteReaction.deleteMany({
+          where: { completionId: { in: completionIds } },
+        });
+      }
+      await prisma.taskCompletion.deleteMany({ where: { taskId: id } });
+      await prisma.freezeLog.deleteMany({ where: { taskId: id } });
+      await prisma.taskEquivalence.deleteMany({
+        where: {
+          OR: [{ userTaskId: id }, { friendTaskId: id }],
+        },
+      });
+      await prisma.reminderSchedule.deleteMany({ where: { taskId: id } });
+      await prisma.pointLedger.updateMany({
+        where: { taskId: id },
+        data: { taskId: null },
+      });
+      await prisma.notification.updateMany({
+        where: { taskId: id },
+        data: { taskId: null },
+      });
+
       await prisma.task.delete({ where: { id } });
     }
 

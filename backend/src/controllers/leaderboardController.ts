@@ -74,34 +74,40 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
       take: limit
     });
 
-    // Calculate tasks completed today for each user in page
-    const rankedUsers = await Promise.all(
-      users.map(async (u, idx) => {
-        const rank = skip + idx + 1;
-        const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
-        const tasksCompletedToday = await prisma.taskCompletion.count({
-          where: {
-            userId: u.id,
-            completionDate: todayDateStr
-          }
-        });
+    // Calculate tasks completed today for each user in page with a single batched query
+    const userIds = users.map((u) => u.id);
+    const todayCompletions = userIds.length > 0 ? await prisma.taskCompletion.findMany({
+      where: {
+        userId: { in: userIds },
+      },
+      select: {
+        userId: true,
+        completionDate: true,
+      },
+    }) : [];
 
-        return {
-          rank,
-          id: u.id,
-          name: u.name,
-          username: u.username,
-          profileImage: u.profileImage,
-          currentStreak: u.currentStreak,
-          longestStreak: u.longestStreak,
-          points: u.points,
-          totalCompletedTasks: u._count.taskCompletions,
-          tasksCompletedToday,
-          isCurrentUser: currentUserId ? u.id === currentUserId : false,
-          memberSince: u.createdAt
-        };
-      })
-    );
+    const rankedUsers = users.map((u, idx) => {
+      const rank = skip + idx + 1;
+      const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
+      const tasksCompletedToday = todayCompletions.filter(
+        (c) => c.userId === u.id && c.completionDate === todayDateStr
+      ).length;
+
+      return {
+        rank,
+        id: u.id,
+        name: u.name,
+        username: u.username,
+        profileImage: u.profileImage,
+        currentStreak: u.currentStreak,
+        longestStreak: u.longestStreak,
+        points: u.points,
+        totalCompletedTasks: u._count.taskCompletions,
+        tasksCompletedToday,
+        isCurrentUser: currentUserId ? u.id === currentUserId : false,
+        memberSince: u.createdAt
+      };
+    });
 
     // If user is authenticated, compute their exact global rank if not in the current page
     let currentUserRankInfo = null;
@@ -310,31 +316,38 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
       orderBy
     });
 
-    const friendsLeaderboard = await Promise.all(
-      users.map(async (u, idx) => {
-        const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
-        const tasksCompletedToday = await prisma.taskCompletion.count({
-          where: {
-            userId: u.id,
-            completionDate: todayDateStr
-          }
-        });
+    // Calculate tasks completed today for each friend with a single batched query
+    const displayedCohortIds = users.map((u) => u.id);
+    const friendTodayCompletions = displayedCohortIds.length > 0 ? await prisma.taskCompletion.findMany({
+      where: {
+        userId: { in: displayedCohortIds },
+      },
+      select: {
+        userId: true,
+        completionDate: true,
+      },
+    }) : [];
 
-        return {
-          rank: idx + 1,
-          id: u.id,
-          name: u.name,
-          username: u.username,
-          profileImage: u.profileImage,
-          currentStreak: u.currentStreak,
-          longestStreak: u.longestStreak,
-          points: u.points,
-          totalCompletedTasks: u._count.taskCompletions,
-          tasksCompletedToday,
-          isCurrentUser: u.id === userId
-        };
-      })
-    );
+    const friendsLeaderboard = users.map((u, idx) => {
+      const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
+      const tasksCompletedToday = friendTodayCompletions.filter(
+        (c) => c.userId === u.id && c.completionDate === todayDateStr
+      ).length;
+
+      return {
+        rank: idx + 1,
+        id: u.id,
+        name: u.name,
+        username: u.username,
+        profileImage: u.profileImage,
+        currentStreak: u.currentStreak,
+        longestStreak: u.longestStreak,
+        points: u.points,
+        totalCompletedTasks: u._count.taskCompletions,
+        tasksCompletedToday,
+        isCurrentUser: u.id === userId
+      };
+    });
 
     const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;
 

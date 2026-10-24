@@ -30,26 +30,39 @@ function ensureDataDir() {
   }
 }
 
+let cachedDeletedAccounts: DeletedAccountRecord[] | null = null;
+let lastDeletedAccountsLoad = 0;
+const CACHE_TTL_MS = 60 * 1000; // 1 minute in-memory cache
+
 export function loadAllDeletedAccounts(): DeletedAccountRecord[] {
+  const now = Date.now();
+  if (cachedDeletedAccounts && (now - lastDeletedAccountsLoad) < CACHE_TTL_MS) {
+    return cachedDeletedAccounts;
+  }
   ensureDataDir();
   try {
     if (fs.existsSync(DELETED_ACCOUNTS_FILE)) {
       const data = fs.readFileSync(DELETED_ACCOUNTS_FILE, 'utf-8');
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
-        return parsed.filter(
+        cachedDeletedAccounts = parsed.filter(
           (r: any) => r && typeof r.userId === 'string' && r.userId.trim().length > 0
         );
+        lastDeletedAccountsLoad = now;
+        return cachedDeletedAccounts;
       }
-      return [];
     }
   } catch (err) {
     console.error('[deletedAccountService] Failed to read deleted_accounts.json:', err);
   }
+  cachedDeletedAccounts = [];
+  lastDeletedAccountsLoad = now;
   return [];
 }
 
 export function saveAllDeletedAccounts(records: DeletedAccountRecord[]) {
+  cachedDeletedAccounts = records;
+  lastDeletedAccountsLoad = Date.now();
   ensureDataDir();
   try {
     fs.writeFileSync(DELETED_ACCOUNTS_FILE, JSON.stringify(records, null, 2), 'utf-8');

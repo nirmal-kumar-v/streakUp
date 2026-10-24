@@ -108,7 +108,7 @@ export async function recalculateUserStreaks(
 ): Promise<StreakResult> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true }
+    select: { timezone: true, overallFreezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true, overallFreezeBalance: true, overallFreezeRechargeDays: true }
   });
   const tz = userTimezone || user?.timezone || DEFAULT_TIMEZONE;
   const maxCapacity = user?.overallFreezeCapacity || 1;
@@ -181,17 +181,26 @@ export async function recalculateUserStreaks(
     user?.currentStreak || 0
   );
 
-  // Update user with recalculated streaks and freezes
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      currentStreak: effectiveCurrentStreak,
-      longestStreak: effectiveLongestStreak,
-      overallFreezeBalance: freezeResult.freezeBalance,
-      overallFreezeRechargeDays: freezeResult.freezeRechargeDays,
-      ...(freezeResult.newlyConsumedDates.length > 0 ? { lastOverallFreezeUsedAt: new Date() } : {})
-    }
-  });
+  // Update user with recalculated streaks and freezes only if values actually changed
+  const needsUserUpdate =
+    user?.currentStreak !== effectiveCurrentStreak ||
+    user?.longestStreak !== effectiveLongestStreak ||
+    user?.overallFreezeBalance !== freezeResult.freezeBalance ||
+    user?.overallFreezeRechargeDays !== freezeResult.freezeRechargeDays ||
+    freezeResult.newlyConsumedDates.length > 0;
+
+  if (needsUserUpdate) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        currentStreak: effectiveCurrentStreak,
+        longestStreak: effectiveLongestStreak,
+        overallFreezeBalance: freezeResult.freezeBalance,
+        overallFreezeRechargeDays: freezeResult.freezeRechargeDays,
+        ...(freezeResult.newlyConsumedDates.length > 0 ? { lastOverallFreezeUsedAt: new Date() } : {})
+      }
+    });
+  }
 
   return {
     currentStreak: effectiveCurrentStreak,
@@ -220,7 +229,7 @@ export async function recalculateTaskStreaks(
 ): Promise<TimelineStreakResult> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true }
+    select: { id: true, recurrence: true, scheduledDays: true, freezeCapacity: true, longestStreak: true, currentStreak: true, updatedAt: true, freezeBalance: true, freezeRechargeDays: true }
   });
 
   if (!task || task.recurrence === 'ONE_TIME') {
@@ -318,16 +327,25 @@ export async function recalculateTaskStreaks(
     task?.currentStreak || 0
   );
 
-  await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      currentStreak: effectiveCurrentStreak,
-      longestStreak: effectiveLongestStreak,
-      freezeBalance: freezeResult.freezeBalance,
-      freezeRechargeDays: freezeResult.freezeRechargeDays,
-      ...(freezeResult.newlyConsumedDates.length > 0 ? { lastFreezeUsedAt: new Date() } : {})
-    }
-  });
+  const needsTaskUpdate =
+    task.currentStreak !== effectiveCurrentStreak ||
+    task.longestStreak !== effectiveLongestStreak ||
+    task.freezeBalance !== freezeResult.freezeBalance ||
+    task.freezeRechargeDays !== freezeResult.freezeRechargeDays ||
+    freezeResult.newlyConsumedDates.length > 0;
+
+  if (needsTaskUpdate) {
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        currentStreak: effectiveCurrentStreak,
+        longestStreak: effectiveLongestStreak,
+        freezeBalance: freezeResult.freezeBalance,
+        freezeRechargeDays: freezeResult.freezeRechargeDays,
+        ...(freezeResult.newlyConsumedDates.length > 0 ? { lastFreezeUsedAt: new Date() } : {})
+      }
+    });
+  }
 
   return {
     ...freezeResult,

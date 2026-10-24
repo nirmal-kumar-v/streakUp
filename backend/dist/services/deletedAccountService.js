@@ -56,24 +56,36 @@ function ensureDataDir() {
         fs_1.default.mkdirSync(DATA_DIR, { recursive: true });
     }
 }
+let cachedDeletedAccounts = null;
+let lastDeletedAccountsLoad = 0;
+const CACHE_TTL_MS = 60 * 1000; // 1 minute in-memory cache
 function loadAllDeletedAccounts() {
+    const now = Date.now();
+    if (cachedDeletedAccounts && (now - lastDeletedAccountsLoad) < CACHE_TTL_MS) {
+        return cachedDeletedAccounts;
+    }
     ensureDataDir();
     try {
         if (fs_1.default.existsSync(DELETED_ACCOUNTS_FILE)) {
             const data = fs_1.default.readFileSync(DELETED_ACCOUNTS_FILE, 'utf-8');
             const parsed = JSON.parse(data);
             if (Array.isArray(parsed)) {
-                return parsed.filter((r) => r && typeof r.userId === 'string' && r.userId.trim().length > 0);
+                cachedDeletedAccounts = parsed.filter((r) => r && typeof r.userId === 'string' && r.userId.trim().length > 0);
+                lastDeletedAccountsLoad = now;
+                return cachedDeletedAccounts;
             }
-            return [];
         }
     }
     catch (err) {
         console.error('[deletedAccountService] Failed to read deleted_accounts.json:', err);
     }
+    cachedDeletedAccounts = [];
+    lastDeletedAccountsLoad = now;
     return [];
 }
 function saveAllDeletedAccounts(records) {
+    cachedDeletedAccounts = records;
+    lastDeletedAccountsLoad = Date.now();
     ensureDataDir();
     try {
         fs_1.default.writeFileSync(DELETED_ACCOUNTS_FILE, JSON.stringify(records, null, 2), 'utf-8');

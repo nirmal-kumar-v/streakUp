@@ -105,16 +105,21 @@ async function getGlobalLeaderboard(req, res) {
             skip,
             take: limit
         });
-        // Calculate tasks completed today for each user in page
-        const rankedUsers = await Promise.all(users.map(async (u, idx) => {
+        // Calculate tasks completed today for each user in page with a single batched query
+        const userIds = users.map((u) => u.id);
+        const todayCompletions = userIds.length > 0 ? await prisma_1.default.taskCompletion.findMany({
+            where: {
+                userId: { in: userIds },
+            },
+            select: {
+                userId: true,
+                completionDate: true,
+            },
+        }) : [];
+        const rankedUsers = users.map((u, idx) => {
             const rank = skip + idx + 1;
             const todayDateStr = (0, timezoneService_1.getLocalDateString)(u.timezone || 'Asia/Kolkata');
-            const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
-                where: {
-                    userId: u.id,
-                    completionDate: todayDateStr
-                }
-            });
+            const tasksCompletedToday = todayCompletions.filter((c) => c.userId === u.id && c.completionDate === todayDateStr).length;
             return {
                 rank,
                 id: u.id,
@@ -129,7 +134,7 @@ async function getGlobalLeaderboard(req, res) {
                 isCurrentUser: currentUserId ? u.id === currentUserId : false,
                 memberSince: u.createdAt
             };
-        }));
+        });
         // If user is authenticated, compute their exact global rank if not in the current page
         let currentUserRankInfo = null;
         if (currentUserId) {
@@ -326,14 +331,20 @@ async function getFriendsLeaderboard(req, res) {
             },
             orderBy
         });
-        const friendsLeaderboard = await Promise.all(users.map(async (u, idx) => {
+        // Calculate tasks completed today for each friend with a single batched query
+        const displayedCohortIds = users.map((u) => u.id);
+        const friendTodayCompletions = displayedCohortIds.length > 0 ? await prisma_1.default.taskCompletion.findMany({
+            where: {
+                userId: { in: displayedCohortIds },
+            },
+            select: {
+                userId: true,
+                completionDate: true,
+            },
+        }) : [];
+        const friendsLeaderboard = users.map((u, idx) => {
             const todayDateStr = (0, timezoneService_1.getLocalDateString)(u.timezone || 'Asia/Kolkata');
-            const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
-                where: {
-                    userId: u.id,
-                    completionDate: todayDateStr
-                }
-            });
+            const tasksCompletedToday = friendTodayCompletions.filter((c) => c.userId === u.id && c.completionDate === todayDateStr).length;
             return {
                 rank: idx + 1,
                 id: u.id,
@@ -347,7 +358,7 @@ async function getFriendsLeaderboard(req, res) {
                 tasksCompletedToday,
                 isCurrentUser: u.id === userId
             };
-        }));
+        });
         const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;
         return res.json({
             success: true,
