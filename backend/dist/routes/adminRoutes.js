@@ -47,8 +47,14 @@ router.put('/users/:userId/preferences', adminAuthMiddleware_1.requireSensitiveA
 // Group Management & Discoverability Controls
 router.get('/groups', adminController_1.searchGroupsForAdmin);
 router.post('/groups/:groupId/discoverability', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminToggleGroupDiscoverability);
+router.post('/groups/:groupId/special-mode', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminToggleGroupSpecialMode);
 router.post('/groups/:groupId/manage-member', adminController_1.adminManageGroupMember);
 router.post('/groups/:groupId/update-full', adminController_1.adminUpdateGroupFull);
+// Dedicated Special Groups (LeetCode, GeeksforGeeks, etc.)
+router.get('/users/:userId/special-groups/:groupId', adminController_1.getMemberSpecialActivitiesAdmin);
+router.post('/users/:userId/special-groups/:groupId/correct', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCorrectSpecialActivityStreak);
+router.post('/users/:userId/special-groups/:groupId/grant-date', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminGrantSpecialActivityDate);
+router.post('/users/:userId/special-groups/:groupId/commitment', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminSetSpecialActivityCommitment);
 // Dedicated LinkedIn Group Member Games Control
 router.get('/users/:userId/linkedin-games/:groupId', adminController_1.getMemberLinkedInGamesAdmin);
 router.post('/users/:userId/linkedin-games/:groupId/correct', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCorrectLinkedInGameStreak);

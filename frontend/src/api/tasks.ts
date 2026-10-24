@@ -27,6 +27,9 @@ export interface Task {
   groupId?: string | null;
   isGroupTask?: boolean;
   isLinkedIn?: boolean;
+  specialActivity?: 'DAILY' | 'POTD' | null;
+  specialPlatform?: string | null;
+  groupName?: string | null;
   isCompleted?: boolean;
   createdAt: string;
   updatedAt: string;

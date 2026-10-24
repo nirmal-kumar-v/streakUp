@@ -18,6 +18,7 @@ import { TaskModal } from '../components/TaskModal';
 import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 import { ActivityHeatmap } from '../components/ActivityHeatmap';
+import { SpecialGroupCard } from '../components/SpecialGroupCard';
 import { triggerStreakCelebration } from '../components/StreakCelebration';
 import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
@@ -347,6 +348,78 @@ export const DashboardPage: React.FC = () => {
           return;
         }
 
+        // If Special Group activity (LeetCode, GeeksforGeeks Daily / POTD)
+        if (task.specialActivity) {
+          const prevTasks = [...tasks];
+          const isPotd = task.specialActivity === 'POTD';
+          const nextStreak = (task.currentStreak || 0) + 1;
+          const nextLongest = Math.max(task.longestStreak || 0, nextStreak);
+
+          const otherCompleted = tasks.some((t) => t.id !== task.id && t.completedToday);
+          const nextUserStreak = calculateOptimisticUserStreak(user?.currentStreak || 0, otherCompleted, user?.createdAt);
+          const nextUserLongest = Math.max(user?.longestStreak || 0, nextUserStreak);
+
+          // Optimistically update tasks: If POTD is checked, Daily in same group also completes (Rule B)
+          const optimisticTasks = tasks.map((t) => {
+            if (t.id === task.id) {
+              return { ...t, completedToday: true, currentStreak: nextStreak, longestStreak: nextLongest };
+            }
+            if (isPotd && t.groupId === task.groupId && t.specialActivity === 'DAILY') {
+              const dailyNextStreak = (t.completedToday ? t.currentStreak : (t.currentStreak || 0) + 1) ?? 0;
+              const dailyNextLongest = Math.max(t.longestStreak || 0, dailyNextStreak);
+              return { ...t, completedToday: true, currentStreak: dailyNextStreak, longestStreak: dailyNextLongest };
+            }
+            return t;
+          });
+
+          setTasks(optimisticTasks);
+          updateUser({
+            currentStreak: nextUserStreak,
+            longestStreak: nextUserLongest,
+          });
+
+          const currentCache = getCachedDashboard();
+          if (currentCache) {
+            setCachedDashboard({
+              ...currentCache,
+              todayTasks: optimisticTasks,
+              user: {
+                ...currentCache.user,
+                currentStreak: nextUserStreak,
+                longestStreak: nextUserLongest,
+              },
+            });
+          }
+
+          triggerStreakCelebration({
+            newStreak: nextStreak,
+          });
+
+          try {
+            const noteText = `${task.specialPlatform || 'Special'} ${task.specialActivity} completed`;
+            const res = await completeTask(task.id, noteText);
+            if (res.success) {
+              const sumRes = await fetchDashboardSummary();
+              if (sumRes.success && sumRes.todayTasks) {
+                setTasks(sumRes.todayTasks);
+                if (sumRes.user) {
+                  updateUser({
+                    currentStreak: sumRes.user.currentStreak,
+                    longestStreak: sumRes.user.longestStreak,
+                    points: sumRes.user.points,
+                  });
+                }
+              }
+            }
+          } catch (err: any) {
+            if (err?.response?.status === 429) return;
+            setTasks(prevTasks);
+            if (currentCache) setCachedDashboard(currentCache);
+            toast.error(extractErrorMessage(err, 'Failed to complete special activity.'));
+          }
+          return;
+        }
+
         // Open study note modal before completing for all ordinary tasks
         setCompletingTask(task);
       }
@@ -596,6 +669,38 @@ export const DashboardPage: React.FC = () => {
   const completedCount = todaysTasks.filter((t) => t.completedToday).length;
   const totalCount = todaysTasks.length;
   const completionPercentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  // Group special tasks (LeetCode / GeeksforGeeks) into single cards
+  const specialGroupMap = new Map<string, {
+    groupId: string;
+    groupName: string;
+    platform?: string | null;
+    dailyTask?: Task;
+    potdTask?: Task;
+  }>();
+  const regularTodaysTasks: Task[] = [];
+
+  todaysTasks.forEach((t) => {
+    if (t.specialActivity && t.groupId) {
+      let entry = specialGroupMap.get(t.groupId);
+      if (!entry) {
+        entry = {
+          groupId: t.groupId,
+          groupName: t.groupName || (t.title.includes('LeetCode') ? 'LeetCode' : t.title.includes('GeeksforGeeks') || t.title.includes('GFG') ? 'GeeksforGeeks' : 'Special Group'),
+          platform: t.specialPlatform,
+        };
+        specialGroupMap.set(t.groupId, entry);
+      }
+      if (t.specialActivity === 'DAILY') {
+        entry.dailyTask = t;
+      } else if (t.specialActivity === 'POTD') {
+        entry.potdTask = t;
+      }
+    } else {
+      regularTodaysTasks.push(t);
+    }
+  });
+  const specialGroupsList = Array.from(specialGroupMap.values());
 
   return (
     <div className="space-y-8 pb-16">
@@ -898,7 +1003,24 @@ export const DashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {todaysTasks.map((task) => (
+              {/* Special Group Cards (LeetCode / GeeksforGeeks) */}
+              {specialGroupsList.map((sg) => (
+                <SpecialGroupCard
+                  key={sg.groupId}
+                  groupId={sg.groupId}
+                  groupName={sg.groupName}
+                  platform={sg.platform}
+                  dailyTask={sg.dailyTask}
+                  potdTask={sg.potdTask}
+                  canTick={true}
+                  processingTaskIds={processingTaskIds}
+                  onToggleComplete={handleToggleComplete}
+                  onViewDetails={(t) => setDetailTaskId(t.id)}
+                />
+              ))}
+
+              {/* Regular Task Cards */}
+              {regularTodaysTasks.map((task) => (
                 <TaskCard
                   key={task.id}
                   task={task}

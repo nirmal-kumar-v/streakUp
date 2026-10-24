@@ -1,6 +1,6 @@
 [
   {
-    "id": "e06ac81c-b503-48b4-b5c0-1e2918e85836",
+    "id": "a3b13df5-8f54-4af7-a4dd-aa947e3ab5f1",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -10,10 +10,10 @@
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
     "emailStatus": "SENT",
-    "createdAt": "2026-10-19T22:11:15.540Z"
+    "createdAt": "2026-10-24T14:32:50.087Z"
   },
   {
-    "id": "19fe5783-b2bc-4936-816b-55e103497b39",
+    "id": "c2ee682d-6505-4791-a395-3133e607ec03",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -23,23 +23,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T22:11:11.548Z"
+    "createdAt": "2026-10-24T14:32:40.564Z"
   },
   {
-    "id": "c59f1288-79b9-49ec-874c-d8f81ab4b13c",
-    "adminUsername": "admin",
-    "recipientUserId": "40216495-029e-471e-93c7-10e28e313a4a",
-    "recipientUsername": "nirmal",
-    "recipientEmail": "nirmalkumar31082006@gmail.com",
-    "title": "test",
-    "message": "test",
-    "channel": "BOTH",
-    "inAppStatus": "SENT",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-19T21:52:36.701Z"
-  },
-  {
-    "id": "c482ea4d-632c-4b63-8a57-74e8a72ba9ec",
+    "id": "e8f1e1a7-db45-4c36-88b2-ab07d71ccde4",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -49,10 +36,10 @@
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
     "emailStatus": "SENT",
-    "createdAt": "2026-10-19T21:36:48.295Z"
+    "createdAt": "2026-10-23T02:30:45.093Z"
   },
   {
-    "id": "a7f9ec77-8c19-4d89-acd4-e29c7283a74f",
+    "id": "a3547391-2a68-4bd1-a44f-986fed6ece4f",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -62,10 +49,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T21:36:44.424Z"
+    "createdAt": "2026-10-23T02:30:37.763Z"
   },
   {
-    "id": "aa966b67-0415-4057-b68a-f46b43132982",
+    "id": "294ea92e-28c2-420a-8b04-b90d5eea97a3",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -75,10 +62,10 @@
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
     "emailStatus": "SENT",
-    "createdAt": "2026-10-19T21:19:06.693Z"
+    "createdAt": "2026-10-23T02:29:24.083Z"
   },
   {
-    "id": "3b5a7e29-1dad-47c2-9a1c-7da370dabee4",
+    "id": "42ad02d5-b118-410f-a7c2-f24d7b322b43",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -88,10 +75,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T21:19:00.383Z"
+    "createdAt": "2026-10-23T02:29:19.174Z"
   },
   {
-    "id": "45f885c3-ddaa-4c6c-8137-b8bf1a48e34d",
+    "id": "ce84941d-ec68-421f-a4e6-0d8855956a1e",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -101,10 +88,10 @@
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
     "emailStatus": "SENT",
-    "createdAt": "2026-10-19T21:09:43.926Z"
+    "createdAt": "2026-10-23T02:16:47.360Z"
   },
   {
-    "id": "6a99805f-5393-4926-a331-b687a42ef024",
+    "id": "0bdc7c0f-19da-44d9-8521-bc55f966de39",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -114,10 +101,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-19T21:09:40.046Z"
+    "createdAt": "2026-10-23T02:16:41.720Z"
   },
   {
-    "id": "bbf03d04-4386-4703-901f-e8b6e64ec6f8",
+    "id": "41c40ea0-02fe-4b64-a711-959bdf75d36b",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -127,6 +114,19 @@
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
     "emailStatus": "SENT",
-    "createdAt": "2026-10-19T20:48:39.949Z"
+    "createdAt": "2026-10-21T08:05:02.239Z"
+  },
+  {
+    "id": "ebc346ae-2802-45b1-8d1a-c948ed1d4a59",
+    "adminUsername": "admin",
+    "recipientUserId": "test-req-user-1",
+    "recipientUsername": "reqtester",
+    "recipientEmail": "reqtester@example.com",
+    "title": "Welcome to StreakUp Beta",
+    "message": "Thank you for testing our daily productivity platform!",
+    "channel": "IN_APP",
+    "inAppStatus": "SENT",
+    "emailStatus": "SKIPPED",
+    "createdAt": "2026-10-21T08:04:54.321Z"
   }
 ]

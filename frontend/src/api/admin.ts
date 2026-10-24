@@ -612,6 +612,9 @@ export interface AdminGroupItem {
   owner?: { id: string; name: string; username: string; email: string };
   hiddenFrom?: string[];
   visibleOnlyTo?: string[];
+  isSpecialGroup?: boolean;
+  specialPlatform?: string | null;
+  detectedPlatform?: string | null;
   createdAt: string;
 }
 
@@ -992,6 +995,97 @@ export async function fetchAdminMessageLogs() {
   }>('/admin/messages');
   return res.data;
 }
+
+// ========================================================
+// SPECIAL GROUPS SUPER ADMIN APIs (LeetCode, GFG, etc.)
+// ========================================================
+
+export async function adminToggleGroupSpecialMode(
+  groupId: string,
+  data: { isSpecialGroup: boolean; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; group: any }>(
+    `/admin/groups/${groupId}/special-mode`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function getMemberSpecialActivitiesAdmin(userId: string, groupId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    user: any;
+    group: any;
+    specialGroup: any;
+  }>(`/admin/users/${userId}/special-groups/${groupId}`);
+  return res.data;
+}
+
+export async function adminCorrectSpecialActivityStreak(
+  userId: string,
+  groupId: string,
+  data: {
+    activityType: 'daily' | 'potd';
+    currentStreak: number;
+    longestStreak?: number;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/users/${userId}/special-groups/${groupId}/correct`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminGrantSpecialActivityDate(
+  userId: string,
+  groupId: string,
+  data: {
+    activityType: 'daily' | 'potd';
+    date: string;
+    studyNote?: string;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/users/${userId}/special-groups/${groupId}/grant-date`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminSetSpecialActivityCommitment(
+  userId: string,
+  groupId: string,
+  data: {
+    isPotdCommitted: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; isPotdCommitted: boolean }>(
+    `/admin/users/${userId}/special-groups/${groupId}/commitment`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 
 
 

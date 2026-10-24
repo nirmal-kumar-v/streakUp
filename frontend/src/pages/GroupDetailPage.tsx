@@ -14,6 +14,10 @@ import {
   makeGroupTask,
   removeGroupTask,
   inviteToGroup,
+  fetchSpecialGroupActivities,
+  updateGroupMemberCommitment,
+  completeSpecialActivity,
+  uncompleteSpecialActivity,
   GroupDetail,
   GroupLeaderboardEntry,
   GroupNoteItem,
@@ -64,11 +68,31 @@ import { extractErrorMessage } from '../utils/error';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const GROUP_DETAIL_CACHE_PREFIX = 'streakup_group_detail_cache_';
+
+function getCachedGroupDetail(gId?: string): GroupDetail | null {
+  if (!gId) return null;
+  try {
+    const raw = sessionStorage.getItem(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`);
+    if (!raw) return null;
+    const { timestamp, data } = JSON.parse(raw);
+    if (Date.now() - timestamp < 3 * 60 * 1000) return data;
+  } catch (e) {}
+  return null;
+}
+
+function setCachedGroupDetail(gId: string, data: GroupDetail) {
+  try {
+    sessionStorage.setItem(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`, JSON.stringify({ timestamp: Date.now(), data }));
+  } catch (e) {}
+}
+
 export const GroupDetailPage: React.FC = () => {
   const { id: groupId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [group, setGroup] = useState<GroupDetail | null>(null);
+  const cachedInitialGroup = useMemo(() => getCachedGroupDetail(groupId), [groupId]);
+  const [group, setGroup] = useState<GroupDetail | null>(() => cachedInitialGroup);
   const [activeMainTab, setActiveMainTab] = useState<'games' | 'task' | 'leaderboard' | 'notes' | 'admin'>('task');
   const isLinkedIn = useMemo(() => isLinkedInName(group?.name), [group?.name]);
 
@@ -76,8 +100,16 @@ export const GroupDetailPage: React.FC = () => {
   const [notes, setNotes] = useState<GroupNoteItem[]>([]);
   const [joinRequests, setJoinRequests] = useState<GroupJoinRequestItem[]>([]);
 
+  // Special Group (LeetCode / GeeksforGeeks) Activity States
+  const [specialActivities, setSpecialActivities] = useState<any[]>([]);
+  const [isPotdCommitted, setIsPotdCommitted] = useState<boolean>(true);
+  const [specialLeaderboardMode, setSpecialLeaderboardMode] = useState<'overall' | 'daily' | 'potd'>('overall');
+  const isSpecialPlatformGroup = useMemo(() => {
+    return Boolean(group?.isSpecialGroup && group?.specialPlatform && group?.specialPlatform !== 'LINKEDIN');
+  }, [group?.isSpecialGroup, group?.specialPlatform]);
+
   // Loading States
-  const [isLoadingGroup, setIsLoadingGroup] = useState(true);
+  const [isLoadingGroup, setIsLoadingGroup] = useState<boolean>(() => !cachedInitialGroup);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
@@ -512,41 +544,54 @@ export const GroupDetailPage: React.FC = () => {
     }
   };
 
-  const loadGroupDetails = useCallback(async (isSilent = false) => {
-    if (!groupId) return;
-    if (!isSilent) setIsLoadingGroup(true);
-    try {
-      const res = await fetchGroupDetails(groupId);
-      if (res.success && res.group) {
-        setGroup(res.group);
-        if (isLinkedInName(res.group.name)) {
-          const tabParam = new URLSearchParams(window.location.search).get('tab');
-          if (tabParam === 'games' || !tabParam || tabParam === 'task') {
-            setActiveMainTab('games');
+  const loadGroupDetails = useCallback(
+    async (isSilent = false) => {
+      if (!groupId) return;
+      if (!isSilent && !cachedInitialGroup) setIsLoadingGroup(true);
+      try {
+        const res = await fetchGroupDetails(groupId);
+        if (res.success && res.group) {
+          setGroup(res.group);
+          setCachedGroupDetail(groupId, res.group);
+          if (isLinkedInName(res.group.name)) {
+            const tabParam = new URLSearchParams(window.location.search).get('tab');
+            if (tabParam === 'games' || !tabParam || tabParam === 'task') {
+              setActiveMainTab('games');
+            }
           }
         }
+      } catch (err: any) {
+        showFeedback(extractErrorMessage(err, 'Failed to load group details.'), 'error');
+      } finally {
+        setIsLoadingGroup(false);
       }
-    } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to load group details.'), 'error');
-    } finally {
-      setIsLoadingGroup(false);
-    }
-  }, [groupId]);
+    },
+    [groupId, cachedInitialGroup]
+  );
 
-  const loadLeaderboard = useCallback(async () => {
-    if (!groupId) return;
-    setIsLoadingLeaderboard(true);
-    try {
-      const res = await fetchGroupLeaderboard(groupId, 'streak');
-      if (res.success) {
-        setLeaderboard(res.leaderboard || []);
+  const loadLeaderboard = useCallback(
+    async (activityMode?: 'overall' | 'daily' | 'potd') => {
+      if (!groupId) return;
+      setIsLoadingLeaderboard(true);
+      try {
+        const mode = activityMode !== undefined ? activityMode : specialLeaderboardMode;
+        const res = await fetchGroupLeaderboard(groupId, 'streak', mode);
+        if (res.success) {
+          setLeaderboard(res.leaderboard || []);
+        }
+      } catch (err: any) {
+        console.error('Failed to load group leaderboard:', err);
+      } finally {
+        setIsLoadingLeaderboard(false);
       }
-    } catch (err: any) {
-      console.error('Failed to load group leaderboard:', err);
-    } finally {
-      setIsLoadingLeaderboard(false);
-    }
-  }, [groupId]);
+    },
+    [groupId, specialLeaderboardMode]
+  );
+
+  const handleSwitchSpecialLeaderboard = (mode: 'overall' | 'daily' | 'potd') => {
+    setSpecialLeaderboardMode(mode);
+    loadLeaderboard(mode);
+  };
 
   const loadNotes = useCallback(async () => {
     if (!groupId) return;
@@ -578,9 +623,73 @@ export const GroupDetailPage: React.FC = () => {
     }
   }, [groupId, group?.isAdmin]);
 
+  const loadSpecialActivities = useCallback(async () => {
+    if (!groupId) return;
+    try {
+      const res = await fetchSpecialGroupActivities(groupId);
+      if (res.success && res.specialGroup) {
+        setSpecialActivities(res.specialGroup.activities || []);
+        setIsPotdCommitted(res.specialGroup.isPotdCommitted ?? true);
+      }
+    } catch (err) {
+      console.error('Failed to load special activities:', err);
+    }
+  }, [groupId]);
+
+  const handleTogglePotdCommitment = async () => {
+    if (!groupId) return;
+    const nextVal = !isPotdCommitted;
+    setIsPotdCommitted(nextVal);
+    toast.info(nextVal ? 'Committed to POTD! Row is active.' : 'POTD commitment paused. Streaks safely preserved.');
+    try {
+      await updateGroupMemberCommitment(groupId, nextVal);
+      loadSpecialActivities();
+    } catch (err) {
+      setIsPotdCommitted(!nextVal);
+      toast.error('Failed to update POTD commitment preference.');
+    }
+  };
+
+  const handleToggleSpecialActivity = async (activityType: 'DAILY' | 'POTD') => {
+    if (!groupId) return;
+    const actTypeLower = activityType.toLowerCase() as 'daily' | 'potd';
+    const act = specialActivities.find((a) => a.id === actTypeLower || a.specialActivity === activityType);
+    if (!act) return;
+
+    if (act.completedToday) {
+      try {
+        const res = await uncompleteSpecialActivity(groupId, actTypeLower);
+        if (res.success) {
+          toast.info(`${activityType === 'POTD' ? 'POTD' : 'Daily'} marked incomplete`);
+          loadSpecialActivities();
+        }
+      } catch (err) {
+        toast.error('Failed to undo activity completion.');
+      }
+    } else {
+      try {
+        const res = await completeSpecialActivity(groupId, actTypeLower);
+        if (res.success) {
+          toast.info(`${activityType === 'POTD' ? 'POTD (+ Daily)' : 'Daily'} completed! Streak recorded.`);
+          const updated = res.specialGroup?.activities?.find((a) => a.id === actTypeLower);
+          triggerStreakCelebration({ newStreak: updated?.currentStreak });
+          loadSpecialActivities();
+        }
+      } catch (err) {
+        toast.error('Failed to complete activity.');
+      }
+    }
+  };
+
   useEffect(() => {
     loadGroupDetails();
   }, [loadGroupDetails]);
+
+  useEffect(() => {
+    if (group?.isSpecialGroup && group?.specialPlatform !== 'LINKEDIN') {
+      loadSpecialActivities();
+    }
+  }, [group?.isSpecialGroup, group?.specialPlatform, loadSpecialActivities]);
 
   useEffect(() => {
     if (activeMainTab === 'leaderboard') {
@@ -1223,6 +1332,130 @@ export const GroupDetailPage: React.FC = () => {
                       <span>Play & Track 8 Games →</span>
                     </button>
                   </div>
+                ) : (group?.isSpecialGroup && group?.specialPlatform !== 'LINKEDIN') ? (
+                  <div className="space-y-4">
+                    {/* Header with POTD Commitment Toggle */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-dark-border/60">
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-flame-400" />
+                          <span>{group.specialPlatform === 'LEETCODE' ? 'LeetCode' : 'GeeksforGeeks'} Daily & POTD Tracking</span>
+                        </h3>
+                        <p className="text-xs text-dark-muted mt-0.5">
+                          Daily practice and Problem of the Day are tracked with independent streaks.
+                        </p>
+                      </div>
+
+                      {/* POTD Commitment Switch */}
+                      <button
+                        type="button"
+                        onClick={handleTogglePotdCommitment}
+                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                          isPotdCommitted
+                            ? 'bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${isPotdCommitted ? 'bg-amber-400' : 'bg-zinc-600'}`} />
+                        <span>POTD Commitment: {isPotdCommitted ? 'Enabled' : 'Disabled'}</span>
+                      </button>
+                    </div>
+
+                    {/* Activity 1: Daily Practice */}
+                    {(() => {
+                      const dailyAct = specialActivities.find((a) => a.id === 'daily' || a.specialActivity === 'DAILY');
+                      return (
+                        <div className="p-3.5 rounded-xl bg-dark-card/60 border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm text-zinc-100">
+                                {dailyAct?.name || dailyAct?.title || `${group.name} Daily`}
+                              </span>
+                              <span className="text-xs font-mono font-bold text-flame-400 bg-flame-500/10 border border-flame-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <Flame className="w-3 h-3 fill-flame-500" />
+                                {dailyAct?.currentStreak ?? userTask?.currentStreak ?? 0}d
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-dark-muted mt-0.5">
+                              Track your regular daily problem-solving habit.
+                            </p>
+                          </div>
+
+                          <div>
+                            {dailyAct?.completedToday ? (
+                              <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Done Today</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSpecialActivity('DAILY')}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 bg-flame-500 hover:bg-flame-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                <span>Mark Daily Done</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Activity 2: Problem of the Day (POTD) */}
+                    {isPotdCommitted ? (
+                      (() => {
+                        const potdAct = specialActivities.find((a) => a.id === 'potd' || a.specialActivity === 'POTD');
+                        return (
+                          <div className="p-3.5 rounded-xl bg-dark-card/60 border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm text-zinc-100">
+                                  {potdAct?.name || potdAct?.title || `${group.name} POTD`}
+                                </span>
+                                <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                  <Flame className="w-3 h-3 fill-amber-500" />
+                                  {potdAct?.currentStreak ?? 0}d
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-zinc-400 mt-0.5">
+                                Completing POTD automatically fulfills your Daily practice for today.
+                              </p>
+                            </div>
+
+                            <div>
+                              {potdAct?.completedToday ? (
+                                <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Done Today</span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSpecialActivity('POTD')}
+                                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-extrabold text-xs rounded-xl shadow-sm transition-all cursor-pointer"
+                                >
+                                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                  <span>Mark POTD Done</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="p-3.5 rounded-xl bg-dark-surface/40 border border-dashed border-dark-border text-xs text-dark-muted flex items-center justify-between">
+                        <span>POTD commitment is disabled. Enable above to track POTD row and maintain separate streak.</span>
+                        <button
+                          type="button"
+                          onClick={handleTogglePotdCommitment}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-semibold underline ml-2"
+                        >
+                          Enable POTD
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
@@ -1336,11 +1569,59 @@ export const GroupDetailPage: React.FC = () => {
               <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-amber-400" />
                 <span>Group Leaderboard</span>
+                {isLoadingLeaderboard && (
+                  <div className="w-3.5 h-3.5 border-2 border-flame-500 border-t-transparent rounded-full animate-spin ml-1" />
+                )}
               </h2>
               <p className="text-xs text-dark-muted mt-0.5">
-                Ranked by active consecutive group task streaks
+                {isSpecialPlatformGroup
+                  ? specialLeaderboardMode === 'overall'
+                    ? 'Overall dashboard showing POTD & Daily streaks and personal bests'
+                    : specialLeaderboardMode === 'daily'
+                    ? 'Ranked by active consecutive Daily Practice streaks'
+                    : 'Ranked by active consecutive Problem of the Day (POTD) streaks'
+                  : 'Ranked by active consecutive group task streaks'}
               </p>
             </div>
+
+            {/* Special Group Activity Filter Toggle */}
+            {isSpecialPlatformGroup && (
+              <div className="flex items-center gap-1 p-1 bg-dark-surface border border-dark-border rounded-2xl shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchSpecialLeaderboard('overall')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    specialLeaderboardMode === 'overall'
+                      ? 'bg-flame-500 text-white shadow-sm'
+                      : 'text-dark-muted hover:text-zinc-200 hover:bg-dark-card'
+                  }`}
+                >
+                  Overall
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchSpecialLeaderboard('daily')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    specialLeaderboardMode === 'daily'
+                      ? 'bg-flame-500 text-white shadow-sm'
+                      : 'text-dark-muted hover:text-zinc-200 hover:bg-dark-card'
+                  }`}
+                >
+                  Daily Problems
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchSpecialLeaderboard('potd')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                    specialLeaderboardMode === 'potd'
+                      ? 'bg-amber-500 text-zinc-950 font-bold shadow-sm'
+                      : 'text-dark-muted hover:text-zinc-200 hover:bg-dark-card'
+                  }`}
+                >
+                  POTD
+                </button>
+              </div>
+            )}
           </div>
 
           {/* LinkedIn Game Leaderboards Banner */}
@@ -1361,7 +1642,7 @@ export const GroupDetailPage: React.FC = () => {
           )}
 
           {/* Table */}
-          {isLoadingLeaderboard ? (
+          {isLoadingLeaderboard && leaderboard.length === 0 ? (
             <div className="py-20 text-center text-xs text-dark-muted">
               <div className="inline-flex items-center gap-2">
                 <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />
@@ -1373,16 +1654,44 @@ export const GroupDetailPage: React.FC = () => {
               No leaderboard entries yet.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className={`overflow-x-auto transition-opacity duration-200 ${isLoadingLeaderboard ? 'opacity-60' : 'opacity-100'}`}>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
-                    <th className="pb-3 pl-2 w-12">#</th>
-                    <th className="pb-3">Member</th>
-                    <th className="pb-3 text-center">Current Streak</th>
-                    <th className="pb-3 text-center">Best Streak</th>
-                    <th className="pb-3 text-right pr-2">Friend Action</th>
-                  </tr>
+                  {isSpecialPlatformGroup && specialLeaderboardMode === 'overall' ? (
+                    <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
+                      <th className="pb-3 pl-2 w-12">#</th>
+                      <th className="pb-3 min-w-[140px]">Member</th>
+                      <th className="pb-3 text-center min-w-[110px]">POTD Streak</th>
+                      <th className="pb-3 text-center min-w-[110px]">Daily Streak</th>
+                      <th className="pb-3 text-center min-w-[100px]">POTD Best</th>
+                      <th className="pb-3 text-center min-w-[100px]">Daily Best</th>
+                      <th className="pb-3 text-right pr-2 min-w-[120px]">Friend Action</th>
+                    </tr>
+                  ) : isSpecialPlatformGroup && specialLeaderboardMode === 'daily' ? (
+                    <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
+                      <th className="pb-3 pl-2 w-12">#</th>
+                      <th className="pb-3">Member</th>
+                      <th className="pb-3 text-center">Daily Streak</th>
+                      <th className="pb-3 text-center">Daily Best</th>
+                      <th className="pb-3 text-right pr-2">Friend Action</th>
+                    </tr>
+                  ) : isSpecialPlatformGroup && specialLeaderboardMode === 'potd' ? (
+                    <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
+                      <th className="pb-3 pl-2 w-12">#</th>
+                      <th className="pb-3">Member</th>
+                      <th className="pb-3 text-center">POTD Streak</th>
+                      <th className="pb-3 text-center">POTD Best</th>
+                      <th className="pb-3 text-right pr-2">Friend Action</th>
+                    </tr>
+                  ) : (
+                    <tr className="border-b border-dark-border text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
+                      <th className="pb-3 pl-2 w-12">#</th>
+                      <th className="pb-3">Member</th>
+                      <th className="pb-3 text-center">Current Streak</th>
+                      <th className="pb-3 text-center">Best Streak</th>
+                      <th className="pb-3 text-right pr-2">Friend Action</th>
+                    </tr>
+                  )}
                 </thead>
                 <tbody className="divide-y divide-dark-border/60 text-xs">
                   {leaderboard.map((entry) => {
@@ -1446,18 +1755,89 @@ export const GroupDetailPage: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* Current Streak */}
-                        <td className="py-3.5 text-center">
-                          <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
-                            <Flame className="w-3.5 h-3.5 fill-flame-500" />
-                            <span>{entry.currentStreak}d</span>
-                          </span>
-                        </td>
+                        {/* Streak columns according to group type and active filter */}
+                        {isSpecialPlatformGroup && specialLeaderboardMode === 'overall' ? (
+                          <>
+                            {/* POTD Streak */}
+                            <td className="py-3.5 text-center">
+                              {entry.isPotdCommitted === false ? (
+                                <span className="text-[11px] text-zinc-500 font-mono italic">Paused</span>
+                              ) : (
+                                <span className="font-mono font-bold text-amber-400 inline-flex items-center gap-1">
+                                  <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                                  <span>{entry.potdStreak ?? 0}d</span>
+                                </span>
+                              )}
+                            </td>
 
-                        {/* Best Streak */}
-                        <td className="py-3.5 text-center font-mono text-zinc-300">
-                          {entry.longestStreak}d
-                        </td>
+                            {/* Daily Streak */}
+                            <td className="py-3.5 text-center">
+                              <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
+                                <Flame className="w-3.5 h-3.5 fill-flame-500" />
+                                <span>{entry.dailyStreak ?? 0}d</span>
+                              </span>
+                            </td>
+
+                            {/* POTD Best */}
+                            <td className="py-3.5 text-center font-mono text-zinc-300">
+                              {entry.isPotdCommitted === false ? '--' : `${entry.potdLongestStreak ?? 0}d`}
+                            </td>
+
+                            {/* Daily Best */}
+                            <td className="py-3.5 text-center font-mono text-zinc-300">
+                              {entry.dailyLongestStreak ?? 0}d
+                            </td>
+                          </>
+                        ) : isSpecialPlatformGroup && specialLeaderboardMode === 'daily' ? (
+                          <>
+                            {/* Daily Streak */}
+                            <td className="py-3.5 text-center">
+                              <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
+                                <Flame className="w-3.5 h-3.5 fill-flame-500" />
+                                <span>{(entry.dailyStreak ?? entry.currentStreak) ?? 0}d</span>
+                              </span>
+                            </td>
+
+                            {/* Daily Best */}
+                            <td className="py-3.5 text-center font-mono text-zinc-300">
+                              {(entry.dailyLongestStreak ?? entry.longestStreak) ?? 0}d
+                            </td>
+                          </>
+                        ) : isSpecialPlatformGroup && specialLeaderboardMode === 'potd' ? (
+                          <>
+                            {/* POTD Streak */}
+                            <td className="py-3.5 text-center">
+                              {entry.isPotdCommitted === false ? (
+                                <span className="text-[11px] text-zinc-500 font-mono italic">Paused</span>
+                              ) : (
+                                <span className="font-mono font-bold text-amber-400 inline-flex items-center gap-1">
+                                  <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                                  <span>{(entry.potdStreak ?? entry.currentStreak) ?? 0}d</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* POTD Best */}
+                            <td className="py-3.5 text-center font-mono text-zinc-300">
+                              {entry.isPotdCommitted === false ? '--' : `${(entry.potdLongestStreak ?? entry.longestStreak) ?? 0}d`}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            {/* Current Streak */}
+                            <td className="py-3.5 text-center">
+                              <span className="font-mono font-bold text-flame-400 inline-flex items-center gap-1">
+                                <Flame className="w-3.5 h-3.5 fill-flame-500" />
+                                <span>{entry.currentStreak}d</span>
+                              </span>
+                            </td>
+
+                            {/* Best Streak */}
+                            <td className="py-3.5 text-center font-mono text-zinc-300">
+                              {entry.longestStreak}d
+                            </td>
+                          </>
+                        )}
 
                         {/* Friend Request Action */}
                         <td className="py-3.5 text-right pr-2">

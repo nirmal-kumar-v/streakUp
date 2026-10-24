@@ -86,6 +86,8 @@ import {
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
   adminSetLinkedInGameCommitment,
+  adminToggleGroupSpecialMode,
+  adminSetSpecialActivityCommitment,
   fetchAdminUserRequests,
   AdminUser,
   AdminAuditLogItem,
@@ -1571,6 +1573,56 @@ export const AdminControlPage: React.FC = () => {
           }
         } catch (err: any) {
           toast.error(extractErrorMessage(err, 'Failed to update group discoverability.'));
+        }
+      }
+    );
+  };
+
+  const handleToggleSpecialMode = (group: AdminGroupItem, nextState: boolean) => {
+    openPinPrompt(
+      nextState ? 'Enable Special Group Features' : 'Disable Special Group Features',
+      `Enter Super Admin Sensitive Password to ${
+        nextState ? 'ENABLE' : 'DISABLE'
+      } special tracking for group "${group.name}". ${
+        nextState
+          ? 'Eligible activities (Daily, POTD, etc.) will be tracked with dedicated streaks.'
+          : 'Group will behave as an ordinary group. Historical streaks and completions remain safely preserved.'
+      }`,
+      async (pin) => {
+        try {
+          const res = await adminToggleGroupSpecialMode(group.id, {
+            isSpecialGroup: nextState,
+            reason: `Admin toggled special mode to ${nextState ? 'ENABLED' : 'DISABLED'} for group "${group.name}"`,
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            loadAdminGroups();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update special mode.'));
+        }
+      }
+    );
+  };
+
+  const handleAdminTogglePotdCommitment = (groupId: string, targetUserId: string, currentVal: boolean) => {
+    openPinPrompt(
+      currentVal ? 'Disable Member POTD Commitment' : 'Enable Member POTD Commitment',
+      `Enter Super Admin Sensitive Password to change POTD commitment for this user. Historical completion records and streaks are safely preserved.`,
+      async (pin) => {
+        try {
+          const res = await adminSetSpecialActivityCommitment(targetUserId, groupId, {
+            isPotdCommitted: !currentVal,
+            sensitivePin: pin,
+            reason: `Admin toggled POTD commitment to ${!currentVal ? 'ENABLED' : 'DISABLED'} for user`,
+          });
+          if (res.success) {
+            toast.info(res.message);
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to update member POTD commitment.'));
         }
       }
     );
@@ -6574,6 +6626,20 @@ export const AdminControlPage: React.FC = () => {
                                       <span>8 Game Streaks</span>
                                     </span>
                                   )}
+                                  {m.group?.isSpecialGroup && m.group?.specialPlatform !== 'LINKEDIN' && (
+                                    <>
+                                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30 font-bold">
+                                        ★ {m.group.specialPlatform} Special
+                                      </span>
+                                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-bold ${
+                                        m.isPotdCommitted !== false
+                                          ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                          : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                      }`}>
+                                        POTD: {m.isPotdCommitted !== false ? 'Committed' : 'Paused'}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                                 <p className="text-[11px] text-zinc-400 mt-1">
                                   Group Members: {m.group?._count?.members || m.group?.members?.length || 1} • Joined:{' '}
@@ -6583,6 +6649,15 @@ export const AdminControlPage: React.FC = () => {
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                {m.group?.isSpecialGroup && m.group?.specialPlatform !== 'LINKEDIN' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAdminTogglePotdCommitment(m.groupId, selectedUserId!, m.isPotdCommitted !== false)}
+                                    className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold cursor-pointer"
+                                  >
+                                    {m.isPotdCommitted !== false ? 'Disable POTD' : 'Enable POTD'}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleOpenGroupEditor(m.group || m)}
@@ -6978,7 +7053,8 @@ export const AdminControlPage: React.FC = () => {
                       <th className="py-3 px-3">Creator / Owner</th>
                       <th className="py-3 px-3">Members</th>
                       <th className="py-3 px-3">Tasks</th>
-                      <th className="py-3 px-3">Discoverability Status</th>
+                      <th className="py-3 px-3">Discoverability</th>
+                      <th className="py-3 px-3">Special Mode</th>
                       <th className="py-3 px-4 text-right">Admin Action</th>
                     </tr>
                   </thead>
@@ -7032,28 +7108,56 @@ export const AdminControlPage: React.FC = () => {
                               </span>
                             )}
                           </td>
+                          <td className="py-3 px-3">
+                            {g.isSpecialGroup ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-flame-500/10 text-flame-400 border border-flame-500/30 font-mono">
+                                <span>★ {g.specialPlatform || 'Special'}</span>
+                              </span>
+                            ) : g.detectedPlatform ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                <span>Ordinary ({g.detectedPlatform})</span>
+                              </span>
+                            ) : (
+                              <span className="text-zinc-500 text-[11px]">Ordinary</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleGroupDiscoverability(g)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border inline-flex items-center gap-1.5 ${
-                                g.isDiscoverable
-                                  ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                              }`}
-                            >
-                              {g.isDiscoverable ? (
-                                <>
-                                  <EyeOff className="w-3.5 h-3.5" />
-                                  <span>Make Non-Discoverable</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>Make Discoverable</span>
-                                </>
+                            <div className="flex items-center justify-end gap-2">
+                              {Boolean(g.detectedPlatform || g.specialPlatform) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSpecialMode(g, !g.isSpecialGroup)}
+                                  className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border inline-flex items-center gap-1 cursor-pointer ${
+                                    g.isSpecialGroup
+                                      ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                      : 'bg-flame-500/10 hover:bg-flame-500/20 text-flame-400 border-flame-500/30'
+                                  }`}
+                                >
+                                  <span>{g.isSpecialGroup ? 'Disable Special' : 'Enable Special'}</span>
+                                </button>
                               )}
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleGroupDiscoverability(g)}
+                                className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border inline-flex items-center gap-1.5 cursor-pointer ${
+                                  g.isDiscoverable
+                                    ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                    : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                }`}
+                              >
+                                {g.isDiscoverable ? (
+                                  <>
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                    <span>Hide Discover</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Discoverable</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

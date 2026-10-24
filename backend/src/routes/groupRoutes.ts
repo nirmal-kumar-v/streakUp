@@ -21,6 +21,10 @@ import {
   removeMemberFromGroup,
   leaveGroup,
   updateMemberGroupPrivacy,
+  updateMemberGroupCommitment,
+  getGroupSpecialActivities,
+  completeGroupSpecialActivity,
+  uncompleteGroupSpecialActivity,
 } from '../controllers/groupController';
 import {
   getLinkedInGames,
@@ -49,6 +53,8 @@ router.post('/invitations/:invitationId/respond', respondToGroupInvitation);
 router.get('/:id', getGroupDetails);
 router.put('/:id', updateGroup);
 router.put('/:id/member-privacy', updateMemberGroupPrivacy);
+router.patch('/:id/commitment', updateMemberGroupCommitment);
+router.put('/:id/commitment', updateMemberGroupCommitment);
 router.post('/:id/join-request', requestToJoinGroup);
 router.delete('/:id/join-request', cancelJoinRequest);
 
@@ -60,6 +66,11 @@ router.delete('/:id/task', removeGroupTask);
 
 router.get('/:id/leaderboard', getGroupLeaderboards);
 router.get('/:id/notes', getGroupNotes);
+
+// Generic Special Groups (LeetCode, GeeksforGeeks, etc.)
+router.get('/:id/special-activities', getGroupSpecialActivities);
+router.post('/:id/special-activities/:activityType/complete', completeGroupSpecialActivity);
+router.post('/:id/special-activities/:activityType/uncomplete', uncompleteGroupSpecialActivity);
 
 // LinkedIn Group Dedicated Games Hub & Leaderboards
 router.get('/:id/linkedin-games', getLinkedInGames);

@@ -49,6 +49,10 @@ export interface GroupDetail {
   memberHiddenFrom?: string[];
   pendingRequestsCount?: number;
   hasActiveDashboardTask?: boolean;
+  isSpecialGroup?: boolean;
+  specialPlatform?: string | null;
+  isPotdCommitted?: boolean;
+  specialGroupView?: any;
   createdAt: string;
   userTask?: GroupUserTask | null;
   members: GroupMemberItem[];
@@ -72,6 +76,9 @@ export interface GroupItem {
   memberCount: number;
   pendingRequestsCount?: number;
   currentStreak?: number;
+  isSpecialGroup?: boolean;
+  specialPlatform?: string | null;
+  isPotdCommitted?: boolean;
   createdAt?: string;
   joinedAt: string;
 }
@@ -147,6 +154,11 @@ export interface GroupLeaderboardEntry {
   role: 'OWNER' | 'ADMIN' | 'MEMBER';
   currentStreak: number;
   longestStreak: number;
+  dailyStreak?: number;
+  dailyLongestStreak?: number;
+  potdStreak?: number;
+  potdLongestStreak?: number;
+  isPotdCommitted?: boolean;
   weeklyCompletions: number;
   friendshipStatus: 'SELF' | 'FRIENDS' | 'REQUEST_SENT' | 'REQUEST_RECEIVED' | 'NONE';
   isCurrentUser: boolean;
@@ -157,6 +169,9 @@ export interface GroupLeaderboardResponse {
   groupId: string;
   groupName: string;
   type: 'streak' | 'weekly';
+  isSpecialGroup?: boolean;
+  specialPlatform?: string | null;
+  activity?: 'overall' | 'daily' | 'potd';
   weekRange?: {
     startDate: string;
     endDate: string;
@@ -185,7 +200,12 @@ export async function fetchUserGroups() {
   return res.data;
 }
 
-export async function createGroup(data: { name: string; description?: string; scheduledDays?: number[] }) {
+export async function createGroup(data: {
+  name: string;
+  description?: string;
+  scheduledDays?: number[];
+  enableSpecialFeatures?: boolean;
+}) {
   const res = await apiClient.post<{ success: boolean; message: string; group: GroupItem }>('/groups', data);
   return res.data;
 }
@@ -232,9 +252,13 @@ export async function leaveGroup(id: string) {
   return res.data;
 }
 
-export async function fetchGroupLeaderboard(id: string, type: 'streak' | 'weekly' = 'streak') {
+export async function fetchGroupLeaderboard(
+  id: string,
+  type: 'streak' | 'weekly' = 'streak',
+  activity?: 'overall' | 'daily' | 'potd'
+) {
   const res = await apiClient.get<GroupLeaderboardResponse>(`/groups/${id}/leaderboard`, {
-    params: { type },
+    params: { type, activity },
   });
   return res.data;
 }
@@ -439,4 +463,86 @@ export async function updateLinkedInGameCommitment(
   });
   return res.data;
 }
+
+// ========================================================
+// GENERIC SPECIAL GROUP CLIENT API (LeetCode, GFG, etc.)
+// ========================================================
+
+export interface SpecialGroupActivityStatus {
+  id: 'daily' | 'potd' | string;
+  taskId: string;
+  name: string;
+  shortLabel: string;
+  tagline: string;
+  description: string;
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  todayStudyNote: string | null;
+  isCommitted: boolean;
+  lastCompletedDate: string | null;
+  completionsCount: number;
+}
+
+export interface SpecialGroupMemberView {
+  groupId: string;
+  groupName: string;
+  platform: 'LEETCODE' | 'GEEKSFORGEEKS' | string;
+  displayName: string;
+  activityModel: string;
+  isPotdCommitted: boolean;
+  activities: SpecialGroupActivityStatus[];
+}
+
+export async function fetchSpecialGroupActivities(groupId: string): Promise<{
+  success: boolean;
+  specialGroup: SpecialGroupMemberView;
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/special-activities`);
+  return res.data;
+}
+
+export async function completeSpecialActivity(
+  groupId: string,
+  activityType: 'daily' | 'potd',
+  studyNote?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  completedActivity: string;
+  specialGroup: SpecialGroupMemberView;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/special-activities/${activityType}/complete`, {
+    studyNote,
+  });
+  return res.data;
+}
+
+export async function uncompleteSpecialActivity(
+  groupId: string,
+  activityType: 'daily' | 'potd'
+): Promise<{
+  success: boolean;
+  message: string;
+  uncompletedActivity: string;
+  specialGroup: SpecialGroupMemberView;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/special-activities/${activityType}/uncomplete`);
+  return res.data;
+}
+
+export async function updateGroupMemberCommitment(
+  groupId: string,
+  isPotdCommitted: boolean
+): Promise<{
+  success: boolean;
+  message: string;
+  isPotdCommitted: boolean;
+}> {
+  const res = await apiClient.patch(`/groups/${groupId}/commitment`, {
+    isPotdCommitted,
+  });
+  return res.data;
+}
+
 

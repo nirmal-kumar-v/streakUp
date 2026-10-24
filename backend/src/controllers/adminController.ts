@@ -43,6 +43,13 @@ import {
   getAdminMessageLogs,
   DeliveryChannel,
 } from '../services/adminMessageService';
+import { detectSpecialPlatform } from '../services/specialGroupRegistry';
+import {
+  getSpecialGroupActivitiesForMember,
+  adminCorrectSpecialActivityStreak as serviceAdminCorrectSpecialActivityStreak,
+  adminGrantSpecialActivityDate as serviceAdminGrantSpecialActivityDate,
+} from '../services/specialGroupService';
+
 
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
@@ -567,6 +574,8 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
                 joinCode: true,
                 ownerId: true,
                 isDiscoverable: true,
+                isSpecialGroup: true,
+                specialPlatform: true,
                 hiddenFrom: true,
                 visibleOnlyTo: true,
                 members: {
@@ -2316,6 +2325,9 @@ export async function searchGroupsForAdmin(req: AdminAuthenticatedRequest, res: 
         owner: g.owner,
         hiddenFrom: g.hiddenFrom,
         visibleOnlyTo: g.visibleOnlyTo,
+        isSpecialGroup: g.isSpecialGroup,
+        specialPlatform: g.specialPlatform,
+        detectedPlatform: detectSpecialPlatform(g.name),
         createdAt: g.createdAt,
       })),
     });
@@ -4150,6 +4162,386 @@ export async function getAdminMessageLogsController(req: AdminAuthenticatedReque
     return res.status(500).json({ success: false, error: err.message || 'Failed to fetch message logs.' });
   }
 }
+
+// ========================================================
+// GENERIC SPECIAL GROUP SUPER ADMIN CONTROLS
+// ========================================================
+
+/**
+ * Super Admin toggles special group mode (LeetCode, GFG, LinkedIn)
+ */
+export async function adminToggleGroupSpecialMode(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { groupId } = req.params;
+    const {
+      isSpecialGroup,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (typeof isSpecialGroup !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'isSpecialGroup must be a boolean.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: { owner: { select: { id: true, username: true } } },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    let specialPlatform = group.specialPlatform;
+    if (isSpecialGroup) {
+      const detected = detectSpecialPlatform(group.name);
+      if (!detected) {
+        return res.status(400).json({
+          success: false,
+          error: `Group "${group.name}" does not match any recognized special platform (LeetCode, GeeksforGeeks, LinkedIn).`,
+        });
+      }
+      specialPlatform = detected;
+    }
+
+    const beforeState = {
+      isSpecialGroup: group.isSpecialGroup,
+      specialPlatform: group.specialPlatform,
+    };
+
+    const updatedGroup = await prisma.group.update({
+      where: { id: groupId },
+      data: {
+        isSpecialGroup,
+        specialPlatform: isSpecialGroup ? specialPlatform : group.specialPlatform,
+      },
+    });
+
+    const statusLabel = isSpecialGroup ? 'ENABLED' : 'DISABLED';
+    const changesSummary = `Special group features for "${group.name}" were ${statusLabel} by administration.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'TOGGLE_GROUP_SPECIAL_MODE',
+      targetUserId: group.ownerId,
+      targetUser: `@${group.owner?.username || 'unknown'} (Group: ${group.name})`,
+      reason,
+      beforeState,
+      afterState: {
+        isSpecialGroup: updatedGroup.isSpecialGroup,
+        specialPlatform: updatedGroup.specialPlatform,
+      },
+    });
+
+    await dispatchAdminNotification({
+      userId: group.ownerId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Group Special Mode ${statusLabel}`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Special mode for "${group.name}" is now ${statusLabel}.`,
+      group: updatedGroup,
+    });
+  } catch (err: any) {
+    console.error('adminToggleGroupSpecialMode error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to toggle special mode.' });
+  }
+}
+
+/**
+ * Super Admin retrieves member special group activities (Daily, POTD) and streaks
+ */
+export async function getMemberSpecialActivitiesAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, isSpecialGroup: true, specialPlatform: true },
+    });
+    if (!group) return res.status(404).json({ success: false, error: 'Group not found.' });
+
+    const view = await getSpecialGroupActivitiesForMember(groupId, userId, user.timezone || 'Asia/Kolkata');
+    if (!view) {
+      return res.status(400).json({ success: false, error: 'Target group is not configured for special activities.' });
+    }
+
+    return res.json({
+      success: true,
+      user,
+      group,
+      specialGroup: view,
+    });
+  } catch (err: any) {
+    console.error('getMemberSpecialActivitiesAdmin error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve member special activities.' });
+  }
+}
+
+/**
+ * Super Admin streak correction for an individual special activity (Daily or POTD)
+ */
+export async function adminCorrectSpecialActivityStreak(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      activityType,
+      currentStreak,
+      longestStreak,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (activityType !== 'daily' && activityType !== 'potd') {
+      return res.status(400).json({ success: false, error: 'activityType must be daily or potd.' });
+    }
+    if (typeof currentStreak !== 'number' || currentStreak < 0) {
+      return res.status(400).json({ success: false, error: 'Valid non-negative current streak is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group) return res.status(404).json({ success: false, error: 'Group not found.' });
+
+    const beforeView = await getSpecialGroupActivitiesForMember(groupId, userId, user.timezone || 'Asia/Kolkata');
+    const beforeAct = beforeView?.activities.find((a) => a.id === activityType);
+
+    const updatedTask = await serviceAdminCorrectSpecialActivityStreak(
+      groupId,
+      userId,
+      activityType as 'daily' | 'potd',
+      currentStreak,
+      typeof longestStreak === 'number' ? longestStreak : currentStreak
+    );
+
+    const changesSummary = `Special group "${group.name}" ${activityType.toUpperCase()} streak corrected: ${beforeAct?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedTask.longestStreak}d).`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SPECIAL_ACTIVITY_STREAK_CORRECTION',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: beforeAct,
+      afterState: updatedTask,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `${group.name} ${activityType.toUpperCase()} Streak Corrected`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Streak for ${group.name} (${activityType.toUpperCase()}) updated to ${currentStreak} days.`,
+      task: updatedTask,
+    });
+  } catch (err: any) {
+    console.error('adminCorrectSpecialActivityStreak error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to correct special activity streak.' });
+  }
+}
+
+/**
+ * Super Admin grants check-in completion for a special activity on a calendar date
+ */
+export async function adminGrantSpecialActivityDate(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      activityType,
+      date,
+      studyNote,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (activityType !== 'daily' && activityType !== 'potd') {
+      return res.status(400).json({ success: false, error: 'activityType must be daily or potd.' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'A valid calendar date (YYYY-MM-DD) is required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group) return res.status(404).json({ success: false, error: 'Group not found.' });
+
+    const updatedTask = await serviceAdminGrantSpecialActivityDate(
+      groupId,
+      userId,
+      activityType as 'daily' | 'potd',
+      date,
+      studyNote
+    );
+
+    const changesSummary = `Special group "${group.name}" ${activityType.toUpperCase()} check-in recorded for date ${date}. New streak: ${updatedTask.streak.currentStreak}d.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SPECIAL_ACTIVITY_GRANT_DATE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: null,
+      afterState: updatedTask,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `${group.name} ${activityType.toUpperCase()} Check-in Granted`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Check-in for ${group.name} (${activityType.toUpperCase()}) on ${date} recorded successfully.`,
+      task: updatedTask,
+    });
+  } catch (err: any) {
+    console.error('adminGrantSpecialActivityDate error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to grant special activity date.' });
+  }
+}
+
+/**
+ * Super Admin updates member POTD commitment preference
+ */
+export async function adminSetSpecialActivityCommitment(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      isPotdCommitted,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (typeof isPotdCommitted !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'isPotdCommitted must be a boolean.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true },
+    });
+    if (!group) return res.status(404).json({ success: false, error: 'Group not found.' });
+
+    const beforeMember = await prisma.groupMember.findUnique({
+      where: { groupId_userId: { groupId, userId } },
+    });
+    if (!beforeMember) return res.status(404).json({ success: false, error: 'Group membership not found.' });
+
+    const updatedMember = await prisma.groupMember.update({
+      where: { groupId_userId: { groupId, userId } },
+      data: { isPotdCommitted },
+    });
+
+    const changesSummary = `POTD commitment for group "${group.name}" set to ${isPotdCommitted ? 'COMMITTED' : 'UNCOMMITTED'}.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SPECIAL_ACTIVITY_COMMITMENT_CHANGE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { isPotdCommitted: beforeMember.isPotdCommitted },
+      afterState: { isPotdCommitted: updatedMember.isPotdCommitted },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `${group.name} POTD Commitment Updated`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `POTD commitment for ${group.name} set to ${isPotdCommitted ? 'Committed' : 'Uncommitted'}.`,
+      isPotdCommitted: updatedMember.isPotdCommitted,
+    });
+  } catch (err: any) {
+    console.error('adminSetSpecialActivityCommitment error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update member POTD commitment.' });
+  }
+}
+
 
 
 

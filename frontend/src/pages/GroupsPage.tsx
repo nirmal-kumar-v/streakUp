@@ -37,19 +37,40 @@ import {
   Mail,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-import { extractErrorMessage } from '../utils/error';
 import { useBodyScrollLock } from '../utils/scrollLock';
 import { InitialsAvatar } from '../components/InitialsAvatar';
+import { detectSpecialPlatform } from '../utils/specialGroups';
+import { extractErrorMessage } from '../utils/error';
+
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const GROUPS_CACHE_KEY = 'streakup_user_groups_cache';
+
+function getCachedGroups(): GroupItem[] | null {
+  try {
+    const raw = sessionStorage.getItem(GROUPS_CACHE_KEY);
+    if (!raw) return null;
+    const { timestamp, data } = JSON.parse(raw);
+    if (Date.now() - timestamp < 3 * 60 * 1000) return data;
+  } catch (e) {}
+  return null;
+}
+
+function setCachedGroups(data: GroupItem[]) {
+  try {
+    sessionStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
+  } catch (e) {}
+}
 
 export const GroupsPage: React.FC = () => {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<'my' | 'discover' | 'requests'>('my');
 
-  // My Groups State
-  const [groups, setGroups] = useState<GroupItem[]>([]);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(true);
+  // My Groups State with instant cache
+  const [cachedGroups] = useState(() => getCachedGroups());
+  const [groups, setGroups] = useState<GroupItem[]>(() => cachedGroups || []);
+  const [isLoadingGroups, setIsLoadingGroups] = useState<boolean>(() => !cachedGroups);
 
   // Group Requests & Invitations State
   const [ownerRequests, setOwnerRequests] = useState<OwnerJoinRequestItem[]>([]);
@@ -68,7 +89,9 @@ export const GroupsPage: React.FC = () => {
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [createScheduledDays, setCreateScheduledDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [enableSpecialFeatures, setEnableSpecialFeatures] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+
 
   const [isJoinOpen, setIsJoinOpen] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState('');
@@ -91,13 +114,14 @@ export const GroupsPage: React.FC = () => {
   };
 
   const loadMyGroups = async () => {
-    if (groups.length === 0) {
+    if (!cachedGroups && groups.length === 0) {
       setIsLoadingGroups(true);
     }
     try {
       const res = await fetchUserGroups();
-      if (res.success) {
-        setGroups(res.groups || []);
+      if (res.success && res.groups) {
+        setGroups(res.groups);
+        setCachedGroups(res.groups);
       }
     } catch (err: any) {
       showFeedback(extractErrorMessage(err, 'Failed to load your groups.'), 'error');
@@ -205,6 +229,7 @@ export const GroupsPage: React.FC = () => {
         name: createName.trim(),
         description: createDescription.trim() || undefined,
         scheduledDays: createScheduledDays,
+        enableSpecialFeatures,
       });
 
       if (res.success) {
@@ -453,9 +478,16 @@ export const GroupsPage: React.FC = () => {
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <h3 className="text-base font-bold text-zinc-100 group-hover:text-flame-400 transition-colors line-clamp-1">
-                          {group.name}
-                        </h3>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-bold text-zinc-100 group-hover:text-flame-400 transition-colors line-clamp-1">
+                            {group.name}
+                          </h3>
+                          {group.isSpecialGroup && group.specialPlatform && (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-flame-500/10 text-flame-400 border border-flame-500/25">
+                              {group.specialPlatform}
+                            </span>
+                          )}
+                        </div>
                         <span
                           className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border shrink-0 flex items-center gap-1 ${
                             isOwner
@@ -951,10 +983,34 @@ export const GroupsPage: React.FC = () => {
                   maxLength={50}
                   value={createName}
                   onChange={(e) => setCreateName(e.target.value)}
-                  placeholder="e.g. GATE Preparation, Daily DSA Practice"
+                  placeholder="e.g. LeetCode Daily, GFG Practice, GATE Prep"
                   className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-flame-500/80"
                 />
               </div>
+
+              {/* Generic Special Group Checkbox when matching registered platform */}
+              {detectSpecialPlatform(createName) && (
+                <div className="p-3 bg-dark-surface/90 rounded-xl border border-flame-500/25 flex items-start gap-3 transition-all animate-fadeIn">
+                  <input
+                    type="checkbox"
+                    id="enableSpecialFeatures"
+                    checked={enableSpecialFeatures}
+                    onChange={(e) => setEnableSpecialFeatures(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-dark-border text-flame-500 focus:ring-flame-500 focus:ring-offset-dark-card accent-flame-500 cursor-pointer"
+                  />
+                  <label htmlFor="enableSpecialFeatures" className="text-xs cursor-pointer select-none">
+                    <div className="font-bold text-zinc-100 flex items-center gap-1.5">
+                      <span>Enable Special Group Features</span>
+                      <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-flame-500/15 text-flame-400 border border-flame-500/30">
+                        {detectSpecialPlatform(createName)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-dark-muted mt-0.5 leading-relaxed">
+                      Enables platform-specific tracking, separate Daily and POTD activity streaks, and synchronized completion rules.
+                    </p>
+                  </label>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-zinc-300 uppercase tracking-wider mb-1.5">

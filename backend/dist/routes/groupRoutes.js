@@ -17,6 +17,8 @@ router.post('/invitations/:invitationId/respond', groupController_1.respondToGro
 router.get('/:id', groupController_1.getGroupDetails);
 router.put('/:id', groupController_1.updateGroup);
 router.put('/:id/member-privacy', groupController_1.updateMemberGroupPrivacy);
+router.patch('/:id/commitment', groupController_1.updateMemberGroupCommitment);
+router.put('/:id/commitment', groupController_1.updateMemberGroupCommitment);
 router.post('/:id/join-request', groupController_1.requestToJoinGroup);
 router.delete('/:id/join-request', groupController_1.cancelJoinRequest);
 router.get('/:id/requests', groupController_1.getGroupJoinRequests);
@@ -26,6 +28,10 @@ router.post('/:id/make-task', groupController_1.makeGroupTask);
 router.delete('/:id/task', groupController_1.removeGroupTask);
 router.get('/:id/leaderboard', groupController_1.getGroupLeaderboards);
 router.get('/:id/notes', groupController_1.getGroupNotes);
+// Generic Special Groups (LeetCode, GeeksforGeeks, etc.)
+router.get('/:id/special-activities', groupController_1.getGroupSpecialActivities);
+router.post('/:id/special-activities/:activityType/complete', groupController_1.completeGroupSpecialActivity);
+router.post('/:id/special-activities/:activityType/uncomplete', groupController_1.uncompleteGroupSpecialActivity);
 // LinkedIn Group Dedicated Games Hub & Leaderboards
 router.get('/:id/linkedin-games', linkedInGameController_1.getLinkedInGames);
 router.get('/:id/linkedin-games/:gameId', linkedInGameController_1.getSingleLinkedInGame);

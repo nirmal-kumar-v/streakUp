@@ -174,11 +174,13 @@ model Task {
   groupId              String?
   group                Group?           @relation(fields: [groupId], references: [id], onDelete: SetNull)
   isGroupTask          Boolean          @default(false)
+  specialActivity      String?          // 'DAILY' | 'POTD' | null
 
   @@index([userId, status])
   @@index([userId, recurrence])
   @@index([groupId])
   @@index([groupId, userId])
+  @@index([groupId, specialActivity])
 }
 
 model TaskCompletion {
@@ -441,6 +443,8 @@ model Group {
   isDiscoverable Boolean           @default(true) // If false, hidden from public discovery feed but remains searchable by name/joinCode
   hiddenFrom    String[]           @default([]) // usernames or "all" hidden by owner from finding group or seeing group tasks
   visibleOnlyTo String[]           @default([]) // if non-empty, only visible to these usernames/IDs
+  isSpecialGroup Boolean          @default(false)
+  specialPlatform String?          // 'LINKEDIN' | 'LEETCODE' | 'GEEKSFORGEEKS'
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   members       GroupMember[]
@@ -450,6 +454,7 @@ model Group {
 
   @@index([joinCode])
   @@index([ownerId])
+  @@index([isSpecialGroup, specialPlatform])
 }
 
 model GroupMember {
@@ -460,6 +465,7 @@ model GroupMember {
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   role       GroupRole @default(MEMBER)
   hiddenFrom String[]  @default([]) // usernames hidden by this member from seeing their presence in the group
+  isPotdCommitted Boolean @default(true) // For Daily-POTD special groups
   joinedAt   DateTime  @default(now())
 
   @@unique([groupId, userId])

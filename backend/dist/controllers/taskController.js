@@ -88,19 +88,36 @@ async function getTasks(req, res) {
         else if (sortBy === 'title') {
             orderBy = { title: orderDirection };
         }
-        const tasks = await prisma_1.default.task.findMany({
-            where,
-            orderBy,
-            include: {
-                completions: {
-                    where: { completionDate: todayDateStr },
-                    select: { id: true, completionDate: true, completedAt: true, studyNote: true }
-                }
+        const [tasks, userMemberships] = await Promise.all([
+            prisma_1.default.task.findMany({
+                where,
+                orderBy,
+                include: {
+                    completions: {
+                        where: { completionDate: todayDateStr },
+                        select: { id: true, completionDate: true, completedAt: true, studyNote: true },
+                    },
+                    group: {
+                        select: { id: true, name: true, isSpecialGroup: true, specialPlatform: true },
+                    },
+                },
+            }),
+            prisma_1.default.groupMember.findMany({
+                where: { userId },
+                select: { groupId: true, isPotdCommitted: true },
+            }),
+        ]);
+        const potdCommitmentMap = new Map(userMemberships.map((m) => [m.groupId, m.isPotdCommitted]));
+        // Filter out POTD tasks if user is not committed to POTD in that group
+        const visibleTasks = tasks.filter((t) => {
+            if (t.specialActivity === 'POTD' && t.groupId) {
+                return potdCommitmentMap.get(t.groupId) !== false;
             }
+            return true;
         });
         const updatedTasksMap = new Map();
-        await Promise.all(tasks
-            .filter(t => t.status === 'ACTIVE' && t.recurrence === 'DAILY' && t.currentStreak > 0)
+        await Promise.all(visibleTasks
+            .filter((t) => t.status === 'ACTIVE' && t.recurrence === 'DAILY' && t.currentStreak > 0)
             .map(async (t) => {
             const res = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, t.id, userId, timezone);
             updatedTasksMap.set(t.id, {
@@ -109,7 +126,7 @@ async function getTasks(req, res) {
             });
         }));
         // Transform tasks to attach completedToday flag and todayStudyNote
-        const formattedTasks = await Promise.all(tasks.map(async (task) => {
+        const formattedTasks = await Promise.all(visibleTasks.map(async (task) => {
             let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
@@ -131,6 +148,9 @@ async function getTasks(req, res) {
                 completedToday,
                 todayStudyNote,
                 isLinkedIn,
+                specialActivity: task.specialActivity,
+                specialPlatform: task.group?.specialPlatform || null,
+                groupName: task.group?.name || null,
                 completions: undefined, // hide raw completions array
             };
         }));
@@ -570,6 +590,48 @@ async function completeTask(req, res) {
             scopeId: 'OVERALL',
             currentStreak: overallStreak.currentStreak,
         }).catch((err) => console.error('[completeTask] Milestone check error:', err));
+        // Rule B: POTD completion automatically qualifies as Daily completion (one-way)
+        if (task.specialActivity === 'POTD' && task.groupId) {
+            try {
+                const dailyTask = await prisma_1.default.task.findFirst({
+                    where: {
+                        groupId: task.groupId,
+                        userId,
+                        specialActivity: 'DAILY',
+                    },
+                });
+                if (dailyTask) {
+                    const wasDailyAlreadyCompletedToday = (await prisma_1.default.taskCompletion.count({
+                        where: { taskId: dailyTask.id, completionDate: todayDateStr },
+                    })) > 0;
+                    if (!wasDailyAlreadyCompletedToday) {
+                        await prisma_1.default.taskCompletion.upsert({
+                            where: {
+                                taskId_completionDate: {
+                                    taskId: dailyTask.id,
+                                    completionDate: todayDateStr,
+                                },
+                            },
+                            update: {
+                                completedAt: new Date(),
+                                studyNote: trimmedNote,
+                            },
+                            create: {
+                                taskId: dailyTask.id,
+                                userId,
+                                completionDate: todayDateStr,
+                                studyNote: trimmedNote,
+                            },
+                        });
+                        await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, dailyTask.id, userId, timezone);
+                        await (0, pointsService_1.awardCompletionPoints)(prisma_1.default, userId, dailyTask.id, todayDateStr, dailyTask.scheduledDays || [0, 1, 2, 3, 4, 5, 6], timezone);
+                    }
+                }
+            }
+            catch (autoDailyErr) {
+                console.error('[completeTask] Failed to auto-complete Daily task for POTD:', autoDailyErr);
+            }
+        }
         if (task.recurrence === 'DAILY') {
             (0, notificationService_1.checkAndTriggerMilestones)({
                 userId,
@@ -991,8 +1053,8 @@ async function getDashboardSummary(req, res) {
         const freshUserStreak = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, timezone);
         // Reconcile missed points for user asynchronously in background to keep dashboard loads instant
         (0, pointsService_1.reconcileMissedPointsForUser)(prisma_1.default, userId, timezone).catch((e) => console.error('Missed points reconcile error:', e));
-        // Concurrently fetch points stats, overall freeze logs, and all user tasks
-        const [pointsStats, overallFreezeLogs, allUserTasks] = await Promise.all([
+        // Concurrently fetch points stats, overall freeze logs, all user tasks, and group memberships
+        const [pointsStats, overallFreezeLogs, allUserTasks, userMemberships] = await Promise.all([
             (0, pointsService_1.getUserPointsStats)(prisma_1.default, userId),
             prisma_1.default.freezeLog.findMany({
                 where: { userId, scope: 'OVERALL' },
@@ -1007,13 +1069,28 @@ async function getDashboardSummary(req, res) {
                     completions: {
                         where: { completionDate: todayDateStr },
                         select: { id: true, studyNote: true }
+                    },
+                    group: {
+                        select: { id: true, name: true, isSpecialGroup: true, specialPlatform: true }
                     }
                 }
+            }),
+            prisma_1.default.groupMember.findMany({
+                where: { userId },
+                select: { groupId: true, isPotdCommitted: true }
             })
         ]);
+        const potdCommitmentMap = new Map(userMemberships.map((m) => [m.groupId, m.isPotdCommitted]));
+        // Filter out POTD tasks if member has opted out of POTD commitment
+        const visibleUserTasks = allUserTasks.filter((t) => {
+            if (t.specialActivity === 'POTD' && t.groupId) {
+                return potdCommitmentMap.get(t.groupId) !== false;
+            }
+            return true;
+        });
         // Reconcile active daily tasks streak and freezes
         const updatedTasksMap = new Map();
-        await Promise.all(allUserTasks
+        await Promise.all(visibleUserTasks
             .filter(t => t.status === 'ACTIVE' && t.recurrence === 'DAILY' && t.currentStreak > 0)
             .map(async (t) => {
             const res = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, t.id, userId, timezone);
@@ -1025,7 +1102,7 @@ async function getDashboardSummary(req, res) {
             });
         }));
         // Calculate completed vs pending today
-        const tasksWithStatus = await Promise.all(allUserTasks.map(async (task) => {
+        const tasksWithStatus = await Promise.all(visibleUserTasks.map(async (task) => {
             let completedToday = task.recurrence === 'DAILY'
                 ? task.completions.length > 0
                 : task.isCompleted;
@@ -1061,6 +1138,9 @@ async function getDashboardSummary(req, res) {
                 groupId: task.groupId,
                 isGroupTask: task.isGroupTask || !!task.groupId,
                 isLinkedIn,
+                specialActivity: task.specialActivity,
+                specialPlatform: task.group?.specialPlatform || null,
+                groupName: task.group?.name || null,
             };
         }));
         const activeTasksWithStatus = tasksWithStatus.filter(t => t.status === 'ACTIVE');

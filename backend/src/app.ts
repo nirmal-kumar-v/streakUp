@@ -42,9 +42,12 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 import { runReminderCheck } from './services/reminderSchedulerService';
 import { loadUserAdminConfigsFromDb } from './services/adminConfigService';
+import { initSpecialGroupsDatabaseAndMigrate } from './services/specialGroupMigration';
 
 // Preload user admin configs from PostgreSQL into in-memory cache
 loadUserAdminConfigsFromDb().catch(() => {});
+// Initialize special groups database columns and backfill legacy groups
+initSpecialGroupsDatabaseAndMigrate().catch(() => {});
 
 
 // Health & Info endpoint (accessible at both /api/health and /health)
