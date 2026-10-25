@@ -1964,7 +1964,7 @@ export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res
       action: role === 'OWNER' ? 'TRANSFER_GROUP_OWNERSHIP' : 'UPDATE_GROUP_MEMBER_ROLE',
       targetUserId,
       reason,
-      beforeState: { groupId, groupName: group.name, oldRole: member.role, previousOwnerId: group.ownerId },
+      beforeState: { groupId, groupName: group.name, oldRole: member?.role || 'NONE', previousOwnerId: group.ownerId },
       afterState: { groupId, newRole: role, newOwnerId: role === 'OWNER' ? targetUserId : group.ownerId },
     });
 
