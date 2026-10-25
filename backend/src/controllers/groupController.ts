@@ -14,6 +14,7 @@ import {
   completeSpecialActivity,
   uncompleteSpecialActivity,
 } from '../services/specialGroupService';
+import { ensureTaskStreakCurrent } from '../services/streakService';
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
@@ -832,7 +833,7 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
     const [allTasksForMembers, existingFriendships, sentRequests, receivedRequests] = await Promise.all([
       prisma.task.findMany({
         where: { groupId: id, userId: { in: memberUserIds } },
-        select: { userId: true, currentStreak: true, longestStreak: true },
+        select: { id: true, userId: true, recurrence: true, scheduledDays: true, currentStreak: true, longestStreak: true },
       }),
       prisma.friendship.findMany({
         where: {
@@ -854,9 +855,18 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
     ]);
 
     const taskByUserMap = new Map<string, { currentStreak: number; longestStreak: number }>();
-    allTasksForMembers.forEach((t) => {
-      taskByUserMap.set(t.userId, { currentStreak: t.currentStreak, longestStreak: t.longestStreak });
-    });
+    await Promise.all(
+      allTasksForMembers.map(async (t) => {
+        let currentStreak = t.currentStreak || 0;
+        let longestStreak = t.longestStreak || 0;
+        if (currentStreak > 0) {
+          const fresh = await ensureTaskStreakCurrent(prisma, t);
+          currentStreak = fresh.currentStreak;
+          longestStreak = fresh.longestStreak;
+        }
+        taskByUserMap.set(t.userId, { currentStreak, longestStreak });
+      })
+    );
 
     const friendsSet = new Set<string>();
     existingFriendships.forEach((f) => {
@@ -1092,6 +1102,17 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
           potdStreak = potdTask?.currentStreak || 0;
           potdLongestStreak = potdTask?.longestStreak || 0;
 
+          if (dailyTask && dailyStreak > 0) {
+            const fresh = await ensureTaskStreakCurrent(prisma, dailyTask, m.user.timezone || DEFAULT_TIMEZONE);
+            dailyStreak = fresh.currentStreak;
+            dailyLongestStreak = fresh.longestStreak;
+          }
+          if (potdTask && potdStreak > 0) {
+            const fresh = await ensureTaskStreakCurrent(prisma, potdTask, m.user.timezone || DEFAULT_TIMEZONE);
+            potdStreak = fresh.currentStreak;
+            potdLongestStreak = fresh.longestStreak;
+          }
+
           if (activityFilter === 'daily') {
             currentStreak = dailyStreak;
             longestStreak = dailyLongestStreak;
@@ -1110,6 +1131,11 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
           if (memberTask) {
             currentStreak = memberTask.currentStreak || 0;
             longestStreak = memberTask.longestStreak || 0;
+            if (currentStreak > 0) {
+              const fresh = await ensureTaskStreakCurrent(prisma, memberTask, m.user.timezone || DEFAULT_TIMEZONE);
+              currentStreak = fresh.currentStreak;
+              longestStreak = fresh.longestStreak;
+            }
           }
         }
 

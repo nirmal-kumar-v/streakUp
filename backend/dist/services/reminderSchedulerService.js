@@ -15,6 +15,7 @@ const notificationService_1 = require("./notificationService");
 const emailService_1 = require("./emailService");
 const adminController_1 = require("../controllers/adminController");
 const adminConfigService_1 = require("./adminConfigService");
+const streakService_1 = require("./streakService");
 /**
  * Validates that adding a reminder time does not exceed the allowed quota per scope.
  */
@@ -133,6 +134,13 @@ async function runReminderCheck() {
     let sent = 0;
     let skipped = 0;
     const nowUtc = luxon_1.DateTime.utc();
+    // Automatically reconcile broken streaks for inactive users and tasks
+    try {
+        await (0, streakService_1.reconcileStaleStreaks)();
+    }
+    catch (err) {
+        // Non-blocking
+    }
     for (const schedule of activeSchedules) {
         processed++;
         const user = schedule.user;
@@ -140,10 +148,15 @@ async function runReminderCheck() {
             continue;
         const userTz = user.timezone || 'Asia/Kolkata';
         const userLocalTime = nowUtc.setZone(userTz);
-        const currentLocalHourMinute = userLocalTime.toFormat('HH:mm'); // e.g. "08:00"
         const localDate = userLocalTime.toFormat('yyyy-MM-dd');
-        // Only process if current user local time has reached or passed the scheduled time
-        if (currentLocalHourMinute < schedule.time) {
+        const [schedH, schedM] = schedule.time.split(':').map(Number);
+        const scheduledMinutes = (schedH || 0) * 60 + (schedM || 0);
+        const currentMinutes = userLocalTime.hour * 60 + userLocalTime.minute;
+        const minutesPastSchedule = currentMinutes - scheduledMinutes;
+        // Only process within an acceptable delivery window:
+        // Time must have arrived (minutesPastSchedule >= 0) but not have lapsed by more than 30 minutes.
+        // This prevents stale/shockingly late notifications from firing hours later when the user opens the mobile app.
+        if (minutesPastSchedule < 0 || minutesPastSchedule > 30) {
             continue;
         }
         // Check if this reminder was ALREADY successfully delivered via email today

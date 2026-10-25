@@ -130,5 +130,111 @@ describe('Streak Calculation Engine', () => {
       expect(result.longestStreak).toBe(2);
     });
   });
+
+  describe('Inactive User & Stale Streak Reconciliation (Jaishree fix)', () => {
+    it('should drop currentStreak to 0 when user misses days even if user record was recently updated', async () => {
+      const { recalculateUserStreaks } = await import('../src/services/streakService');
+      const mockUser = {
+        id: 'u-jaishree',
+        timezone: 'Asia/Kolkata',
+        currentStreak: 2,
+        longestStreak: 2,
+        overallFreezeCapacity: 1,
+        updatedAt: new Date(), // updated today
+      };
+
+      let updatedData: any = null;
+      const mockPrisma = {
+        user: {
+          findUnique: async () => mockUser,
+          update: async ({ data }: any) => {
+            updatedData = data;
+            return { ...mockUser, ...data };
+          },
+        },
+        taskCompletion: {
+          findMany: async () => [
+            { completionDate: '2026-10-17' },
+            { completionDate: '2026-10-18' },
+          ],
+        },
+        freezeLog: {
+          findMany: async () => [],
+          upsert: async () => ({}),
+        },
+      };
+
+      const result = await recalculateUserStreaks(mockPrisma, 'u-jaishree', 'Asia/Kolkata');
+      expect(result.currentStreak).toBe(0);
+      expect(result.longestStreak).toBe(2);
+      expect(updatedData?.currentStreak).toBe(0);
+      expect(updatedData?.longestStreak).toBe(2);
+    });
+
+    it('ensureUserStreakCurrent correctly returns 0 for inactive users who have not completed today/yesterday', async () => {
+      const { ensureUserStreakCurrent } = await import('../src/services/streakService');
+      const mockUser = {
+        id: 'u-inactive',
+        timezone: 'Asia/Kolkata',
+        currentStreak: 2,
+        longestStreak: 2,
+      };
+
+      const mockPrisma = {
+        user: {
+          findUnique: async () => ({ ...mockUser, overallFreezeCapacity: 1, updatedAt: new Date() }),
+          update: async ({ data }: any) => ({ ...mockUser, ...data }),
+        },
+        taskCompletion: {
+          findFirst: async () => null, // no completions today or yesterday
+          findMany: async () => [{ completionDate: '2026-10-10' }],
+        },
+        freezeLog: {
+          findFirst: async () => null, // no freeze yesterday
+          findMany: async () => [],
+          upsert: async () => ({}),
+        },
+      };
+
+      const result = await ensureUserStreakCurrent(mockPrisma, mockUser);
+      expect(result.currentStreak).toBe(0);
+      expect(result.longestStreak).toBe(2);
+    });
+
+    it('ensureTaskStreakCurrent correctly returns 0 for inactive group/individual tasks', async () => {
+      const { ensureTaskStreakCurrent } = await import('../src/services/streakService');
+      const mockTask = {
+        id: 'task-inactive',
+        userId: 'u-inactive',
+        recurrence: 'DAILY',
+        scheduledDays: [0, 1, 2, 3, 4, 5, 6],
+        currentStreak: 2,
+        longestStreak: 2,
+      };
+
+      const mockPrisma = {
+        task: {
+          findUnique: async () => ({ ...mockTask, freezeCapacity: 1, updatedAt: new Date() }),
+          update: async ({ data }: any) => ({ ...mockTask, ...data }),
+        },
+        user: {
+          findUnique: async () => ({ timezone: 'Asia/Kolkata' }),
+        },
+        taskCompletion: {
+          findFirst: async () => null,
+          findMany: async () => [{ completionDate: '2026-10-10' }],
+        },
+        freezeLog: {
+          findFirst: async () => null,
+          findMany: async () => [],
+          upsert: async () => ({}),
+        },
+      };
+
+      const result = await ensureTaskStreakCurrent(mockPrisma, mockTask, 'Asia/Kolkata');
+      expect(result.currentStreak).toBe(0);
+      expect(result.longestStreak).toBe(2);
+    });
+  });
 });
 

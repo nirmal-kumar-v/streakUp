@@ -42,10 +42,13 @@ app.use(express_1.default.urlencoded({ extended: true, limit: '15mb' }));
 const reminderSchedulerService_1 = require("./services/reminderSchedulerService");
 const adminConfigService_1 = require("./services/adminConfigService");
 const specialGroupMigration_1 = require("./services/specialGroupMigration");
+const streakService_1 = require("./services/streakService");
 // Preload user admin configs from PostgreSQL into in-memory cache
 (0, adminConfigService_1.loadUserAdminConfigsFromDb)().catch(() => { });
 // Initialize special groups database columns and backfill legacy groups
 (0, specialGroupMigration_1.initSpecialGroupsDatabaseAndMigrate)().catch(() => { });
+// Reconcile broken streaks for inactive users on startup
+(0, streakService_1.reconcileStaleStreaks)().catch(() => { });
 // Health & Info endpoint (accessible at both /api/health and /health)
 const handleHealth = (_req, res) => {
     res.json({

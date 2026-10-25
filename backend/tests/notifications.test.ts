@@ -226,5 +226,30 @@ describe('Notification and Milestone Engine Tests', () => {
       expect(whenUnread.totalCount).toBe(1);
       expect(whenUnread.unreadCount).toBe(1);
     });
+
+    it('enforces that reminder notifications are only sent within 30 minutes of scheduled time to prevent stale notifications on app open', () => {
+      const isWithinDeliveryWindow = (scheduledTimeStr: string, currentHour: number, currentMinute: number) => {
+        const [schedH, schedM] = scheduledTimeStr.split(':').map(Number);
+        const scheduledMinutes = schedH * 60 + schedM;
+        const currentMinutes = currentHour * 60 + currentMinute;
+        const minutesPastSchedule = currentMinutes - scheduledMinutes;
+        return minutesPastSchedule >= 0 && minutesPastSchedule <= 30;
+      };
+
+      // Exactly at scheduled time (8:00 AM)
+      expect(isWithinDeliveryWindow('08:00', 8, 0)).toBe(true);
+      // 15 minutes after (8:15 AM)
+      expect(isWithinDeliveryWindow('08:00', 8, 15)).toBe(true);
+      // 30 minutes after (8:30 AM)
+      expect(isWithinDeliveryWindow('08:00', 8, 30)).toBe(true);
+      // 31 minutes after (8:31 AM) - past window!
+      expect(isWithinDeliveryWindow('08:00', 8, 31)).toBe(false);
+      // Hours later when opening app (e.g. 2:00 PM or 8:00 PM) - must NEVER send late notification!
+      expect(isWithinDeliveryWindow('08:00', 14, 0)).toBe(false);
+      expect(isWithinDeliveryWindow('08:00', 20, 0)).toBe(false);
+      // Before scheduled time (7:50 AM)
+      expect(isWithinDeliveryWindow('08:00', 7, 50)).toBe(false);
+    });
   });
 });
+

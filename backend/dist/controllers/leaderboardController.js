@@ -40,6 +40,7 @@ exports.getGlobalLeaderboard = getGlobalLeaderboard;
 exports.getFriendsLeaderboard = getFriendsLeaderboard;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
+const streakService_1 = require("../services/streakService");
 const dbError_1 = require("../utils/dbError");
 const adminConfigService_1 = require("../services/adminConfigService");
 /**
@@ -342,22 +343,55 @@ async function getFriendsLeaderboard(req, res) {
                 completionDate: true,
             },
         }) : [];
-        const friendsLeaderboard = users.map((u, idx) => {
+        const friendsLeaderboard = await Promise.all(users.map(async (u) => {
             const todayDateStr = (0, timezoneService_1.getLocalDateString)(u.timezone || 'Asia/Kolkata');
             const tasksCompletedToday = friendTodayCompletions.filter((c) => c.userId === u.id && c.completionDate === todayDateStr).length;
+            let currentStreak = u.currentStreak;
+            let longestStreak = u.longestStreak;
+            if (currentStreak > 0 && tasksCompletedToday === 0) {
+                const fresh = await (0, streakService_1.ensureUserStreakCurrent)(prisma_1.default, u);
+                currentStreak = fresh.currentStreak;
+                longestStreak = fresh.longestStreak;
+            }
             return {
-                rank: idx + 1,
+                rank: 0,
                 id: u.id,
                 name: u.name,
                 username: u.username,
                 profileImage: u.profileImage,
-                currentStreak: u.currentStreak,
-                longestStreak: u.longestStreak,
+                currentStreak,
+                longestStreak,
                 points: u.points,
                 totalCompletedTasks: u._count.taskCompletions,
                 tasksCompletedToday,
                 isCurrentUser: u.id === userId
             };
+        }));
+        // Re-sort accurately in case any stale streak was refreshed to 0
+        if (type === 'points') {
+            friendsLeaderboard.sort((a, b) => {
+                if (b.points !== a.points)
+                    return b.points - a.points;
+                if (b.currentStreak !== a.currentStreak)
+                    return b.currentStreak - a.currentStreak;
+                if (b.longestStreak !== a.longestStreak)
+                    return b.longestStreak - a.longestStreak;
+                return a.username.localeCompare(b.username);
+            });
+        }
+        else {
+            friendsLeaderboard.sort((a, b) => {
+                if (b.currentStreak !== a.currentStreak)
+                    return b.currentStreak - a.currentStreak;
+                if (b.longestStreak !== a.longestStreak)
+                    return b.longestStreak - a.longestStreak;
+                if (b.points !== a.points)
+                    return b.points - a.points;
+                return a.username.localeCompare(b.username);
+            });
+        }
+        friendsLeaderboard.forEach((entry, idx) => {
+            entry.rank = idx + 1;
         });
         const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;
         return res.json({

@@ -43,11 +43,14 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 import { runReminderCheck } from './services/reminderSchedulerService';
 import { loadUserAdminConfigsFromDb } from './services/adminConfigService';
 import { initSpecialGroupsDatabaseAndMigrate } from './services/specialGroupMigration';
+import { reconcileStaleStreaks } from './services/streakService';
 
 // Preload user admin configs from PostgreSQL into in-memory cache
 loadUserAdminConfigsFromDb().catch(() => {});
 // Initialize special groups database columns and backfill legacy groups
 initSpecialGroupsDatabaseAndMigrate().catch(() => {});
+// Reconcile broken streaks for inactive users on startup
+reconcileStaleStreaks().catch(() => {});
 
 
 // Health & Info endpoint (accessible at both /api/health and /health)

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString } from '../services/timezoneService';
+import { ensureUserStreakCurrent } from '../services/streakService';
 
 /**
  * Helper to ensure canonical ordering for Friendship table
@@ -419,7 +420,7 @@ export async function getFriendsList(req: AuthenticatedRequest, res: Response) {
       .map(f => (f.user1Id === userId ? f.user2 : f.user1))
       .filter(f => !isAccountDeleted(f.id).isDeleted);
 
-    // Attach today's task completion count for each friend
+    // Attach today's task completion count and fresh streak for each friend
     const friendsWithTodayStats = await Promise.all(
       friends.map(async friend => {
         const todayDateStr = getLocalDateString(friend.timezone || 'Asia/Kolkata');
@@ -429,13 +430,22 @@ export async function getFriendsList(req: AuthenticatedRequest, res: Response) {
             completionDate: todayDateStr
           }
         });
+
+        let currentStreak = friend.currentStreak;
+        let longestStreak = friend.longestStreak;
+        if (currentStreak > 0 && tasksCompletedToday === 0) {
+          const fresh = await ensureUserStreakCurrent(prisma, friend);
+          currentStreak = fresh.currentStreak;
+          longestStreak = fresh.longestStreak;
+        }
+
         return {
           id: friend.id,
           name: friend.name,
           username: friend.username,
           profileImage: friend.profileImage,
-          currentStreak: friend.currentStreak,
-          longestStreak: friend.longestStreak,
+          currentStreak,
+          longestStreak,
           tasksCompletedToday
         };
       })

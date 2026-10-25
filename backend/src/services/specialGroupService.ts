@@ -5,7 +5,7 @@ import {
   SpecialPlatformType,
   SPECIAL_GROUP_REGISTRY,
 } from './specialGroupRegistry';
-import { recalculateTaskStreaks } from './streakService';
+import { recalculateTaskStreaks, ensureTaskStreakCurrent } from './streakService';
 import { awardCompletionPoints } from './pointsService';
 import {
   getAllGamesForMember,
@@ -193,6 +193,14 @@ export async function getSpecialGroupActivitiesForMember(
   const potdDef = def.activities.find((a) => a.id === 'potd') || def.activities[1];
 
   if (dailyTask) {
+    let dailyStreak = dailyTask.currentStreak;
+    let dailyLongest = dailyTask.longestStreak;
+    if (dailyStreak > 0 && dailyTask.completions.length === 0) {
+      const fresh = await ensureTaskStreakCurrent(prisma, dailyTask, userTimezone);
+      dailyStreak = fresh.currentStreak;
+      dailyLongest = fresh.longestStreak;
+    }
+
     activities.push({
       id: 'daily',
       taskId: dailyTask.id,
@@ -200,8 +208,8 @@ export async function getSpecialGroupActivitiesForMember(
       shortLabel: dailyDef?.shortLabel || 'Daily',
       tagline: dailyDef?.tagline || 'Daily Practice',
       description: dailyDef?.description || '',
-      currentStreak: dailyTask.currentStreak,
-      longestStreak: dailyTask.longestStreak,
+      currentStreak: dailyStreak,
+      longestStreak: dailyLongest,
       completedToday: dailyTask.completions.length > 0,
       todayStudyNote: dailyTask.completions[0]?.studyNote || null,
       isCommitted: true,
@@ -211,6 +219,14 @@ export async function getSpecialGroupActivitiesForMember(
   }
 
   if (potdTask) {
+    let potdStreak = potdTask.currentStreak;
+    let potdLongest = potdTask.longestStreak;
+    if (potdStreak > 0 && potdTask.completions.length === 0) {
+      const fresh = await ensureTaskStreakCurrent(prisma, potdTask, userTimezone);
+      potdStreak = fresh.currentStreak;
+      potdLongest = fresh.longestStreak;
+    }
+
     activities.push({
       id: 'potd',
       taskId: potdTask.id,
@@ -218,8 +234,8 @@ export async function getSpecialGroupActivitiesForMember(
       shortLabel: potdDef?.shortLabel || 'POTD',
       tagline: potdDef?.tagline || 'Problem of the Day',
       description: potdDef?.description || '',
-      currentStreak: potdTask.currentStreak,
-      longestStreak: potdTask.longestStreak,
+      currentStreak: potdStreak,
+      longestStreak: potdLongest,
       completedToday: potdTask.completions.length > 0,
       todayStudyNote: potdTask.completions[0]?.studyNote || null,
       isCommitted: isPotdCommitted,

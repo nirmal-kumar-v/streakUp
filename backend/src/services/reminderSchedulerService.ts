@@ -8,6 +8,7 @@ import { buildOverallReminderEmail, buildTaskReminderEmail } from './emailServic
 import { cleanupOldAuditLogs } from '../controllers/adminController';
 
 import { getUserReminderLimit, getUserTaskReminderLimit } from './adminConfigService';
+import { reconcileStaleStreaks } from './streakService';
 
 /**
  * Validates that adding a reminder time does not exceed the allowed quota per scope.
@@ -157,6 +158,13 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
 
   const nowUtc = DateTime.utc();
 
+  // Automatically reconcile broken streaks for inactive users and tasks
+  try {
+    await reconcileStaleStreaks();
+  } catch (err) {
+    // Non-blocking
+  }
+
   for (const schedule of activeSchedules) {
     processed++;
     const user = schedule.user;
@@ -164,11 +172,17 @@ export async function runReminderCheck(): Promise<{ processed: number; sent: num
 
     const userTz = user.timezone || 'Asia/Kolkata';
     const userLocalTime = nowUtc.setZone(userTz);
-    const currentLocalHourMinute = userLocalTime.toFormat('HH:mm'); // e.g. "08:00"
     const localDate = userLocalTime.toFormat('yyyy-MM-dd');
 
-    // Only process if current user local time has reached or passed the scheduled time
-    if (currentLocalHourMinute < schedule.time) {
+    const [schedH, schedM] = schedule.time.split(':').map(Number);
+    const scheduledMinutes = (schedH || 0) * 60 + (schedM || 0);
+    const currentMinutes = userLocalTime.hour * 60 + userLocalTime.minute;
+    const minutesPastSchedule = currentMinutes - scheduledMinutes;
+
+    // Only process within an acceptable delivery window:
+    // Time must have arrived (minutesPastSchedule >= 0) but not have lapsed by more than 30 minutes.
+    // This prevents stale/shockingly late notifications from firing hours later when the user opens the mobile app.
+    if (minutesPastSchedule < 0 || minutesPastSchedule > 30) {
       continue;
     }
 

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString } from '../services/timezoneService';
+import { ensureUserStreakCurrent } from '../services/streakService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbError';
 import { getUserLeaderboardLimit } from '../services/adminConfigService';
 
@@ -328,25 +329,56 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
       },
     }) : [];
 
-    const friendsLeaderboard = users.map((u, idx) => {
-      const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
-      const tasksCompletedToday = friendTodayCompletions.filter(
-        (c) => c.userId === u.id && c.completionDate === todayDateStr
-      ).length;
+    const friendsLeaderboard = await Promise.all(
+      users.map(async (u) => {
+        const todayDateStr = getLocalDateString(u.timezone || 'Asia/Kolkata');
+        const tasksCompletedToday = friendTodayCompletions.filter(
+          (c) => c.userId === u.id && c.completionDate === todayDateStr
+        ).length;
 
-      return {
-        rank: idx + 1,
-        id: u.id,
-        name: u.name,
-        username: u.username,
-        profileImage: u.profileImage,
-        currentStreak: u.currentStreak,
-        longestStreak: u.longestStreak,
-        points: u.points,
-        totalCompletedTasks: u._count.taskCompletions,
-        tasksCompletedToday,
-        isCurrentUser: u.id === userId
-      };
+        let currentStreak = u.currentStreak;
+        let longestStreak = u.longestStreak;
+        if (currentStreak > 0 && tasksCompletedToday === 0) {
+          const fresh = await ensureUserStreakCurrent(prisma, u);
+          currentStreak = fresh.currentStreak;
+          longestStreak = fresh.longestStreak;
+        }
+
+        return {
+          rank: 0,
+          id: u.id,
+          name: u.name,
+          username: u.username,
+          profileImage: u.profileImage,
+          currentStreak,
+          longestStreak,
+          points: u.points,
+          totalCompletedTasks: u._count.taskCompletions,
+          tasksCompletedToday,
+          isCurrentUser: u.id === userId
+        };
+      })
+    );
+
+    // Re-sort accurately in case any stale streak was refreshed to 0
+    if (type === 'points') {
+      friendsLeaderboard.sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.currentStreak !== a.currentStreak) return b.currentStreak - a.currentStreak;
+        if (b.longestStreak !== a.longestStreak) return b.longestStreak - a.longestStreak;
+        return a.username.localeCompare(b.username);
+      });
+    } else {
+      friendsLeaderboard.sort((a, b) => {
+        if (b.currentStreak !== a.currentStreak) return b.currentStreak - a.currentStreak;
+        if (b.longestStreak !== a.longestStreak) return b.longestStreak - a.longestStreak;
+        if (b.points !== a.points) return b.points - a.points;
+        return a.username.localeCompare(b.username);
+      });
+    }
+
+    friendsLeaderboard.forEach((entry, idx) => {
+      entry.rank = idx + 1;
     });
 
     const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;

@@ -141,6 +141,13 @@ async function getSpecialGroupActivitiesForMember(groupId, userId, userTimezone 
     const dailyDef = def.activities.find((a) => a.id === 'daily') || def.activities[0];
     const potdDef = def.activities.find((a) => a.id === 'potd') || def.activities[1];
     if (dailyTask) {
+        let dailyStreak = dailyTask.currentStreak;
+        let dailyLongest = dailyTask.longestStreak;
+        if (dailyStreak > 0 && dailyTask.completions.length === 0) {
+            const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, dailyTask, userTimezone);
+            dailyStreak = fresh.currentStreak;
+            dailyLongest = fresh.longestStreak;
+        }
         activities.push({
             id: 'daily',
             taskId: dailyTask.id,
@@ -148,8 +155,8 @@ async function getSpecialGroupActivitiesForMember(groupId, userId, userTimezone 
             shortLabel: dailyDef?.shortLabel || 'Daily',
             tagline: dailyDef?.tagline || 'Daily Practice',
             description: dailyDef?.description || '',
-            currentStreak: dailyTask.currentStreak,
-            longestStreak: dailyTask.longestStreak,
+            currentStreak: dailyStreak,
+            longestStreak: dailyLongest,
             completedToday: dailyTask.completions.length > 0,
             todayStudyNote: dailyTask.completions[0]?.studyNote || null,
             isCommitted: true,
@@ -158,6 +165,13 @@ async function getSpecialGroupActivitiesForMember(groupId, userId, userTimezone 
         });
     }
     if (potdTask) {
+        let potdStreak = potdTask.currentStreak;
+        let potdLongest = potdTask.longestStreak;
+        if (potdStreak > 0 && potdTask.completions.length === 0) {
+            const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, potdTask, userTimezone);
+            potdStreak = fresh.currentStreak;
+            potdLongest = fresh.longestStreak;
+        }
         activities.push({
             id: 'potd',
             taskId: potdTask.id,
@@ -165,8 +179,8 @@ async function getSpecialGroupActivitiesForMember(groupId, userId, userTimezone 
             shortLabel: potdDef?.shortLabel || 'POTD',
             tagline: potdDef?.tagline || 'Problem of the Day',
             description: potdDef?.description || '',
-            currentStreak: potdTask.currentStreak,
-            longestStreak: potdTask.longestStreak,
+            currentStreak: potdStreak,
+            longestStreak: potdLongest,
             completedToday: potdTask.completions.length > 0,
             todayStudyNote: potdTask.completions[0]?.studyNote || null,
             isCommitted: isPotdCommitted,

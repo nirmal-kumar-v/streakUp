@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import defaultPrisma from '../config/prisma';
 import { getLocalDateString, getYesterdayDateString, isValidTimezone, DEFAULT_TIMEZONE } from './timezoneService';
 import { calculateStreakAndFreezes, TimelineStreakResult } from './freezeService';
 
@@ -154,21 +155,9 @@ export async function recalculateUserStreaks(
     }
   }
 
-  const todayStr = getLocalDateString(tz);
-  const yesterdayStr = getYesterdayDateString(tz);
-
-  const isYesterdayActive = completionDates.includes(yesterdayStr) || freezeResult.protectedDates.includes(yesterdayStr);
-  const isTodayActive = freezeResult.hasCompletedToday || freezeResult.isTodayProtected;
-  const userUpdatedLocalDate = user?.updatedAt ? getLocalDateString(tz, new Date(user.updatedAt)) : null;
-  const wasRecentlyUpdated = userUpdatedLocalDate === todayStr || userUpdatedLocalDate === yesterdayStr;
-
-  const isStreakIntact = isYesterdayActive || isTodayActive || wasRecentlyUpdated;
-
   let effectiveCurrentStreak = 0;
   if (options?.targetCurrentStreak !== undefined) {
-    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, options.targetCurrentStreak);
-  } else if (isStreakIntact) {
-    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, user?.currentStreak || 0);
+    effectiveCurrentStreak = options.targetCurrentStreak;
   } else {
     effectiveCurrentStreak = freezeResult.currentStreak; // 0 when missed without freeze
   }
@@ -177,8 +166,7 @@ export async function recalculateUserStreaks(
     user?.longestStreak || 0,
     options?.targetLongestStreak || 0,
     freezeResult.longestStreak,
-    effectiveCurrentStreak,
-    user?.currentStreak || 0
+    effectiveCurrentStreak
   );
 
   // Update user with recalculated streaks and freezes only if values actually changed
@@ -302,19 +290,9 @@ export async function recalculateTaskStreaks(
     }
   }
 
-  const todayStr = getLocalDateString(tz);
-  const yesterdayStr = getYesterdayDateString(tz);
-
-  const taskUpdatedLocalDate = task?.updatedAt ? getLocalDateString(tz, new Date(task.updatedAt)) : null;
-  const wasTaskRecentlyUpdated = taskUpdatedLocalDate === todayStr || taskUpdatedLocalDate === yesterdayStr;
-
-  const isTaskStreakIntact = freezeResult.currentStreak > 0 || wasTaskRecentlyUpdated;
-
   let effectiveCurrentStreak = 0;
   if (options?.targetCurrentStreak !== undefined) {
-    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, options.targetCurrentStreak);
-  } else if (isTaskStreakIntact) {
-    effectiveCurrentStreak = Math.max(freezeResult.currentStreak, task?.currentStreak || 0);
+    effectiveCurrentStreak = options.targetCurrentStreak;
   } else {
     effectiveCurrentStreak = freezeResult.currentStreak; // 0 when scheduled days missed without freeze
   }
@@ -323,8 +301,7 @@ export async function recalculateTaskStreaks(
     task?.longestStreak || 0,
     options?.targetLongestStreak || 0,
     freezeResult.longestStreak,
-    effectiveCurrentStreak,
-    task?.currentStreak || 0
+    effectiveCurrentStreak
   );
 
   const needsTaskUpdate =
@@ -352,5 +329,217 @@ export async function recalculateTaskStreaks(
     currentStreak: effectiveCurrentStreak,
     longestStreak: effectiveLongestStreak
   };
+}
+
+/**
+ * Fast check for user streak freshness.
+ * If user has currentStreak > 0, verifies whether the streak is still alive.
+ * If broken, recalculates and updates the database row.
+ */
+export async function ensureUserStreakCurrent(
+  prismaClient: any,
+  user: { id: string; timezone?: string | null; currentStreak?: number | null; longestStreak?: number | null }
+): Promise<{ currentStreak: number; longestStreak: number }> {
+  const currentStreak = user.currentStreak || 0;
+  const longestStreak = user.longestStreak || 0;
+  if (currentStreak === 0) {
+    return { currentStreak: 0, longestStreak };
+  }
+
+  const tz = user.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getLocalDateString(tz);
+  const yesterdayStr = getYesterdayDateString(tz);
+
+  // Fast check: did user complete anything today or yesterday?
+  const recentCompletion = await prismaClient.taskCompletion.findFirst({
+    where: {
+      userId: user.id,
+      completionDate: { in: [todayStr, yesterdayStr] }
+    },
+    select: { id: true }
+  });
+
+  if (recentCompletion) {
+    return { currentStreak, longestStreak };
+  }
+
+  // Check if yesterday was protected by a freeze
+  const recentFreeze = await prismaClient.freezeLog.findFirst({
+    where: {
+      userId: user.id,
+      scope: 'OVERALL',
+      protectedDate: yesterdayStr
+    },
+    select: { id: true }
+  });
+
+  if (recentFreeze) {
+    return { currentStreak, longestStreak };
+  }
+
+  // No completion and no freeze for yesterday/today: streak is broken or needs freeze consumption
+  const refreshed = await recalculateUserStreaks(prismaClient, user.id, tz);
+  return {
+    currentStreak: refreshed.currentStreak,
+    longestStreak: refreshed.longestStreak
+  };
+}
+
+/**
+ * Fast check for task streak freshness.
+ * If task has currentStreak > 0, verifies whether the streak is still alive.
+ * If broken, recalculates and updates the database row.
+ */
+export async function ensureTaskStreakCurrent(
+  prismaClient: any,
+  task: {
+    id: string;
+    userId: string;
+    recurrence?: string | null;
+    scheduledDays?: number[] | null;
+    currentStreak?: number | null;
+    longestStreak?: number | null;
+  },
+  userTimezone?: string
+): Promise<{ currentStreak: number; longestStreak: number }> {
+  const currentStreak = task.currentStreak || 0;
+  const longestStreak = task.longestStreak || 0;
+  if (currentStreak === 0 || task.recurrence === 'ONE_TIME') {
+    return { currentStreak: 0, longestStreak };
+  }
+
+  const tz = userTimezone || DEFAULT_TIMEZONE;
+  const todayStr = getLocalDateString(tz);
+  const yesterdayStr = getYesterdayDateString(tz);
+
+  const recentCompletion = await prismaClient.taskCompletion.findFirst({
+    where: {
+      taskId: task.id,
+      completionDate: { in: [todayStr, yesterdayStr] }
+    },
+    select: { id: true }
+  });
+
+  if (recentCompletion) {
+    return { currentStreak, longestStreak };
+  }
+
+  const recentFreeze = await prismaClient.freezeLog.findFirst({
+    where: {
+      taskId: task.id,
+      scope: 'TASK',
+      protectedDate: yesterdayStr
+    },
+    select: { id: true }
+  });
+
+  if (recentFreeze) {
+    return { currentStreak, longestStreak };
+  }
+
+  const refreshed = await recalculateTaskStreaks(prismaClient, task.id, task.userId, tz);
+  return {
+    currentStreak: refreshed.currentStreak,
+    longestStreak: refreshed.longestStreak
+  };
+}
+
+/**
+ * Background / Cron sweeper that finds any inactive users and tasks with currentStreak > 0
+ * who missed their schedule without freeze protection and resets their streaks to 0.
+ */
+export async function reconcileStaleStreaks(prismaClient: any = defaultPrisma): Promise<{ updatedUsers: number; updatedTasks: number }> {
+  let updatedUsers = 0;
+  let updatedTasks = 0;
+
+  try {
+    // 1. Reconcile Users with positive streak
+    const usersWithStreak = await prismaClient.user.findMany({
+      where: { currentStreak: { gt: 0 } },
+      select: { id: true, timezone: true, currentStreak: true, longestStreak: true }
+    });
+
+    for (const u of usersWithStreak) {
+      const tz = u.timezone || DEFAULT_TIMEZONE;
+      const todayStr = getLocalDateString(tz);
+      const yesterdayStr = getYesterdayDateString(tz);
+
+      const hasRecentActivity = await prismaClient.taskCompletion.findFirst({
+        where: {
+          userId: u.id,
+          completionDate: { in: [todayStr, yesterdayStr] }
+        },
+        select: { id: true }
+      });
+
+      if (!hasRecentActivity) {
+        const hasRecentFreeze = await prismaClient.freezeLog.findFirst({
+          where: {
+            userId: u.id,
+            scope: 'OVERALL',
+            protectedDate: yesterdayStr
+          },
+          select: { id: true }
+        });
+
+        if (!hasRecentFreeze) {
+          const res = await recalculateUserStreaks(prismaClient, u.id, tz);
+          if (res.currentStreak !== u.currentStreak) {
+            updatedUsers++;
+          }
+        }
+      }
+    }
+
+    // 2. Reconcile Active Tasks with positive streak
+    const tasksWithStreak = await prismaClient.task.findMany({
+      where: {
+        status: 'ACTIVE',
+        currentStreak: { gt: 0 },
+        recurrence: { not: 'ONE_TIME' }
+      },
+      select: { id: true, userId: true, recurrence: true, scheduledDays: true, currentStreak: true, longestStreak: true }
+    });
+
+    for (const t of tasksWithStreak) {
+      const user = await prismaClient.user.findUnique({
+        where: { id: t.userId },
+        select: { timezone: true }
+      });
+      const tz = user?.timezone || DEFAULT_TIMEZONE;
+      const todayStr = getLocalDateString(tz);
+      const yesterdayStr = getYesterdayDateString(tz);
+
+      const hasRecentActivity = await prismaClient.taskCompletion.findFirst({
+        where: {
+          taskId: t.id,
+          completionDate: { in: [todayStr, yesterdayStr] }
+        },
+        select: { id: true }
+      });
+
+      if (!hasRecentActivity) {
+        const hasRecentFreeze = await prismaClient.freezeLog.findFirst({
+          where: {
+            taskId: t.id,
+            scope: 'TASK',
+            protectedDate: yesterdayStr
+          },
+          select: { id: true }
+        });
+
+        if (!hasRecentFreeze) {
+          const res = await recalculateTaskStreaks(prismaClient, t.id, t.userId, tz);
+          if (res.currentStreak !== t.currentStreak) {
+            updatedTasks++;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error during reconcileStaleStreaks:', err);
+  }
+
+  return { updatedUsers, updatedTasks };
 }
 

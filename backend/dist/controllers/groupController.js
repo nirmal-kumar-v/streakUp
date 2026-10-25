@@ -70,6 +70,7 @@ const adminConfigService_1 = require("../services/adminConfigService");
 const linkedInGameService_1 = require("../services/linkedInGameService");
 const specialGroupRegistry_1 = require("../services/specialGroupRegistry");
 const specialGroupService_1 = require("../services/specialGroupService");
+const streakService_1 = require("../services/streakService");
 const createGroupSchema = zod_1.z.object({
     name: zod_1.z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
     description: zod_1.z.string().trim().max(300).optional().nullable(),
@@ -809,7 +810,7 @@ async function getGroupDetails(req, res) {
         const [allTasksForMembers, existingFriendships, sentRequests, receivedRequests] = await Promise.all([
             prisma_1.default.task.findMany({
                 where: { groupId: id, userId: { in: memberUserIds } },
-                select: { userId: true, currentStreak: true, longestStreak: true },
+                select: { id: true, userId: true, recurrence: true, scheduledDays: true, currentStreak: true, longestStreak: true },
             }),
             prisma_1.default.friendship.findMany({
                 where: {
@@ -830,9 +831,16 @@ async function getGroupDetails(req, res) {
             }),
         ]);
         const taskByUserMap = new Map();
-        allTasksForMembers.forEach((t) => {
-            taskByUserMap.set(t.userId, { currentStreak: t.currentStreak, longestStreak: t.longestStreak });
-        });
+        await Promise.all(allTasksForMembers.map(async (t) => {
+            let currentStreak = t.currentStreak || 0;
+            let longestStreak = t.longestStreak || 0;
+            if (currentStreak > 0) {
+                const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, t);
+                currentStreak = fresh.currentStreak;
+                longestStreak = fresh.longestStreak;
+            }
+            taskByUserMap.set(t.userId, { currentStreak, longestStreak });
+        }));
         const friendsSet = new Set();
         existingFriendships.forEach((f) => {
             friendsSet.add(f.user1Id === userId ? f.user2Id : f.user1Id);
@@ -1050,6 +1058,16 @@ async function getGroupLeaderboards(req, res) {
                 dailyLongestStreak = dailyTask?.longestStreak || 0;
                 potdStreak = potdTask?.currentStreak || 0;
                 potdLongestStreak = potdTask?.longestStreak || 0;
+                if (dailyTask && dailyStreak > 0) {
+                    const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, dailyTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                    dailyStreak = fresh.currentStreak;
+                    dailyLongestStreak = fresh.longestStreak;
+                }
+                if (potdTask && potdStreak > 0) {
+                    const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, potdTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                    potdStreak = fresh.currentStreak;
+                    potdLongestStreak = fresh.longestStreak;
+                }
                 if (activityFilter === 'daily') {
                     currentStreak = dailyStreak;
                     longestStreak = dailyLongestStreak;
@@ -1070,6 +1088,11 @@ async function getGroupLeaderboards(req, res) {
                 if (memberTask) {
                     currentStreak = memberTask.currentStreak || 0;
                     longestStreak = memberTask.longestStreak || 0;
+                    if (currentStreak > 0) {
+                        const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, memberTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                        currentStreak = fresh.currentStreak;
+                        longestStreak = fresh.longestStreak;
+                    }
                 }
             }
             let friendshipStatus = 'NONE';

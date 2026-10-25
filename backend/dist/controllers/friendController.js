@@ -47,6 +47,7 @@ exports.removeFriend = removeFriend;
 exports.nudgeFriend = nudgeFriend;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
+const streakService_1 = require("../services/streakService");
 /**
  * Helper to ensure canonical ordering for Friendship table
  */
@@ -415,7 +416,7 @@ async function getFriendsList(req, res) {
         const friends = friendships
             .map(f => (f.user1Id === userId ? f.user2 : f.user1))
             .filter(f => !isAccountDeleted(f.id).isDeleted);
-        // Attach today's task completion count for each friend
+        // Attach today's task completion count and fresh streak for each friend
         const friendsWithTodayStats = await Promise.all(friends.map(async (friend) => {
             const todayDateStr = (0, timezoneService_1.getLocalDateString)(friend.timezone || 'Asia/Kolkata');
             const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
@@ -424,13 +425,20 @@ async function getFriendsList(req, res) {
                     completionDate: todayDateStr
                 }
             });
+            let currentStreak = friend.currentStreak;
+            let longestStreak = friend.longestStreak;
+            if (currentStreak > 0 && tasksCompletedToday === 0) {
+                const fresh = await (0, streakService_1.ensureUserStreakCurrent)(prisma_1.default, friend);
+                currentStreak = fresh.currentStreak;
+                longestStreak = fresh.longestStreak;
+            }
             return {
                 id: friend.id,
                 name: friend.name,
                 username: friend.username,
                 profileImage: friend.profileImage,
-                currentStreak: friend.currentStreak,
-                longestStreak: friend.longestStreak,
+                currentStreak,
+                longestStreak,
                 tasksCompletedToday
             };
         }));

@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString } from '../services/timezoneService';
 import { compareTaskTitles } from '../services/fuzzyMatchService';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
+import { ensureUserStreakCurrent, ensureTaskStreakCurrent } from '../services/streakService';
 
 /**
  * Helper to get all accepted friend IDs for a user
@@ -104,46 +105,67 @@ export async function getFriendsTasks(req: AuthenticatedRequest, res: Response) 
       }
     });
 
-    const friendsTasks = friends.map(friend => {
-      const todayDateStr = getLocalDateString(friend.timezone || 'Asia/Kolkata');
+    const friendsTasks = await Promise.all(
+      friends.map(async (friend) => {
+        const tz = friend.timezone || 'Asia/Kolkata';
+        const todayDateStr = getLocalDateString(tz);
 
-      // Filter tasks by privacy rules (hiddenFrom & visibleOnlyTo)
-      const visibleTasks = friend.tasks.filter(task => isTaskVisibleToUser(task, viewer));
+        let friendCurrentStreak = friend.currentStreak;
+        let friendLongestStreak = friend.longestStreak;
+        if (friendCurrentStreak > 0) {
+          const freshUser = await ensureUserStreakCurrent(prisma, friend);
+          friendCurrentStreak = freshUser.currentStreak;
+          friendLongestStreak = freshUser.longestStreak;
+        }
 
-      const tasksWithStatus = visibleTasks.map(task => {
-        const completedToday = task.completions.some(c => c.completionDate === todayDateStr);
-        const todayCompletion = task.completions.find(c => c.completionDate === todayDateStr);
+        // Filter tasks by privacy rules (hiddenFrom & visibleOnlyTo)
+        const visibleTasks = friend.tasks.filter(task => isTaskVisibleToUser(task, viewer));
+
+        const tasksWithStatus = await Promise.all(
+          visibleTasks.map(async (task) => {
+            const completedToday = task.completions.some(c => c.completionDate === todayDateStr);
+            const todayCompletion = task.completions.find(c => c.completionDate === todayDateStr);
+
+            let currentStreak = task.currentStreak;
+            let longestStreak = task.longestStreak;
+            if (currentStreak > 0 && !completedToday) {
+              const freshTask = await ensureTaskStreakCurrent(prisma, task, tz);
+              currentStreak = freshTask.currentStreak;
+              longestStreak = freshTask.longestStreak;
+            }
+
+            return {
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              category: task.category,
+              priority: task.priority,
+              recurrence: task.recurrence,
+              dueTime: task.dueTime,
+              currentStreak,
+              longestStreak,
+              freezeBalance: task.freezeBalance,
+              freezeRechargeDays: task.freezeRechargeDays,
+              completedToday,
+              todayStudyNote: todayCompletion?.studyNote || null,
+              recentCompletions: task.completions
+            };
+          })
+        );
 
         return {
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          category: task.category,
-          priority: task.priority,
-          recurrence: task.recurrence,
-          dueTime: task.dueTime,
-          currentStreak: task.currentStreak,
-          longestStreak: task.longestStreak,
-          freezeBalance: task.freezeBalance,
-          freezeRechargeDays: task.freezeRechargeDays,
-          completedToday,
-          todayStudyNote: todayCompletion?.studyNote || null,
-          recentCompletions: task.completions
+          friend: {
+            id: friend.id,
+            name: friend.name,
+            username: friend.username,
+            profileImage: friend.profileImage,
+            currentStreak: friendCurrentStreak,
+            longestStreak: friendLongestStreak
+          },
+          tasks: tasksWithStatus
         };
-      });
-
-      return {
-        friend: {
-          id: friend.id,
-          name: friend.name,
-          username: friend.username,
-          profileImage: friend.profileImage,
-          currentStreak: friend.currentStreak,
-          longestStreak: friend.longestStreak
-        },
-        tasks: tasksWithStatus
-      };
-    });
+      })
+    );
 
     return res.json({
       success: true,

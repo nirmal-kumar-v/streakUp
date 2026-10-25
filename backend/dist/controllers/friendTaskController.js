@@ -14,6 +14,7 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
+const streakService_1 = require("../services/streakService");
 /**
  * Helper to get all accepted friend IDs for a user
  */
@@ -107,13 +108,28 @@ async function getFriendsTasks(req, res) {
                 }
             }
         });
-        const friendsTasks = friends.map(friend => {
-            const todayDateStr = (0, timezoneService_1.getLocalDateString)(friend.timezone || 'Asia/Kolkata');
+        const friendsTasks = await Promise.all(friends.map(async (friend) => {
+            const tz = friend.timezone || 'Asia/Kolkata';
+            const todayDateStr = (0, timezoneService_1.getLocalDateString)(tz);
+            let friendCurrentStreak = friend.currentStreak;
+            let friendLongestStreak = friend.longestStreak;
+            if (friendCurrentStreak > 0) {
+                const freshUser = await (0, streakService_1.ensureUserStreakCurrent)(prisma_1.default, friend);
+                friendCurrentStreak = freshUser.currentStreak;
+                friendLongestStreak = freshUser.longestStreak;
+            }
             // Filter tasks by privacy rules (hiddenFrom & visibleOnlyTo)
             const visibleTasks = friend.tasks.filter(task => (0, taskPrivacy_1.isTaskVisibleToUser)(task, viewer));
-            const tasksWithStatus = visibleTasks.map(task => {
+            const tasksWithStatus = await Promise.all(visibleTasks.map(async (task) => {
                 const completedToday = task.completions.some(c => c.completionDate === todayDateStr);
                 const todayCompletion = task.completions.find(c => c.completionDate === todayDateStr);
+                let currentStreak = task.currentStreak;
+                let longestStreak = task.longestStreak;
+                if (currentStreak > 0 && !completedToday) {
+                    const freshTask = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, task, tz);
+                    currentStreak = freshTask.currentStreak;
+                    longestStreak = freshTask.longestStreak;
+                }
                 return {
                     id: task.id,
                     title: task.title,
@@ -122,27 +138,27 @@ async function getFriendsTasks(req, res) {
                     priority: task.priority,
                     recurrence: task.recurrence,
                     dueTime: task.dueTime,
-                    currentStreak: task.currentStreak,
-                    longestStreak: task.longestStreak,
+                    currentStreak,
+                    longestStreak,
                     freezeBalance: task.freezeBalance,
                     freezeRechargeDays: task.freezeRechargeDays,
                     completedToday,
                     todayStudyNote: todayCompletion?.studyNote || null,
                     recentCompletions: task.completions
                 };
-            });
+            }));
             return {
                 friend: {
                     id: friend.id,
                     name: friend.name,
                     username: friend.username,
                     profileImage: friend.profileImage,
-                    currentStreak: friend.currentStreak,
-                    longestStreak: friend.longestStreak
+                    currentStreak: friendCurrentStreak,
+                    longestStreak: friendLongestStreak
                 },
                 tasks: tasksWithStatus
             };
-        });
+        }));
         return res.json({
             success: true,
             friendsTasks
