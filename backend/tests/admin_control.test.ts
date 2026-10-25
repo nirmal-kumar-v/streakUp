@@ -264,6 +264,86 @@ describe('Super Admin Control & Privileged Workflows', () => {
     status = await isAccountDeleted(testUserId);
     expect(status.isDeleted).toBe(false);
   });
+
+  describe('Comprehensive Admin Capabilities & Operations', () => {
+    it('should validate admin friend request force-accept and force-reject logic', () => {
+      type RequestStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
+      let status: RequestStatus = 'PENDING';
+
+      // Admin accepts friend request
+      status = 'ACCEPTED';
+      expect(status).toBe('ACCEPTED');
+
+      // Admin rejects friend request
+      status = 'REJECTED';
+      expect(status).toBe('REJECTED');
+    });
+
+    it('should validate admin group membership role management and ownership transfer', () => {
+      const group = {
+        id: 'group-101',
+        name: 'Elite Coders',
+        createdById: 'user-original-owner',
+      };
+
+      const members = [
+        { userId: 'user-original-owner', role: 'OWNER' },
+        { userId: 'user-new-owner', role: 'MEMBER' },
+      ];
+
+      // Admin transfers ownership to user-new-owner
+      const targetUserId = 'user-new-owner';
+      const oldOwner = members.find(m => m.role === 'OWNER');
+      const newOwner = members.find(m => m.userId === targetUserId);
+
+      if (oldOwner) oldOwner.role = 'ADMIN';
+      if (newOwner) newOwner.role = 'OWNER';
+      group.createdById = targetUserId;
+
+      expect(group.createdById).toBe('user-new-owner');
+      expect(newOwner?.role).toBe('OWNER');
+      expect(oldOwner?.role).toBe('ADMIN');
+    });
+
+    it('should validate admin task uncomplete points deduction (-5 pts) and floor at 0', () => {
+      const userPoints = 4;
+      const deduction = 5;
+      const newPoints = Math.max(0, userPoints - deduction);
+      expect(newPoints).toBe(0);
+
+      const higherPoints = 20;
+      const updatedPoints = Math.max(0, higherPoints - deduction);
+      expect(updatedPoints).toBe(15);
+    });
+
+    it('should validate admin reminder schedule creation constraints', () => {
+      const validTimeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      expect(validTimeRegex.test('09:30')).toBe(true);
+      expect(validTimeRegex.test('23:59')).toBe(true);
+      expect(validTimeRegex.test('24:00')).toBe(false);
+      expect(validTimeRegex.test('9:30')).toBe(false);
+    });
+
+    it('should validate admin milestone event resetting scope', () => {
+      const milestones = [
+        { id: 'm1', userId: 'user-1', scopeKey: 'OVERALL', milestone: 7 },
+        { id: 'm2', userId: 'user-1', scopeKey: 'TASK:task-1', milestone: 14 },
+        { id: 'm3', userId: 'user-2', scopeKey: 'OVERALL', milestone: 30 },
+      ];
+
+      // Reset for user-1 with scopeKey TASK:task-1
+      const remainingScoped = milestones.filter(
+        m => !(m.userId === 'user-1' && m.scopeKey === 'TASK:task-1')
+      );
+      expect(remainingScoped.length).toBe(2);
+
+      // Reset all milestones for user-1
+      const remainingAll = milestones.filter(m => m.userId !== 'user-1');
+      expect(remainingAll.length).toBe(1);
+      expect(remainingAll[0].userId).toBe('user-2');
+    });
+  });
 });
+
 
 

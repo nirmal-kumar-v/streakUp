@@ -58,6 +58,28 @@ import {
   updateManagerEmailAdmin,
   sendAdminMessage,
   getAdminMessageLogsController,
+  adminGetUserFriendRequests,
+  adminForceAcceptFriendRequest,
+  adminForceRejectFriendRequest,
+  adminForceCreateFriendship,
+  adminForceRemoveFriendship,
+  adminGetGroupJoinRequests,
+  adminRespondToGroupJoinRequest,
+  adminGetGroupInvitations,
+  adminCancelGroupInvitation,
+  adminForceAddMemberToGroup,
+  adminGetUserNotifications,
+  adminDeleteNotification,
+  adminClearUserNotifications,
+  adminMarkAllNotificationsRead,
+  adminCreateTaskForUser,
+  adminDeleteTaskCompletion,
+  adminGetPlatformStats,
+  adminGetUserPointLedger,
+  adminCreateReminderSchedule,
+  adminResetUserMilestones,
+  adminSetGroupMemberVisibility,
+  adminUncompleteTask,
 } from '../controllers/adminController';
 import { getAdminRequests, updateRequestStatus } from '../controllers/userRequestController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
@@ -152,6 +174,42 @@ router.patch('/managers/:userId/email', updateManagerEmailAdmin);
 // Admin Direct Messaging to Users
 router.post('/send-message', sendAdminMessage);
 router.get('/messages', getAdminMessageLogsController);
+
+// Platform System Stats
+router.get('/stats', adminGetPlatformStats);
+
+// Friendship & Friend Request Management
+router.get('/users/:userId/friend-requests', adminGetUserFriendRequests);
+router.post('/friend-requests/:requestId/accept', requireSensitiveAuth, adminForceAcceptFriendRequest);
+router.post('/friend-requests/:requestId/reject', requireSensitiveAuth, adminForceRejectFriendRequest);
+router.post('/friendships/create', requireSensitiveAuth, adminForceCreateFriendship);
+router.delete('/friendships', requireSensitiveAuth, adminForceRemoveFriendship);
+
+// Group Join Requests, Invitations & Direct Membership
+router.get('/groups/:groupId/join-requests', adminGetGroupJoinRequests);
+router.post('/groups/:groupId/join-requests/:requestId/respond', requireSensitiveAuth, adminRespondToGroupJoinRequest);
+router.get('/groups/:groupId/invitations', adminGetGroupInvitations);
+router.delete('/invitations/:invitationId', requireSensitiveAuth, adminCancelGroupInvitation);
+router.post('/groups/:groupId/force-add-member', requireSensitiveAuth, adminForceAddMemberToGroup);
+router.post('/groups/:groupId/members/:userId/visibility', requireSensitiveAuth, adminSetGroupMemberVisibility);
+
+// User Notifications Administration
+router.get('/users/:userId/notifications', adminGetUserNotifications);
+router.delete('/notifications/:notificationId', adminDeleteNotification);
+router.delete('/users/:userId/notifications', requireSensitiveAuth, adminClearUserNotifications);
+router.post('/users/:userId/notifications/mark-all-read', adminMarkAllNotificationsRead);
+
+// User Points Ledger & Milestones
+router.get('/users/:userId/point-ledger', adminGetUserPointLedger);
+router.delete('/users/:userId/milestones', requireSensitiveAuth, adminResetUserMilestones);
+
+// Task & Completion Administration
+router.post('/users/:userId/tasks', requireSensitiveAuth, adminCreateTaskForUser);
+router.delete('/completions/:completionId', requireSensitiveAuth, adminDeleteTaskCompletion);
+router.post('/users/:userId/tasks/:taskId/uncomplete', requireSensitiveAuth, adminUncompleteTask);
+
+// Reminder Scheduling
+router.post('/users/:userId/reminders/create', requireSensitiveAuth, adminCreateReminderSchedule);
 
 export default router;
 
