@@ -395,7 +395,7 @@ export async function updateTaskVisibility(
 
 export async function adminManageGroupMember(
   groupId: string,
-  data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'REMOVE'; reason: string }
+  data: { targetUserId: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'REMOVE'; reason: string; sensitivePin?: string }
 ) {
   const res = await adminApiClient.post<{ success: boolean; message: string }>(
     `/admin/groups/${groupId}/manage-member`,

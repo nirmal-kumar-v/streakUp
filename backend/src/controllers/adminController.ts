@@ -1898,11 +1898,14 @@ export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res
     }
 
     const member = group.members.find((m) => m.userId === targetUserId);
-    if (!member) {
+    if (!member && role !== 'OWNER') {
       return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
     }
 
     if (role === 'REMOVE') {
+      if (!member) {
+        return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
+      }
       if (member.role === 'OWNER') {
         return res.status(400).json({ success: false, error: 'Cannot remove group owner. Transfer ownership to another member first.' });
       }
@@ -1936,11 +1939,17 @@ export async function adminManageGroupMember(req: AdminAuthenticatedRequest, res
           where: { id: groupId },
           data: { ownerId: targetUserId },
         });
-        // Promote target user to OWNER in group members
-        await tx.groupMember.update({
-          where: { groupId_userId: { groupId, userId: targetUserId } },
-          data: { role: 'OWNER' },
-        });
+        // Promote target user to OWNER in group members or add them as member if new
+        if (member) {
+          await tx.groupMember.update({
+            where: { groupId_userId: { groupId, userId: targetUserId } },
+            data: { role: 'OWNER' },
+          });
+        } else {
+          await tx.groupMember.create({
+            data: { groupId, userId: targetUserId, role: 'OWNER' },
+          });
+        }
       } else {
         await tx.groupMember.update({
           where: { groupId_userId: { groupId, userId: targetUserId } },

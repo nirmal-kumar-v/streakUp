@@ -41,6 +41,8 @@ import {
   Trophy,
   Download,
   RotateCcw,
+  UserPlus,
+  UserCheck,
 } from 'lucide-react';
 import {
   fetchAdminProfile,
@@ -122,11 +124,53 @@ export const AdminControlPage: React.FC = () => {
   const [activeAdmin, setActiveAdmin] = useState<any>(null);
 
   // ------------------------------------------
-  // Primary Tabs: users | groups | requests | managers | messages | audit | security
+  // Primary Tabs: users | groups | friends | notifications | requests | managers | messages | audit | security
   // ------------------------------------------
   const [primaryTab, setPrimaryTab] = useState<
-    'users' | 'groups' | 'requests' | 'managers' | 'messages' | 'audit' | 'security'
+    'users' | 'groups' | 'friends' | 'notifications' | 'requests' | 'managers' | 'messages' | 'audit' | 'security'
   >('users');
+
+  // Friends Primary Tab State
+  const [friendSearchUserQuery, setFriendSearchUserQuery] = useState('');
+  const [friendSearchResults, setFriendSearchResults] = useState<AdminUser[]>([]);
+  const [isSearchingUserForFriends, setIsSearchingUserForFriends] = useState(false);
+  const [selectedFriendUser, setSelectedFriendUser] = useState<AdminUser | null>(null);
+
+  // Notifications Primary Tab State
+  const [notifSearchUserQuery, setNotifSearchUserQuery] = useState('');
+  const [notifSearchResults, setNotifSearchResults] = useState<AdminUser[]>([]);
+  const [isSearchingUserForNotif, setIsSearchingUserForNotif] = useState(false);
+  const [selectedNotifUser, setSelectedNotifUser] = useState<AdminUser | null>(null);
+
+  const handleSearchUserForFriends = async () => {
+    if (!friendSearchUserQuery.trim()) return;
+    try {
+      setIsSearchingUserForFriends(true);
+      const res = await searchAdminUsers(friendSearchUserQuery.trim());
+      if (res.success) {
+        setFriendSearchResults(res.users);
+      }
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    } finally {
+      setIsSearchingUserForFriends(false);
+    }
+  };
+
+  const handleSearchUserForNotif = async () => {
+    if (!notifSearchUserQuery.trim()) return;
+    try {
+      setIsSearchingUserForNotif(true);
+      const res = await searchAdminUsers(notifSearchUserQuery.trim());
+      if (res.success) {
+        setNotifSearchResults(res.users);
+      }
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    } finally {
+      setIsSearchingUserForNotif(false);
+    }
+  };
 
   // ------------------------------------------
   // User Search & Selected User State
@@ -2687,6 +2731,30 @@ export const AdminControlPage: React.FC = () => {
           </button>
           <button
             type="button"
+            onClick={() => setPrimaryTab('friends')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'friends'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Friends & Requests</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrimaryTab('notifications')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'notifications'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <Bell className="w-4 h-4" />
+            <span>Notifications Hub</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setPrimaryTab('requests')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
               primaryTab === 'requests'
@@ -3182,116 +3250,126 @@ export const AdminControlPage: React.FC = () => {
                 </div>
 
                 {/* Sub-Tabs for Selected User */}
-                <div className="flex items-center gap-1.5 border-b border-dark-border pb-2 overflow-x-auto text-xs">
+                <div className="flex flex-wrap items-center gap-2 border-b border-dark-border pb-3 text-xs">
                   <button
                     type="button"
                     onClick={() => setUserTab('overview')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'overview'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Overview
+                    <User className="w-3.5 h-3.5" />
+                    <span>Overview</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('username_email')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'username_email'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Username & Email
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Username & Email</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('streaks')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'streaks'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Streaks & Heatmap
+                    <Flame className="w-3.5 h-3.5" />
+                    <span>Streaks & Heatmap</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('points')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'points'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Points & Ledger
+                    <Coins className="w-3.5 h-3.5" />
+                    <span>Points & Ledger</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('reminders')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'reminders'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Reminders & Schedules
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Reminders & Schedules</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('limits')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'limits'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Limits & Quotas
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Limits & Quotas</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('tasks_groups')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'tasks_groups'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Tasks & Groups
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Tasks & Groups</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('friends')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'friends'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Friends & Requests
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Friends & Requests</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('notifications')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'notifications'
                         ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
-                        : 'text-zinc-400 hover:text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-surface/50'
                     }`}
                   >
-                    Notifications Hub
+                    <Bell className="w-3.5 h-3.5" />
+                    <span>Notifications Hub</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setUserTab('danger')}
-                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors cursor-pointer ${
                       userTab === 'danger'
                         ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                        : 'text-rose-400/80 hover:text-rose-300'
+                        : 'text-rose-400/80 hover:text-rose-300 hover:bg-rose-500/5'
                     }`}
                   >
-                    Danger Zone
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Danger Zone</span>
                   </button>
                 </div>
 
@@ -7441,6 +7519,188 @@ export const AdminControlPage: React.FC = () => {
                       ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: GLOBAL FRIENDSHIPS & SOCIAL NETWORK         */}
+        {/* ======================================================== */}
+        {primaryTab === 'friends' && (
+          <div className="space-y-6">
+            <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-100 flex items-center gap-2">
+                    <UserPlus className="w-4 h-4 text-emerald-400" />
+                    <span>Global Friendship & Social Connections Administration</span>
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Search any user to inspect and manage their friends and friend requests, or connect any two users directly.
+                  </p>
+                </div>
+              </div>
+
+              {/* User Search Bar */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={friendSearchUserQuery}
+                    onChange={(e) => setFriendSearchUserQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSearchUserForFriends();
+                      }
+                    }}
+                    placeholder="Search user by username, name, or email to inspect friendships..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500 transition-colors"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSearchUserForFriends}
+                  disabled={isSearchingUserForFriends}
+                  className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSearchingUserForFriends ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  <span>Find User</span>
+                </button>
+              </div>
+
+              {friendSearchResults.length > 0 && (
+                <div className="mt-3 bg-dark-surface border border-dark-border rounded-xl p-2 max-h-48 overflow-y-auto space-y-1">
+                  {friendSearchResults.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFriendUser(u);
+                        setFriendSearchResults([]);
+                      }}
+                      className="w-full text-left p-2.5 rounded-lg hover:bg-dark-card text-xs flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-semibold text-zinc-200">{u.name}</span>
+                        <span className="text-zinc-500 font-mono ml-2">@{u.username}</span>
+                        <span className="text-zinc-400 ml-2">({u.email})</span>
+                      </div>
+                      <span className="text-[11px] font-bold text-flame-400">Select User</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {selectedFriendUser ? (
+              <AdminUserFriendsTab
+                userId={selectedFriendUser.id}
+                username={selectedFriendUser.username}
+                onRequirePin={openPinPrompt}
+              />
+            ) : selectedUserDetails ? (
+              <AdminUserFriendsTab
+                userId={selectedUserDetails.id}
+                username={selectedUserDetails.username}
+                onRequirePin={openPinPrompt}
+              />
+            ) : (
+              <div className="p-12 text-center text-xs text-zinc-400 bg-dark-card border border-dark-border rounded-2xl">
+                Search and select any user above to inspect their incoming/outgoing friend requests and friends list, or force-link friends directly.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: GLOBAL NOTIFICATIONS HUB                    */}
+        {/* ======================================================== */}
+        {primaryTab === 'notifications' && (
+          <div className="space-y-6">
+            <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-100 flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-blue-400" />
+                    <span>User Notification Management Hub</span>
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Inspect in-app notification inboxes for any user, mark notifications as read, or purge spam messages.
+                  </p>
+                </div>
+              </div>
+
+              {/* User Search Bar */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={notifSearchUserQuery}
+                    onChange={(e) => setNotifSearchUserQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleSearchUserForNotif();
+                      }
+                    }}
+                    placeholder="Search user by username, name, or email to inspect notifications..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-flame-500 transition-colors"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSearchUserForNotif}
+                  disabled={isSearchingUserForNotif}
+                  className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {isSearchingUserForNotif ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  <span>Find User</span>
+                </button>
+              </div>
+
+              {notifSearchResults.length > 0 && (
+                <div className="mt-3 bg-dark-surface border border-dark-border rounded-xl p-2 max-h-48 overflow-y-auto space-y-1">
+                  {notifSearchResults.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedNotifUser(u);
+                        setNotifSearchResults([]);
+                      }}
+                      className="w-full text-left p-2.5 rounded-lg hover:bg-dark-card text-xs flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-semibold text-zinc-200">{u.name}</span>
+                        <span className="text-zinc-500 font-mono ml-2">@{u.username}</span>
+                        <span className="text-zinc-400 ml-2">({u.email})</span>
+                      </div>
+                      <span className="text-[11px] font-bold text-flame-400">Select User</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {selectedNotifUser ? (
+              <AdminUserNotificationsTab
+                userId={selectedNotifUser.id}
+                username={selectedNotifUser.username}
+                onRequirePin={openPinPrompt}
+              />
+            ) : selectedUserDetails ? (
+              <AdminUserNotificationsTab
+                userId={selectedUserDetails.id}
+                username={selectedUserDetails.username}
+                onRequirePin={openPinPrompt}
+              />
+            ) : (
+              <div className="p-12 text-center text-xs text-zinc-400 bg-dark-card border border-dark-border rounded-2xl">
+                Search and select any user above to inspect their notification inbox, mark all as read, or purge messages.
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@ import {
   UserPlus,
   RefreshCw,
   Search,
+  Crown,
 } from 'lucide-react';
 import {
   adminGetGroupJoinRequests,
@@ -12,6 +13,7 @@ import {
   adminGetGroupInvitations,
   adminCancelGroupInvitation,
   adminForceAddMemberToGroup,
+  adminManageGroupMember,
   searchAdminUsers,
   AdminUser,
 } from '../../api/admin';
@@ -30,7 +32,7 @@ export const AdminGroupManageModal: React.FC<AdminGroupManageModalProps> = ({
   onRequirePin,
 }) => {
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'members' | 'join_requests' | 'invitations' | 'force_add'>('join_requests');
+  const [activeTab, setActiveTab] = useState<'members' | 'join_requests' | 'invitations' | 'force_add' | 'transfer_owner'>('join_requests');
 
   // Join Requests
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
@@ -48,6 +50,68 @@ export const AdminGroupManageModal: React.FC<AdminGroupManageModalProps> = ({
   const [newMemberRole, setNewMemberRole] = useState<'MEMBER' | 'ADMIN'>('MEMBER');
   const [forceAddReason, setForceAddReason] = useState('');
   const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
+
+  // Transfer Owner State
+  const [ownerSearchQuery, setOwnerSearchQuery] = useState('');
+  const [ownerSearchResults, setOwnerSearchResults] = useState<AdminUser[]>([]);
+  const [selectedNewOwner, setSelectedNewOwner] = useState<AdminUser | null>(null);
+  const [isSearchingOwner, setIsSearchingOwner] = useState(false);
+  const [transferOwnerReason, setTransferOwnerReason] = useState('');
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+
+  const handleSearchOwner = async () => {
+    if (!ownerSearchQuery.trim()) return;
+    try {
+      setIsSearchingOwner(true);
+      const res = await searchAdminUsers(ownerSearchQuery.trim());
+      if (res.success) {
+        setOwnerSearchResults(res.users);
+      }
+    } catch (err) {
+      toast.error(extractErrorMessage(err));
+    } finally {
+      setIsSearchingOwner(false);
+    }
+  };
+
+  const handleTransferOwnership = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedNewOwner) {
+      toast.error('Select a user to become the new group owner.');
+      return;
+    }
+    if (!transferOwnerReason.trim()) {
+      toast.error('Administrative reason is required.');
+      return;
+    }
+
+    onRequirePin(
+      'Transfer Group Ownership',
+      `Transfer ownership of "${group.name}" to @${selectedNewOwner.username}? The previous owner will be demoted to Admin.`,
+      async (pin) => {
+        try {
+          setIsSubmittingTransfer(true);
+          const res = await adminManageGroupMember(group.id, {
+            targetUserId: selectedNewOwner.id,
+            role: 'OWNER',
+            reason: transferOwnerReason.trim(),
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.success(res.message);
+            setSelectedNewOwner(null);
+            setTransferOwnerReason('');
+            setOwnerSearchQuery('');
+            setOwnerSearchResults([]);
+          }
+        } catch (err) {
+          toast.error(extractErrorMessage(err));
+        } finally {
+          setIsSubmittingTransfer(false);
+        }
+      }
+    );
+  };
 
   const loadJoinRequests = async () => {
     try {
@@ -235,6 +299,18 @@ export const AdminGroupManageModal: React.FC<AdminGroupManageModalProps> = ({
             }`}
           >
             <span>➕ Force-Add Member</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('transfer_owner')}
+            className={`px-3 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === 'transfer_owner'
+                ? 'border-amber-500 text-amber-400 bg-dark-card'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Crown className="w-3.5 h-3.5" />
+            <span>👑 Transfer Ownership</span>
           </button>
         </div>
 
@@ -480,6 +556,116 @@ export const AdminGroupManageModal: React.FC<AdminGroupManageModalProps> = ({
                 </button>
               </div>
             </form>
+          )}
+
+          {/* TAB 4: TRANSFER GROUP OWNERSHIP */}
+          {activeTab === 'transfer_owner' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1">
+                <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                  <Crown className="w-4 h-4 text-amber-400" />
+                  <span>Transfer Group Ownership Control</span>
+                </span>
+                <p className="text-xs text-amber-200/80">
+                  Assign any user across the entire platform as the new Owner of "{group.name}".
+                  The previous owner ({group.owner?.username ? `@${group.owner.username}` : 'Current Owner'}) will be retained as a group administrator.
+                </p>
+              </div>
+
+              <form onSubmit={handleTransferOwnership} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Find New Group Owner (Search User Directory)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={ownerSearchQuery}
+                      onChange={(e) => setOwnerSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSearchOwner();
+                        }
+                      }}
+                      placeholder="Search by username or email..."
+                      className="flex-1 px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSearchOwner}
+                      disabled={isSearchingOwner}
+                      className="px-4 py-2 bg-dark-border hover:bg-zinc-700 text-zinc-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Search</span>
+                    </button>
+                  </div>
+
+                  {ownerSearchResults.length > 0 && !selectedNewOwner && (
+                    <div className="mt-2 bg-dark-surface border border-dark-border rounded-xl p-2 max-h-48 overflow-y-auto space-y-1">
+                      {ownerSearchResults.map((u) => (
+                        <button
+                          type="button"
+                          key={u.id}
+                          onClick={() => setSelectedNewOwner(u)}
+                          className="w-full text-left p-2 rounded-lg hover:bg-dark-card text-xs flex items-center justify-between transition-colors cursor-pointer"
+                        >
+                          <div>
+                            <span className="font-semibold text-zinc-200">{u.name}</span>
+                            <span className="text-zinc-500 font-mono ml-2">@{u.username}</span>
+                          </div>
+                          <span className="text-[11px] text-amber-400 font-bold">Select As Owner</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedNewOwner && (
+                    <div className="mt-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs flex items-center justify-between">
+                      <div className="text-amber-300 flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-amber-400" />
+                        <span>
+                          New Designated Owner: <strong>{selectedNewOwner.name}</strong> (@{selectedNewOwner.username})
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNewOwner(null)}
+                        className="text-zinc-400 hover:text-zinc-200 text-xs cursor-pointer font-bold"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Mandatory Administrative Reason (Audit Log)
+                  </label>
+                  <input
+                    type="text"
+                    value={transferOwnerReason}
+                    onChange={(e) => setTransferOwnerReason(e.target.value)}
+                    placeholder="e.g. Creator requested transfer / admin designated community lead"
+                    className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-amber-500"
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={isSubmittingTransfer || !selectedNewOwner}
+                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Crown className="w-4 h-4" />
+                    <span>Confirm & Transfer Ownership</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
         </div>
       </div>
