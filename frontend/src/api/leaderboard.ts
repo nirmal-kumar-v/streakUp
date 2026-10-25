@@ -47,18 +47,38 @@ const memoryCache = new Map<string, CacheItem<any>>();
 export function getCachedGlobalLeaderboard(type: 'streak' | 'points' = 'streak'): GlobalLeaderboardResponse | null {
   const key = `global_${type}`;
   const item = memoryCache.get(key);
-  if (item && Date.now() - item.timestamp < 120000) {
+  if (item && Date.now() - item.timestamp < 180000) {
     return item.data;
   }
+  try {
+    const raw = sessionStorage.getItem(`streakup_global_lb_${type}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Date.now() - parsed.timestamp < 180000) {
+        memoryCache.set(key, parsed);
+        return parsed.data;
+      }
+    }
+  } catch (e) {}
   return null;
 }
 
 export function getCachedFriendsLeaderboard(type: 'streak' | 'points' = 'streak'): FriendsLeaderboardResponse | null {
   const key = `friends_${type}`;
   const item = memoryCache.get(key);
-  if (item && Date.now() - item.timestamp < 120000) {
+  if (item && Date.now() - item.timestamp < 180000) {
     return item.data;
   }
+  try {
+    const raw = sessionStorage.getItem(`streakup_friends_lb_${type}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Date.now() - parsed.timestamp < 180000) {
+        memoryCache.set(key, parsed);
+        return parsed.data;
+      }
+    }
+  } catch (e) {}
   return null;
 }
 
@@ -73,17 +93,25 @@ export async function fetchGlobalLeaderboard(params?: {
   if (res.data?.success) {
     memoryCache.set(key, { data: res.data, timestamp: Date.now() });
     if (!params?.page || params.page === 1) {
-      memoryCache.set(`global_${params?.type || 'streak'}`, { data: res.data, timestamp: Date.now() });
+      const baseKey = `global_${params?.type || 'streak'}`;
+      memoryCache.set(baseKey, { data: res.data, timestamp: Date.now() });
+      try {
+        sessionStorage.setItem(`streakup_global_lb_${params?.type || 'streak'}`, JSON.stringify({ data: res.data, timestamp: Date.now() }));
+      } catch (e) {}
     }
   }
   return res.data;
 }
 
 export async function fetchFriendsLeaderboard(params?: { type?: 'streak' | 'points' }) {
-  const key = `friends_${params?.type || 'streak'}`;
+  const typeKey = params?.type || 'streak';
+  const key = `friends_${typeKey}`;
   const res = await apiClient.get<FriendsLeaderboardResponse>('/leaderboard/friends', { params });
   if (res.data?.success) {
     memoryCache.set(key, { data: res.data, timestamp: Date.now() });
+    try {
+      sessionStorage.setItem(`streakup_friends_lb_${typeKey}`, JSON.stringify({ data: res.data, timestamp: Date.now() }));
+    } catch (e) {}
   }
   return res.data;
 }

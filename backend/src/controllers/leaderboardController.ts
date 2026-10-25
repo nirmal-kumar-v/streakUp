@@ -6,6 +6,17 @@ import { ensureUserStreakCurrent } from '../services/streakService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbError';
 import { getUserLeaderboardLimit } from '../services/adminConfigService';
 
+// In-memory TTL cache for leaderboards
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+const leaderboardCache = new Map<string, CacheEntry<any>>();
+
+export function clearLeaderboardCache() {
+  leaderboardCache.clear();
+}
+
 /**
  * Global Leaderboard (Public access, optional authentication)
  * Supports type: 'streak' (default) or 'points' (Requirement 11)
@@ -19,6 +30,12 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || userLimit));
     const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
     const skip = (page - 1) * limit;
+
+    const cacheKey = `global_${type}_${page}_${limit}_${search}_${currentUserId || 'anon'}`;
+    const cached = leaderboardCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.data);
+    }
 
     const where: any = {};
     const { loadAllDeletedAccounts } = await import('../services/deletedAccountService');
@@ -219,7 +236,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
       }
     }
 
-    return res.json({
+    const responsePayload = {
       success: true,
       type,
       leaderboard: rankedUsers,
@@ -231,7 +248,10 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
       },
       currentUserRankInfo,
       userLeaderboardLimit: userLimit
-    });
+    };
+
+    leaderboardCache.set(cacheKey, { data: responsePayload, expiresAt: Date.now() + 25000 });
+    return res.json(responsePayload);
   } catch (err: any) {
     if (isDatabaseConnectionError(err)) {
       console.warn('⚠️ Leaderboard DB query failed: PostgreSQL not connected yet.');
@@ -262,6 +282,12 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
   try {
     const userId = req.user!.userId;
     const type = req.query.type === 'points' ? 'points' : 'streak';
+
+    const cacheKey = `friends_${type}_${userId}`;
+    const cached = leaderboardCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.data);
+    }
 
     // Get all accepted friends
     const friendships = await prisma.friendship.findMany({
@@ -388,13 +414,15 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
 
     const currentUserEntry = friendsLeaderboard.find(e => e.isCurrentUser) || null;
 
-    return res.json({
+    const friendsPayload = {
       success: true,
       type,
       leaderboard: friendsLeaderboard,
       totalParticipants: friendsLeaderboard.length,
       currentUserEntry
-    });
+    };
+    leaderboardCache.set(cacheKey, { data: friendsPayload, expiresAt: Date.now() + 20000 });
+    return res.json(friendsPayload);
   } catch (err: any) {
     if (isDatabaseConnectionError(err)) {
       return res.status(503).json({ success: false, error: DB_CONNECTION_NOTICE });

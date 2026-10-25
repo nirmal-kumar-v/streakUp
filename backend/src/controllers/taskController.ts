@@ -16,6 +16,7 @@ import {
   completeCommittedGamesForDashboard,
   uncompleteCommittedGamesForDashboard,
 } from '../services/linkedInGameService';
+import { clearLeaderboardCache } from './leaderboardController';
 
 // Task validation schemas
 const createTaskSchema = z.object({
@@ -759,6 +760,8 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
     }).catch((err) => console.error('[completeTask] User completion notification error:', err));
 
+    clearLeaderboardCache();
+
     return res.json({
       success: true,
       message: 'Task marked as completed.',
@@ -978,6 +981,8 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       targetCurrentStreak: targetUserStreak,
       targetLongestStreak: task.user?.longestStreak || 0,
     });
+
+    clearLeaderboardCache();
 
     return res.json({
       success: true,

@@ -217,7 +217,21 @@ export const AppContent: React.FC = () => {
       apiClient.get('/cron/reminders').catch(() => {});
     }, 300000);
 
-    return () => clearInterval(timer);
+    // Idle route chunk prefetching for instant tab transitions
+    const prefetchTimer = setTimeout(() => {
+      import('./pages/GlobalLeaderboardPage').catch(() => {});
+      import('./pages/FriendsLeaderboardPage').catch(() => {});
+      import('./pages/FriendsPage').catch(() => {});
+      import('./pages/FriendsTasksPage').catch(() => {});
+      import('./pages/GroupsPage').catch(() => {});
+      import('./pages/NotificationsPage').catch(() => {});
+      import('./pages/SettingsPage').catch(() => {});
+    }, 1200);
+
+    return () => {
+      clearInterval(timer);
+      clearTimeout(prefetchTimer);
+    };
   }, [isAuthenticated]);
 
   return (

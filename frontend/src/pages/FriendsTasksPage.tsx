@@ -22,11 +22,35 @@ import {
   Calendar,
 } from 'lucide-react';
 
+const FRIENDS_TASKS_CACHE_KEY = 'streakup_friends_tasks_cache';
+
+function getCachedFriendsTasks(): { tasks: FriendTaskGroup[]; activity: StudyActivityItem[] } | null {
+  try {
+    const raw = sessionStorage.getItem(FRIENDS_TASKS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
+      return parsed.data;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedFriendsTasks(data: { tasks: FriendTaskGroup[]; activity: StudyActivityItem[] }) {
+  try {
+    sessionStorage.setItem(
+      FRIENDS_TASKS_CACHE_KEY,
+      JSON.stringify({ timestamp: Date.now(), data })
+    );
+  } catch (e) {}
+}
+
 export const FriendsTasksPage: React.FC = () => {
+  const [cachedInitial] = useState(() => getCachedFriendsTasks());
   const [activeTab, setActiveTab] = useState<'tasks' | 'activity'>('tasks');
-  const [friendsTasks, setFriendsTasks] = useState<FriendTaskGroup[]>([]);
-  const [activity, setActivity] = useState<StudyActivityItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [friendsTasks, setFriendsTasks] = useState<FriendTaskGroup[]>(() => cachedInitial?.tasks || []);
+  const [activity, setActivity] = useState<StudyActivityItem[]>(() => cachedInitial?.activity || []);
+  const [isLoading, setIsLoading] = useState(() => !cachedInitial);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,14 +94,20 @@ export const FriendsTasksPage: React.FC = () => {
         fetchFriendsTasks(),
         fetchFriendsStudyActivity(1, 15, activityDays),
       ]);
-      if (tasksRes.success) setFriendsTasks(tasksRes.friendsTasks || []);
+      const newTasks = tasksRes.success ? (tasksRes.friendsTasks || []) : friendsTasks;
+      const newActivity = actRes.success ? (actRes.activity || []) : activity;
+
+      if (tasksRes.success) setFriendsTasks(newTasks);
       if (actRes.success) {
-        setActivity(actRes.activity || []);
+        setActivity(newActivity);
         if (actRes.pagination) {
           setActivityPage(actRes.pagination.page);
           setActivityTotalPages(actRes.pagination.totalPages || 1);
           setActivityTotal(actRes.pagination.total);
         }
+      }
+      if (tasksRes.success || actRes.success) {
+        setCachedFriendsTasks({ tasks: newTasks, activity: newActivity });
       }
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to load friends tasks and activity.');
