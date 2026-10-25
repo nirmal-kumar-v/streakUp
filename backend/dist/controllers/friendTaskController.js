@@ -378,6 +378,13 @@ async function getTaskFriendsLeaderboard(req, res) {
         for (const fTask of friendTasks) {
             if (rejectedTaskIds.has(fTask.id))
                 continue;
+            // Special activity guard: Do not cross-match DAILY with POTD
+            if (baseTask.specialActivity && fTask.specialActivity && baseTask.specialActivity !== fTask.specialActivity) {
+                continue;
+            }
+            if (baseTask.isGroupTask && fTask.isGroupTask && baseTask.groupId === fTask.groupId && baseTask.specialActivity !== fTask.specialActivity) {
+                continue;
+            }
             if (confirmedTaskIds.has(fTask.id)) {
                 matchingTasks.push({ task: fTask, confidence: 1.0, isConfirmed: true });
                 continue;
@@ -479,6 +486,9 @@ async function confirmTaskEquivalence(req, res) {
         const isFriend = await areFriends(userId, friendTask.userId);
         if (!isFriend) {
             return res.status(403).json({ success: false, error: 'Cannot map task of a non-friend.' });
+        }
+        if (userTask.specialActivity && friendTask.specialActivity && userTask.specialActivity !== friendTask.specialActivity) {
+            return res.status(400).json({ success: false, error: 'Cannot map Daily task to POTD task.' });
         }
         const match = (0, fuzzyMatchService_1.compareTaskTitles)(userTask.title, friendTask.title);
         await prisma_1.default.taskEquivalence.upsert({

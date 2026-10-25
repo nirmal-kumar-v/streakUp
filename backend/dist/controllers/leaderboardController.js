@@ -139,102 +139,108 @@ async function getGlobalLeaderboard(req, res) {
         // If user is authenticated, compute their exact global rank if not in the current page
         let currentUserRankInfo = null;
         if (currentUserId) {
-            const currentUser = await prisma_1.default.user.findUnique({
-                where: { id: currentUserId },
-                select: {
-                    id: true,
-                    name: true,
-                    username: true,
-                    profileImage: true,
-                    currentStreak: true,
-                    longestStreak: true,
-                    points: true,
-                    timezone: true,
-                    _count: { select: { taskCompletions: true } }
-                }
-            });
-            if (currentUser) {
-                let higherRankCount = 0;
-                if (type === 'points') {
-                    higherRankCount = await prisma_1.default.user.count({
-                        where: {
-                            OR: [
-                                { points: { gt: currentUser.points } },
-                                {
-                                    AND: [
-                                        { points: currentUser.points },
-                                        { currentStreak: { gt: currentUser.currentStreak } }
-                                    ]
-                                },
-                                {
-                                    AND: [
-                                        { points: currentUser.points },
-                                        { currentStreak: currentUser.currentStreak },
-                                        { longestStreak: { gt: currentUser.longestStreak } }
-                                    ]
-                                },
-                                {
-                                    AND: [
-                                        { points: currentUser.points },
-                                        { currentStreak: currentUser.currentStreak },
-                                        { longestStreak: currentUser.longestStreak },
-                                        { username: { lt: currentUser.username } }
-                                    ]
-                                }
-                            ]
-                        }
-                    });
-                }
-                else {
-                    higherRankCount = await prisma_1.default.user.count({
-                        where: {
-                            OR: [
-                                { currentStreak: { gt: currentUser.currentStreak } },
-                                {
-                                    AND: [
-                                        { currentStreak: currentUser.currentStreak },
-                                        { longestStreak: { gt: currentUser.longestStreak } }
-                                    ]
-                                },
-                                {
-                                    AND: [
-                                        { currentStreak: currentUser.currentStreak },
-                                        { longestStreak: currentUser.longestStreak },
-                                        { points: { gt: currentUser.points } }
-                                    ]
-                                },
-                                {
-                                    AND: [
-                                        { currentStreak: currentUser.currentStreak },
-                                        { longestStreak: currentUser.longestStreak },
-                                        { points: currentUser.points },
-                                        { username: { lt: currentUser.username } }
-                                    ]
-                                }
-                            ]
-                        }
-                    });
-                }
-                const todayDateStr = (0, timezoneService_1.getLocalDateString)(currentUser.timezone || 'Asia/Kolkata');
-                const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
-                    where: {
-                        userId: currentUser.id,
-                        completionDate: todayDateStr
+            const existingOnPage = rankedUsers.find(u => u.isCurrentUser);
+            if (existingOnPage) {
+                currentUserRankInfo = existingOnPage;
+            }
+            else {
+                const currentUser = await prisma_1.default.user.findUnique({
+                    where: { id: currentUserId },
+                    select: {
+                        id: true,
+                        name: true,
+                        username: true,
+                        profileImage: true,
+                        currentStreak: true,
+                        longestStreak: true,
+                        points: true,
+                        timezone: true,
+                        _count: { select: { taskCompletions: true } }
                     }
                 });
-                currentUserRankInfo = {
-                    rank: higherRankCount + 1,
-                    id: currentUser.id,
-                    name: currentUser.name,
-                    username: currentUser.username,
-                    profileImage: currentUser.profileImage,
-                    currentStreak: currentUser.currentStreak,
-                    longestStreak: currentUser.longestStreak,
-                    points: currentUser.points,
-                    totalCompletedTasks: currentUser._count.taskCompletions,
-                    tasksCompletedToday,
-                    isCurrentUser: true
-                };
+                if (currentUser) {
+                    let higherRankCount = 0;
+                    if (type === 'points') {
+                        higherRankCount = await prisma_1.default.user.count({
+                            where: {
+                                OR: [
+                                    { points: { gt: currentUser.points } },
+                                    {
+                                        AND: [
+                                            { points: currentUser.points },
+                                            { currentStreak: { gt: currentUser.currentStreak } }
+                                        ]
+                                    },
+                                    {
+                                        AND: [
+                                            { points: currentUser.points },
+                                            { currentStreak: currentUser.currentStreak },
+                                            { longestStreak: { gt: currentUser.longestStreak } }
+                                        ]
+                                    },
+                                    {
+                                        AND: [
+                                            { points: currentUser.points },
+                                            { currentStreak: currentUser.currentStreak },
+                                            { longestStreak: currentUser.longestStreak },
+                                            { username: { lt: currentUser.username } }
+                                        ]
+                                    }
+                                ]
+                            }
+                        });
+                    }
+                    else {
+                        higherRankCount = await prisma_1.default.user.count({
+                            where: {
+                                OR: [
+                                    { currentStreak: { gt: currentUser.currentStreak } },
+                                    {
+                                        AND: [
+                                            { currentStreak: currentUser.currentStreak },
+                                            { longestStreak: { gt: currentUser.longestStreak } }
+                                        ]
+                                    },
+                                    {
+                                        AND: [
+                                            { currentStreak: currentUser.currentStreak },
+                                            { longestStreak: currentUser.longestStreak },
+                                            { points: { gt: currentUser.points } }
+                                        ]
+                                    },
+                                    {
+                                        AND: [
+                                            { currentStreak: currentUser.currentStreak },
+                                            { longestStreak: currentUser.longestStreak },
+                                            { points: currentUser.points },
+                                            { username: { lt: currentUser.username } }
+                                        ]
+                                    }
+                                ]
+                            }
+                        });
+                    }
+                    const todayDateStr = (0, timezoneService_1.getLocalDateString)(currentUser.timezone || 'Asia/Kolkata');
+                    const tasksCompletedToday = await prisma_1.default.taskCompletion.count({
+                        where: {
+                            userId: currentUser.id,
+                            completionDate: todayDateStr
+                        }
+                    });
+                    currentUserRankInfo = {
+                        rank: higherRankCount + 1,
+                        id: currentUser.id,
+                        name: currentUser.name,
+                        username: currentUser.username,
+                        profileImage: currentUser.profileImage,
+                        currentStreak: currentUser.currentStreak,
+                        longestStreak: currentUser.longestStreak,
+                        points: currentUser.points,
+                        totalCompletedTasks: currentUser._count.taskCompletions,
+                        tasksCompletedToday,
+                        isCurrentUser: true
+                    };
+                }
             }
         }
         return res.json({

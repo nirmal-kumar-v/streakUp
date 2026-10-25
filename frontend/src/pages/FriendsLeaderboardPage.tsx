@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchFriendsLeaderboard, LeaderboardEntry } from '../api/leaderboard';
+import { fetchFriendsLeaderboard, getCachedFriendsLeaderboard, LeaderboardEntry } from '../api/leaderboard';
 import { LeaderboardTable } from '../components/LeaderboardTable';
 import { LeaderboardNav } from '../components/LeaderboardNav';
 import { Link } from 'react-router-dom';
@@ -9,17 +9,25 @@ import { useAuth } from '../context/AuthContext';
 export const FriendsLeaderboardPage: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const [activeType, setActiveType] = useState<'streak' | 'points'>('streak');
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const cached = getCachedFriendsLeaderboard(activeType);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>(cached?.leaderboard || []);
+  const [currentUserEntry, setCurrentUserEntry] = useState<LeaderboardEntry | null>(cached?.currentUserEntry || null);
+  const [isLoading, setIsLoading] = useState(!cached);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
+    // Check if we already have cached data for the newly selected tab
+    const currentCached = getCachedFriendsLeaderboard(activeType);
+    if (currentCached) {
+      setEntries(currentCached.leaderboard);
+      setCurrentUserEntry(currentCached.currentUserEntry);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
+
     const loadFriendsLeaderboard = async () => {
-      if (entries.length === 0) {
-        setIsLoading(true);
-      }
       try {
         const res = await fetchFriendsLeaderboard({ type: activeType });
         if (res.success) {

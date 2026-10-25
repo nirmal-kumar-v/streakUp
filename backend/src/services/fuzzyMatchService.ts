@@ -63,6 +63,8 @@ export function normalizeText(text: string): string {
   if (!text) return '';
   return text
     .toLowerCase()
+    .replace(/\bproblem of the day\b/g, 'potd')
+    .replace(/\bproblem of day\b/g, 'potd')
     .replace(/[^\w\s]/g, ' ') // replace punctuation with space
     .replace(/\s+/g, ' ')
     .trim();
@@ -224,6 +226,24 @@ export function compareTaskTitles(title1: string, title2: string): TaskMatchResu
         reason: 'Unrelated core subjects (e.g. LeetCode vs Java)',
       };
     }
+  }
+
+  // CRITICAL GUARD 2: Explicit sub-activities (Daily practice vs POTD / Problem of the Day)
+  // For platforms like LeetCode, GeeksforGeeks, CodeChef, etc., Daily tasks and POTD tasks
+  // are distinct challenges and must never be matched or suggested as equivalent.
+  const isPotd1 = tokens1.allTokens.includes('potd') || norm1.includes('problem of the day') || norm1.includes('problem of day');
+  const isPotd2 = tokens2.allTokens.includes('potd') || norm2.includes('problem of the day') || norm2.includes('problem of day');
+  const isDaily1 = tokens1.allTokens.includes('daily');
+  const isDaily2 = tokens2.allTokens.includes('daily');
+
+  if ((isPotd1 && isDaily2 && !isPotd2) || (isPotd2 && isDaily1 && !isPotd1)) {
+    return {
+      confidence: 0.1,
+      isHighConfidence: false,
+      isModerateConfidence: false,
+      isMatch: false,
+      reason: 'Distinct sub-activities (Daily practice vs Problem of the Day)',
+    };
   }
 
   // Canonical token-sorted comparison (ignoring word order and stop words)

@@ -113,8 +113,12 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
     // If user is authenticated, compute their exact global rank if not in the current page
     let currentUserRankInfo = null;
     if (currentUserId) {
-      const currentUser = await prisma.user.findUnique({
-        where: { id: currentUserId },
+      const existingOnPage = rankedUsers.find(u => u.isCurrentUser);
+      if (existingOnPage) {
+        currentUserRankInfo = existingOnPage;
+      } else {
+        const currentUser = await prisma.user.findUnique({
+          where: { id: currentUserId },
         select: {
           id: true,
           name: true,
@@ -211,6 +215,7 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
           tasksCompletedToday,
           isCurrentUser: true
         };
+      }
       }
     }
 

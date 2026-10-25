@@ -35,4 +35,24 @@ describe('Fuzzy Task Matching Service', () => {
     const res = compareTaskTitles('Discrete Mathematics Study', 'Discrete Math Revision');
     expect(res.isMatch).toBe(true);
   });
+
+  it('never matches Daily practice with Problem of the Day (LeetCode Daily vs LeetCode POTD, GFG Daily vs GFG POTD)', () => {
+    const leetcodeRes = compareTaskTitles('LeetCode Daily', 'LeetCode POTD');
+    expect(leetcodeRes.isMatch).toBe(false);
+    expect(leetcodeRes.confidence).toBeLessThan(0.5);
+
+    const gfgRes = compareTaskTitles('GeeksforGeeks Daily', 'GeeksforGeeks POTD');
+    expect(gfgRes.isMatch).toBe(false);
+    expect(gfgRes.confidence).toBeLessThan(0.5);
+
+    const potdVsDailyPractice = compareTaskTitles('LeetCode Problem of the Day', 'LeetCode Daily Practice');
+    expect(potdVsDailyPractice.isMatch).toBe(false);
+
+    // But matching Daily with Daily and POTD with POTD works perfectly!
+    const dailyWithDaily = compareTaskTitles('LeetCode Daily', 'Daily LeetCode Practice');
+    expect(dailyWithDaily.isMatch).toBe(true);
+
+    const potdWithPotd = compareTaskTitles('LeetCode POTD', 'LeetCode Problem of the Day');
+    expect(potdWithPotd.isMatch).toBe(true);
+  });
 });

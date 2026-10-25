@@ -1,21 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { fetchGlobalLeaderboard, LeaderboardEntry } from '../api/leaderboard';
+import { fetchGlobalLeaderboard, getCachedGlobalLeaderboard, LeaderboardEntry } from '../api/leaderboard';
 import { LeaderboardTable } from '../components/LeaderboardTable';
 import { LeaderboardNav } from '../components/LeaderboardNav';
 import { Globe } from 'lucide-react';
 
 export const GlobalLeaderboardPage: React.FC = () => {
   const [activeType, setActiveType] = useState<'streak' | 'points'>('streak');
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [currentUserRankInfo, setCurrentUserRankInfo] = useState<LeaderboardEntry | null>(null);
-  const [displayLimit, setDisplayLimit] = useState<number>(10);
-  const [isLoading, setIsLoading] = useState(true);
+  const cached = getCachedGlobalLeaderboard(activeType);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>(
+    cached?.leaderboard ? (cached.leaderboard || []).slice(0, cached.userLeaderboardLimit || cached.pagination?.limit || 10) : []
+  );
+  const [currentUserRankInfo, setCurrentUserRankInfo] = useState<LeaderboardEntry | null>(cached?.currentUserRankInfo || null);
+  const [displayLimit, setDisplayLimit] = useState<number>(cached?.userLeaderboardLimit || cached?.pagination?.limit || 10);
+  const [isLoading, setIsLoading] = useState(!cached);
 
   useEffect(() => {
     let isCancelled = false;
 
-    const loadGlobalLeaderboard = async () => {
+    const currentCached = getCachedGlobalLeaderboard(activeType);
+    if (currentCached) {
+      const limit = currentCached.userLeaderboardLimit || currentCached.pagination?.limit || 10;
+      setDisplayLimit(limit);
+      setEntries((currentCached.leaderboard || []).slice(0, limit));
+      setCurrentUserRankInfo(currentCached.currentUserRankInfo);
+      setIsLoading(false);
+    } else {
       setIsLoading(true);
+    }
+
+    const loadGlobalLeaderboard = async () => {
       try {
         const res = await fetchGlobalLeaderboard({ type: activeType });
         if (!isCancelled && res.success) {
