@@ -3,7 +3,14 @@ import { Users, Compass, CheckCircle2, MessageSquare, Flame, RefreshCw } from 'l
 import { adminGetPlatformStats } from '../../api/admin';
 
 export const AdminPlatformStatsBar: React.FC = () => {
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<any>(() => {
+    try {
+      const cached = sessionStorage.getItem('streakup_admin_telemetry');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
 
   const fetchStats = async () => {
@@ -12,6 +19,9 @@ export const AdminPlatformStatsBar: React.FC = () => {
       const res = await adminGetPlatformStats();
       if (res && res.success && res.stats) {
         setStats(res.stats);
+        try {
+          sessionStorage.setItem('streakup_admin_telemetry', JSON.stringify(res.stats));
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to fetch platform stats:', err);
@@ -29,8 +39,6 @@ export const AdminPlatformStatsBar: React.FC = () => {
     const num = Number(val);
     return isNaN(num) ? '0' : num.toLocaleString();
   };
-
-  if (!stats && !loading) return null;
 
   return (
     <div className="bg-dark-card border border-dark-border rounded-2xl p-4 shadow-panel mb-6">

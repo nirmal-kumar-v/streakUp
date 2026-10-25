@@ -43,6 +43,7 @@ import {
   getAdminMessageLogs,
   DeliveryChannel,
 } from '../services/adminMessageService';
+import { getAllUserRequests } from '../services/userRequestService';
 import { detectSpecialPlatform } from '../services/specialGroupRegistry';
 import {
   getSpecialGroupActivitiesForMember,
@@ -5349,16 +5350,28 @@ export async function adminDeleteTaskCompletion(req: AdminAuthenticatedRequest, 
 // -------------------------------------------------------
 // 15. VIEW PLATFORM STATS OVERVIEW (ADMIN DASHBOARD)
 // -------------------------------------------------------
+let cachedPlatformStats: { timestamp: number; stats: any } | null = null;
+const STATS_CACHE_TTL_MS = 30 * 1000; // 30 seconds cache for instant response
+
 /**
  * GET /api/admin/stats
  * Returns aggregated platform-wide statistics for the admin dashboard
  */
 export async function adminGetPlatformStats(req: AdminAuthenticatedRequest, res: Response) {
   try {
+    const now = Date.now();
+    if (cachedPlatformStats && (now - cachedPlatformStats.timestamp < STATS_CACHE_TTL_MS)) {
+      return res.json({ success: true, stats: cachedPlatformStats.stats });
+    }
+
+    const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const [
       totalUsers, totalTasks, totalCompletions, totalGroups,
       totalFriendships, totalFriendRequests, totalNotifications,
-      totalAuditLogs, recentUsers, topStreakUsers, totalManagers,
+      totalAuditLogs, completionsToday, activeUsers,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.task.count(),
@@ -5368,63 +5381,45 @@ export async function adminGetPlatformStats(req: AdminAuthenticatedRequest, res:
       prisma.friendRequest.count({ where: { status: 'PENDING' } }),
       prisma.notification.count({ where: { isDismissed: false } }),
       prisma.adminAuditLog.count(),
-      prisma.user.findMany({
-        take: 5,
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, username: true, name: true, currentStreak: true, createdAt: true },
-      }),
-      prisma.user.findMany({
-        take: 5,
-        orderBy: { currentStreak: 'desc' },
-        select: { id: true, username: true, name: true, currentStreak: true, longestStreak: true, points: true },
-      }),
-      prisma.user.count({ where: { adminConfig: { isNot: null } } }),
-    ]);
-
-    // Tasks created in last 7 days & active metrics
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const [recentTaskCount, recentCompletionCount, completionsToday, activeUsers, pendingFeedbackRequests] = await Promise.all([
-      prisma.task.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-      prisma.taskCompletion.count({ where: { completedAt: { gte: sevenDaysAgo } } }),
       prisma.taskCompletion.count({ where: { completedAt: { gte: startOfToday } } }),
-      prisma.user.count({
-        where: {
-          OR: [
-            { completions: { some: { completedAt: { gte: sevenDaysAgo } } } },
-            { updatedAt: { gte: sevenDaysAgo } },
-          ],
-        },
-      }),
-      (prisma as any).userRequest
-        ? (prisma as any).userRequest.count({ where: { status: 'PENDING' } }).catch(() => 0)
-        : Promise.resolve(0),
+      prisma.user.count({ where: { updatedAt: { gte: sevenDaysAgo } } }),
     ]);
+
+    let pendingFeedbackRequests = 0;
+    try {
+      const userRequests = await getAllUserRequests({ status: 'PENDING' as any });
+      pendingFeedbackRequests = userRequests.length;
+    } catch {
+      pendingFeedbackRequests = totalFriendRequests;
+    }
+
+    const stats = {
+      totalUsers,
+      activeUsers,
+      totalGroups,
+      totalTasks,
+      completionsToday,
+      pendingFeedbackRequests,
+      users: { total: totalUsers, active: activeUsers },
+      tasks: { total: totalTasks },
+      completions: { total: totalCompletions, today: completionsToday },
+      groups: { total: totalGroups },
+      friendships: { total: totalFriendships, pendingRequests: totalFriendRequests },
+      notifications: { totalActive: totalNotifications },
+      auditLogs: { total: totalAuditLogs },
+    };
+
+    cachedPlatformStats = { timestamp: now, stats };
 
     return res.json({
       success: true,
-      stats: {
-        totalUsers,
-        activeUsers,
-        totalGroups,
-        totalTasks,
-        completionsToday,
-        pendingFeedbackRequests,
-        users: { total: totalUsers, active: activeUsers, recentlyJoined: recentUsers },
-        tasks: { total: totalTasks, createdLast7Days: recentTaskCount },
-        completions: { total: totalCompletions, today: completionsToday, last7Days: recentCompletionCount },
-        groups: { total: totalGroups },
-        friendships: { total: totalFriendships, pendingRequests: totalFriendRequests },
-        notifications: { totalActive: totalNotifications },
-        managers: { total: totalManagers },
-        auditLogs: { total: totalAuditLogs },
-        leaderboard: { topStreakUsers },
-      },
+      stats,
     });
   } catch (err: any) {
     console.error('adminGetPlatformStats error:', err);
+    if (cachedPlatformStats) {
+      return res.json({ success: true, stats: cachedPlatformStats.stats });
+    }
     return res.status(500).json({ success: false, error: 'Failed to fetch platform statistics.' });
   }
 }
