@@ -7,7 +7,7 @@ import { AdminAuthenticatedRequest } from '../middleware/adminAuthMiddleware';
 import { getTodayInTimezone } from '../services/timezoneService';
 import { NotificationCategory } from '@prisma/client';
 import { sendEmail } from '../services/emailService';
-import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
+import { recalculateUserStreaks, recalculateTaskStreaks, reconcileStaleStreaks } from '../services/streakService';
 import {
   getUserLeaderboardLimit,
   setUserLeaderboardLimit,
@@ -19,7 +19,10 @@ import {
   setUserDiscoverGroupsLimit,
   getUserProfileImageLimitMb,
   setUserProfileImageLimitMb,
+  loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
+import { clearLeaderboardCache } from './leaderboardController';
+import { getPlatformAnnouncement, updatePlatformAnnouncement } from '../services/announcementService';
 import { calculateNextOccurrence, runReminderCheck } from '../services/reminderSchedulerService';
 import { validateImageBuffer } from '../utils/imageValidator';
 import {
@@ -5729,6 +5732,302 @@ export async function adminUncompleteTask(req: AdminAuthenticatedRequest, res: R
     return res.status(500).json({ success: false, error: 'Failed to uncomplete task.' });
   }
 }
+
+// ==========================================
+// 19. SYSTEM HEALTH, DIAGNOSTICS & PLATFORM POWERS
+// ==========================================
+
+/**
+ * GET /api/admin/system/health
+ * Live database query latency, server memory, uptime, table row counts
+ */
+export async function adminGetSystemHealth(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const start = Date.now();
+    await prisma.$queryRaw`SELECT 1`;
+    const dbLatencyMs = Date.now() - start;
+
+    const [
+      totalUsers,
+      totalTasks,
+      totalCompletions,
+      totalGroups,
+      totalFriendships,
+      totalNotifications,
+      totalAuditLogs,
+      totalFreezeLogs,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.task.count(),
+      prisma.taskCompletion.count(),
+      prisma.group.count(),
+      prisma.friendship.count(),
+      prisma.notification.count(),
+      prisma.adminAuditLog.count(),
+      prisma.freezeLog.count(),
+    ]);
+
+    const memory = process.memoryUsage();
+    const uptimeSeconds = Math.floor(process.uptime());
+
+    return res.json({
+      success: true,
+      health: {
+        status: 'HEALTHY',
+        dbLatencyMs,
+        uptimeSeconds,
+        memory: {
+          rssMb: Math.round((memory.rss / (1024 * 1024)) * 10) / 10,
+          heapUsedMb: Math.round((memory.heapUsed / (1024 * 1024)) * 10) / 10,
+          heapTotalMb: Math.round((memory.heapTotal / (1024 * 1024)) * 10) / 10,
+        },
+        nodeVersion: process.version,
+        platform: process.platform,
+        environment: process.env.VERCEL ? 'vercel-serverless' : 'node-server',
+        tableCounts: {
+          users: totalUsers,
+          tasks: totalTasks,
+          taskCompletions: totalCompletions,
+          groups: totalGroups,
+          friendships: totalFriendships,
+          notifications: totalNotifications,
+          auditLogs: totalAuditLogs,
+          freezeLogs: totalFreezeLogs,
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error('adminGetSystemHealth error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to retrieve system health diagnostics.' });
+  }
+}
+
+/**
+ * POST /api/admin/system/cache/flush
+ * Manually flushes in-memory leaderboard caches and platform stats caches
+ */
+export async function adminFlushCaches(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    clearLeaderboardCache();
+    cachedPlatformStats = null;
+    await loadUserAdminConfigsFromDb().catch(() => {});
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SYSTEM_CACHE_FLUSH',
+      reason: 'Flushed all system in-memory caches manually from Admin Dashboard',
+      beforeState: { flushed: false },
+      afterState: { flushed: true, timestamp: new Date().toISOString() },
+    });
+
+    return res.json({
+      success: true,
+      message: 'All system in-memory caches (Leaderboards, Platform Stats, Admin Configs) flushed successfully.',
+    });
+  } catch (err: any) {
+    console.error('adminFlushCaches error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to flush system caches.' });
+  }
+}
+
+/**
+ * POST /api/admin/system/reconcile-streaks
+ * Triggers an on-demand global streak reconciliation across all users
+ */
+export async function adminReconcileStreaks(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const result = await reconcileStaleStreaks(prisma);
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SYSTEM_STREAK_RECONCILIATION',
+      reason: 'Manually triggered global streak reconciliation across all users and tasks',
+      beforeState: null,
+      afterState: result,
+    });
+
+    return res.json({
+      success: true,
+      message: `Reconciliation cycle completed: ${result.updatedUsers} users and ${result.updatedTasks} tasks reconciled.`,
+      result,
+    });
+  } catch (err: any) {
+    console.error('adminReconcileStreaks error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to reconcile streaks.' });
+  }
+}
+
+/**
+ * GET /api/admin/system/announcement
+ * Fetch platform announcement config
+ */
+export async function adminGetAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const announcement = getPlatformAnnouncement();
+    return res.json({ success: true, announcement });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: 'Failed to retrieve announcement.' });
+  }
+}
+
+/**
+ * POST /api/admin/system/announcement
+ * Update platform announcement broadcast banner
+ */
+export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { active, message, type, link, linkText, dismissible } = req.body;
+    const current = getPlatformAnnouncement();
+
+    const updated = updatePlatformAnnouncement({
+      active: typeof active === 'boolean' ? active : current.active,
+      message: typeof message === 'string' ? message : current.message,
+      type: type || current.type,
+      link: typeof link === 'string' ? link : current.link,
+      linkText: typeof linkText === 'string' ? linkText : current.linkText,
+      dismissible: typeof dismissible === 'boolean' ? dismissible : current.dismissible,
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SYSTEM_ANNOUNCEMENT_UPDATE',
+      reason: 'Updated platform broadcast announcement banner',
+      beforeState: current,
+      afterState: updated,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Platform announcement updated successfully.',
+      announcement: updated,
+    });
+  } catch (err: any) {
+    console.error('adminUpdateAnnouncement error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update announcement.' });
+  }
+}
+
+/**
+ * POST /api/admin/users/batch-grant-freeze
+ * Emergency tool to grant +1 (or custom amount) freeze to all active users
+ */
+export async function adminBatchGrantFreeze(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const reason = req.body?.reason || 'Platform-wide administrative freeze grant';
+    const amount = Math.min(5, Math.max(1, parseInt(req.body?.amount as string) || 1));
+
+    const { loadAllDeletedAccounts } = await import('../services/deletedAccountService');
+    const deletedUserIds = loadAllDeletedAccounts()
+      .filter((a) => a.status === 'DELETED')
+      .map((a) => a.userId);
+
+    const updateRes = await prisma.user.updateMany({
+      where: deletedUserIds.length > 0 ? { id: { notIn: deletedUserIds } } : {},
+      data: {
+        overallFreezeBalance: { increment: amount },
+      },
+    });
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'BATCH_GRANT_FREEZE',
+      reason,
+      beforeState: { amount },
+      afterState: { usersAwarded: updateRes.count, amount },
+    });
+
+    return res.json({
+      success: true,
+      message: `Successfully granted +${amount} freeze(s) to ${updateRes.count} active users.`,
+      usersCount: updateRes.count,
+    });
+  } catch (err: any) {
+    console.error('adminBatchGrantFreeze error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to batch grant freezes.' });
+  }
+}
+
+/**
+ * GET /api/admin/system/export/users
+ * Export users data as CSV or JSON
+ */
+export async function adminExportUsers(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const format = req.query.format === 'csv' ? 'csv' : 'json';
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        isEmailVerified: true,
+        currentStreak: true,
+        longestStreak: true,
+        points: true,
+        overallFreezeBalance: true,
+        timezone: true,
+        createdAt: true,
+        _count: {
+          select: { tasks: true, taskCompletions: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (format === 'csv') {
+      const header = 'ID,Name,Username,Email,Verified,CurrentStreak,LongestStreak,Points,Freezes,Timezone,Tasks,Completions,CreatedAt\n';
+      const rows = users
+        .map(
+          (u) =>
+            `"${u.id}","${(u.name || '').replace(/"/g, '""')}","${u.username}","${u.email}",${u.isEmailVerified},${u.currentStreak},${u.longestStreak},${u.points},${u.overallFreezeBalance},"${u.timezone || ''}",${u._count.tasks},${u._count.taskCompletions},"${u.createdAt.toISOString()}"`
+        )
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="streakup_users_${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send(header + rows);
+    }
+
+    return res.json({ success: true, count: users.length, users });
+  } catch (err: any) {
+    console.error('adminExportUsers error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to export users.' });
+  }
+}
+
+/**
+ * GET /api/admin/system/export/audit-logs
+ * Export audit logs as CSV or JSON
+ */
+export async function adminExportAuditLogs(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const format = req.query.format === 'csv' ? 'csv' : 'json';
+    const logs = await prisma.adminAuditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+    });
+
+    if (format === 'csv') {
+      const header = 'ID,AdminUsername,Action,TargetUser,Reason,CreatedAt\n';
+      const rows = logs
+        .map(
+          (l) =>
+            `"${l.id}","${l.adminUsername}","${l.action}","${(l.targetUser || '').replace(/"/g, '""')}","${(l.reason || '').replace(/"/g, '""')}","${l.createdAt.toISOString()}"`
+        )
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="streakup_audit_logs_${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send(header + rows);
+    }
+
+    return res.json({ success: true, count: logs.length, logs });
+  } catch (err: any) {
+    console.error('adminExportAuditLogs error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to export audit logs.' });
+  }
+}
+
 
 
 

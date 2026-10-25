@@ -66,6 +66,18 @@ const handleHealth = (_req: Request, res: Response) => {
     hasJwtSecret: Boolean(process.env.JWT_SECRET)
   });
 };
+import { getPlatformAnnouncement } from './services/announcementService';
+
+app.get('/api/announcement', (_req: Request, res: Response) => {
+  const announcement = getPlatformAnnouncement();
+  res.json({ success: true, announcement });
+});
+
+app.get('/announcement', (_req: Request, res: Response) => {
+  const announcement = getPlatformAnnouncement();
+  res.json({ success: true, announcement });
+});
+
 app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
 app.get('/api', handleHealth);

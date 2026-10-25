@@ -43,6 +43,7 @@ import {
   RotateCcw,
   UserPlus,
   UserCheck,
+  Activity,
 } from 'lucide-react';
 import {
   fetchAdminProfile,
@@ -113,6 +114,7 @@ import { AdminUserNotificationsTab } from '../components/admin/AdminUserNotifica
 import { AdminGroupManageModal } from '../components/admin/AdminGroupManageModal';
 import { AdminCreateTaskModal } from '../components/admin/AdminCreateTaskModal';
 import { AdminUncompleteTaskModal } from '../components/admin/AdminUncompleteTaskModal';
+import { AdminSystemTab } from '../components/admin/AdminSystemTab';
 
 export const AdminControlPage: React.FC = () => {
   const toast = useToast();
@@ -124,10 +126,10 @@ export const AdminControlPage: React.FC = () => {
   const [activeAdmin, setActiveAdmin] = useState<any>(null);
 
   // ------------------------------------------
-  // Primary Tabs: users | groups | friends | notifications | requests | managers | messages | audit | security
+  // Primary Tabs: users | groups | friends | notifications | requests | managers | messages | system | audit | security
   // ------------------------------------------
   const [primaryTab, setPrimaryTab] = useState<
-    'users' | 'groups' | 'friends' | 'notifications' | 'requests' | 'managers' | 'messages' | 'audit' | 'security'
+    'users' | 'groups' | 'friends' | 'notifications' | 'requests' | 'managers' | 'messages' | 'system' | 'audit' | 'security'
   >('users');
 
   // Friends Primary Tab State
@@ -2793,6 +2795,18 @@ export const AdminControlPage: React.FC = () => {
           >
             <Mail className="w-4 h-4" />
             <span>Send Message</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrimaryTab('system')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              primaryTab === 'system'
+                ? 'bg-flame-500 text-zinc-950 shadow-md'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-card'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>System & Diagnostics</span>
           </button>
           <button
             type="button"
@@ -7912,6 +7926,11 @@ export const AdminControlPage: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* ======================================================== */}
+        {/* PRIMARY TAB: SYSTEM DIAGNOSTICS & PLATFORM POWERS        */}
+        {/* ======================================================== */}
+        {primaryTab === 'system' && <AdminSystemTab />}
 
         {/* ======================================================== */}
         {/* PRIMARY TAB 3: ADMIN SECURITY & SENSITIVE PASSWORD       */}

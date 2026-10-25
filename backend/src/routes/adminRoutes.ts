@@ -80,6 +80,14 @@ import {
   adminResetUserMilestones,
   adminSetGroupMemberVisibility,
   adminUncompleteTask,
+  adminGetSystemHealth,
+  adminFlushCaches,
+  adminReconcileStreaks,
+  adminGetAnnouncement,
+  adminUpdateAnnouncement,
+  adminBatchGrantFreeze,
+  adminExportUsers,
+  adminExportAuditLogs,
 } from '../controllers/adminController';
 import { getAdminRequests, updateRequestStatus } from '../controllers/userRequestController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
@@ -210,6 +218,16 @@ router.post('/users/:userId/tasks/:taskId/uncomplete', requireSensitiveAuth, adm
 
 // Reminder Scheduling
 router.post('/users/:userId/reminders/create', requireSensitiveAuth, adminCreateReminderSchedule);
+
+// System Health, Diagnostics & Platform Controls
+router.get('/system/health', adminGetSystemHealth);
+router.post('/system/cache/flush', requireSensitiveAuth, adminFlushCaches);
+router.post('/system/reconcile-streaks', requireSensitiveAuth, adminReconcileStreaks);
+router.get('/system/announcement', adminGetAnnouncement);
+router.post('/system/announcement', requireSensitiveAuth, adminUpdateAnnouncement);
+router.post('/users/batch-grant-freeze', requireSensitiveAuth, adminBatchGrantFreeze);
+router.get('/system/export/users', adminExportUsers);
+router.get('/system/export/audit-logs', adminExportAuditLogs);
 
 export default router;
 

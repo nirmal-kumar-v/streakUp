@@ -1391,6 +1391,120 @@ export async function adminCreateReminderSchedule(
   return res.data;
 }
 
+// -------------------------------------------------------
+// SYSTEM HEALTH, DIAGNOSTICS & PLATFORM POWERS
+// -------------------------------------------------------
+export interface AdminSystemHealth {
+  status: string;
+  dbLatencyMs: number;
+  uptimeSeconds: number;
+  memory: {
+    rssMb: number;
+    heapUsedMb: number;
+    heapTotalMb: number;
+  };
+  nodeVersion: string;
+  platform: string;
+  environment: string;
+  tableCounts: {
+    users: number;
+    tasks: number;
+    taskCompletions: number;
+    groups: number;
+    friendships: number;
+    notifications: number;
+    auditLogs: number;
+    freezeLogs: number;
+  };
+}
+
+export interface PlatformAnnouncementData {
+  id: string;
+  active: boolean;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  link?: string;
+  linkText?: string;
+  dismissible: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function fetchAdminSystemHealth() {
+  const res = await adminApiClient.get<{ success: boolean; health: AdminSystemHealth }>('/admin/system/health');
+  return res.data;
+}
+
+export async function adminFlushAllCaches(sensitivePin?: string) {
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    '/admin/system/cache/flush',
+    {},
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminTriggerStreakReconciliation(sensitivePin?: string) {
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    result: { updatedUsers: number; updatedTasks: number };
+  }>(
+    '/admin/system/reconcile-streaks',
+    {},
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function fetchAdminAnnouncement() {
+  const res = await adminApiClient.get<{ success: boolean; announcement: PlatformAnnouncementData }>('/admin/system/announcement');
+  return res.data;
+}
+
+export async function updateAdminAnnouncement(
+  data: Partial<PlatformAnnouncementData> & { sensitivePin?: string }
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; announcement: PlatformAnnouncementData }>(
+    '/admin/system/announcement',
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminBatchGrantFreeze(data: { amount: number; reason: string; sensitivePin: string }) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; usersCount: number }>(
+    '/admin/users/batch-grant-freeze',
+    body,
+    { headers: { 'x-admin-pin': sensitivePin } }
+  );
+  return res.data;
+}
+
+export async function exportAdminUsersCsv(): Promise<Blob> {
+  const res = await adminApiClient.get('/admin/system/export/users?format=csv', {
+    responseType: 'blob',
+  });
+  return res.data;
+}
+
+export async function exportAdminAuditLogsCsv(): Promise<Blob> {
+  const res = await adminApiClient.get('/admin/system/export/audit-logs?format=csv', {
+    responseType: 'blob',
+  });
+  return res.data;
+}
+
+export async function fetchPublicAnnouncement() {
+  const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+  const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
+  const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(`${API_BASE_URL}/announcement`);
+  return res.data;
+}
+
 
 
 
