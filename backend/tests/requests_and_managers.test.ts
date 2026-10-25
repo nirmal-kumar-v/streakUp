@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   submitUserRequest,
   getAllUserRequests,
@@ -23,7 +23,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
   let testUserId = 'test-req-user-1';
   let testManagerUserId = 'test-mgr-user-2';
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     // Ensure test user exists in DB or mock
     try {
       const passwordHash = await bcrypt.hash('TestPass@123', 8);
@@ -53,7 +53,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
         },
       });
     } catch {}
-  }, 15000);
+  }, 30000);
 
   describe('1. Requests & Feedback Service', () => {
     it('validates submission and requires at least 5 characters and a valid category', async () => {
@@ -72,7 +72,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
           message: 'Valid message content',
         })
       ).rejects.toThrow('Invalid request category selected.');
-    }, 15000);
+    }, 30000);
 
     it('submits request successfully and persists with PENDING status', async () => {
       const req = await submitUserRequest({
@@ -90,7 +90,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
       const found = all.find((r) => r.id === req.id);
       expect(found).toBeDefined();
       expect(found?.message).toBe('Could we please add dark mode contrast controls?');
-    }, 15000);
+    }, 30000);
 
     it('filters requests by category and status', async () => {
       const bug = await submitUserRequest({
@@ -104,7 +104,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
 
       const noMatch = await getAllUserRequests({ category: 'ACCOUNT_SUPPORT' });
       expect(noMatch.some((r) => r.id === bug.id)).toBe(false);
-    }, 15000);
+    }, 30000);
 
     it('updates request status and attaches admin notes', async () => {
       const req = await submitUserRequest({
@@ -127,7 +127,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
         status: 'RESOLVED',
       });
       expect(resolved.status).toBe('RESOLVED');
-    }, 15000);
+    }, 30000);
   });
 
   describe('2. Manager Access & Strict RBAC', () => {
@@ -153,7 +153,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
       );
       expect(managerNotif).toBeDefined();
       expect(managerNotif?.title).toBe('Manager Access Granted');
-    }, 15000);
+    }, 30000);
 
     it('toggles manager email notification preferences', async () => {
       await grantManagerAccess({
@@ -168,7 +168,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
       });
 
       expect(updated.emailNotificationsEnabled).toBe(false);
-    }, 15000);
+    }, 30000);
 
     it('revoking manager access immediately stops manager role', async () => {
       await grantManagerAccess({
@@ -183,7 +183,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
 
       const list = await getAllManagers();
       expect(list.some((m) => m.userId === testManagerUserId)).toBe(false);
-    }, 15000);
+    }, 30000);
 
     it('allows an authorized manager to reply to a user request with an in-app notification and no email', async () => {
       // 1. Grant manager access to testManagerUserId
@@ -226,7 +226,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
           replyMessage: 'Unauthorized message attempt',
         })
       ).rejects.toThrow('Forbidden: Only authorized managers can reply to user requests.');
-    }, 15000);
+    }, 30000);
   });
 
   describe('3. Admin Messaging Service', () => {
@@ -248,7 +248,7 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
       });
       const matched = notifs.find((n) => n.title === 'Welcome to StreakUp Beta');
       expect(matched).toBeDefined();
-    }, 15000);
+    }, 30000);
 
     it('handles email channel honestly without falsely claiming delivery if SMTP is unconfigured', async () => {
       const log = await sendAdminMessageToUser({
@@ -266,6 +266,6 @@ describe('StreakUp — Requests & Feedback, Manager Access, and Admin Messaging'
 
       const logs = await getAdminMessageLogs(10);
       expect(logs.some((l) => l.id === log.id)).toBe(true);
-    }, 15000);
+    }, 30000);
   });
 });

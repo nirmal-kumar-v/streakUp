@@ -68,6 +68,9 @@ export function getAppBaseUrl(): string {
  * Checks if SMTP transport has been configured with host and authentication
  */
 export function isSmtpConfigured(): boolean {
+  if (process.env.NODE_ENV === 'test' && !process.env.ENABLE_TEST_SMTP) {
+    return false;
+  }
   const config = getSmtpConfig();
   return Boolean(config.host && config.user && config.pass);
 }

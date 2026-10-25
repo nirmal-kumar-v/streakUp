@@ -38,6 +38,29 @@ import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
 import { calculateOptimisticUserStreak } from '../utils/streak';
 
+const TASKS_CACHE_KEY = 'streakup_tasks_page_cache';
+
+function getCachedTasksData(): { tasks: Task[]; counts: { active: number; archived: number } } | null {
+  try {
+    const raw = sessionStorage.getItem(TASKS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
+      return parsed.data;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedTasksData(data: { tasks: Task[]; counts: { active: number; archived: number } }) {
+  try {
+    sessionStorage.setItem(
+      TASKS_CACHE_KEY,
+      JSON.stringify({ timestamp: Date.now(), data })
+    );
+  } catch (e) {}
+}
+
 export const TasksPage: React.FC = () => {
   const { user, updateUser } = useAuth();
   const toast = useToast();
@@ -51,9 +74,10 @@ export const TasksPage: React.FC = () => {
   const initialStatus: 'ACTIVE' | 'ARCHIVED' =
     urlStatus?.toUpperCase() === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE';
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [counts, setCounts] = useState<{ active: number; archived: number }>({ active: 0, archived: 0 });
-  const [isLoading, setIsLoading] = useState(true);
+  const [cachedInitial] = useState(() => getCachedTasksData());
+  const [tasks, setTasks] = useState<Task[]>(() => (initialStatus === 'ACTIVE' && cachedInitial ? cachedInitial.tasks : []));
+  const [counts, setCounts] = useState<{ active: number; archived: number }>(() => cachedInitial ? cachedInitial.counts : { active: 0, archived: 0 });
+  const [isLoading, setIsLoading] = useState<boolean>(() => initialStatus === 'ACTIVE' ? !cachedInitial : true);
 
   // Filters & Sorting state
   const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED'>(initialStatus);
@@ -69,7 +93,7 @@ export const TasksPage: React.FC = () => {
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
-  const hasLoadedRef = React.useRef(false);
+  const hasLoadedRef = React.useRef<boolean>(Boolean(initialStatus === 'ACTIVE' && cachedInitial));
 
   // Sync state if URL query param changes
   useEffect(() => {
@@ -105,7 +129,11 @@ export const TasksPage: React.FC = () => {
       if (res.success) {
         setTasks(res.tasks || []);
         if (typeof res.activeCount === 'number' && typeof res.archivedCount === 'number') {
-          setCounts({ active: res.activeCount, archived: res.archivedCount });
+          const freshCounts = { active: res.activeCount, archived: res.archivedCount };
+          setCounts(freshCounts);
+          if (statusFilter === 'ACTIVE' && priorityFilter === 'ALL' && categoryFilter === 'ALL') {
+            setCachedTasksData({ tasks: res.tasks || [], counts: freshCounts });
+          }
         }
         hasLoadedRef.current = true;
       }

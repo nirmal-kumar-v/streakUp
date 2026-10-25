@@ -29,15 +29,47 @@ import { useBadges } from '../context/BadgeContext';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 
+const FRIENDS_CACHE_KEY = 'streakup_friends_data_cache';
+
+interface CachedFriendsData {
+  timestamp: number;
+  friends: FriendUser[];
+  received: FriendRequestItem[];
+  sent: FriendRequestItem[];
+}
+
+function getCachedFriendsData(): CachedFriendsData | null {
+  try {
+    const raw = sessionStorage.getItem(FRIENDS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
+      return parsed;
+    }
+  } catch (e) {}
+  return null;
+}
+
+function setCachedFriendsData(data: Omit<CachedFriendsData, 'timestamp'>) {
+  try {
+    sessionStorage.setItem(
+      FRIENDS_CACHE_KEY,
+      JSON.stringify({ timestamp: Date.now(), ...data })
+    );
+  } catch (e) {}
+}
+
 export const FriendsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
   const { setPendingRequestsCount, decrementFriendRequests } = useBadges();
   const toast = useToast();
 
+  const [cachedInitial] = useState(() => getCachedFriendsData());
+
   // Data states
-  const [friends, setFriends] = useState<FriendUser[]>([]);
-  const [receivedRequests, setReceivedRequests] = useState<FriendRequestItem[]>([]);
-  const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>([]);
+  const [friends, setFriends] = useState<FriendUser[]>(() => cachedInitial?.friends || []);
+  const [receivedRequests, setReceivedRequests] = useState<FriendRequestItem[]>(() => cachedInitial?.received || []);
+  const [sentRequests, setSentRequests] = useState<FriendRequestItem[]>(() => cachedInitial?.sent || []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<FriendUser[]>([]);
 
@@ -45,7 +77,7 @@ export const FriendsPage: React.FC = () => {
   const [pendingActionIds, setPendingActionIds] = useState<Set<string>>(new Set());
   const [friendToRemove, setFriendToRemove] = useState<FriendUser | null>(null);
 
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(() => !cachedInitial);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -67,22 +99,33 @@ export const FriendsPage: React.FC = () => {
   };
 
   const loadData = useCallback(async (isSilent = false) => {
-    if (!isSilent) setIsInitialLoading(true);
+    if (!isSilent && !getCachedFriendsData()) setIsInitialLoading(true);
     try {
       const [friendsRes, requestsRes] = await Promise.all([
         fetchFriendsList().catch(() => null),
         fetchFriendRequests().catch(() => null),
       ]);
 
+      const currentCached = getCachedFriendsData();
+      const freshFriends = (friendsRes && friendsRes.success) ? (friendsRes.friends || []) : (currentCached?.friends || []);
+      const freshReceived = (requestsRes && requestsRes.success) ? (requestsRes.received || []) : (currentCached?.received || []);
+      const freshSent = (requestsRes && requestsRes.success) ? (requestsRes.sent || []) : (currentCached?.sent || []);
+
       if (friendsRes && friendsRes.success) {
-        setFriends(friendsRes.friends || []);
+        setFriends(freshFriends);
       }
       if (requestsRes && requestsRes.success) {
-        setReceivedRequests(requestsRes.received || []);
-        setSentRequests(requestsRes.sent || []);
+        setReceivedRequests(freshReceived);
+        setSentRequests(freshSent);
         // Immediately synchronize navbar badge count
-        setPendingRequestsCount(requestsRes.pendingCount || (requestsRes.received || []).length);
+        setPendingRequestsCount(requestsRes.pendingCount || freshReceived.length);
       }
+
+      setCachedFriendsData({
+        friends: freshFriends,
+        received: freshReceived,
+        sent: freshSent,
+      });
     } catch (err) {
       console.error('Failed to load friends data:', err);
     } finally {
