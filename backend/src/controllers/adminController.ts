@@ -5372,19 +5372,40 @@ export async function adminGetPlatformStats(req: AdminAuthenticatedRequest, res:
       prisma.user.count({ where: { adminConfig: { isNot: null } } }),
     ]);
 
-    // Tasks created in last 7 days
+    // Tasks created in last 7 days & active metrics
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const [recentTaskCount, recentCompletionCount] = await Promise.all([
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [recentTaskCount, recentCompletionCount, completionsToday, activeUsers, pendingFeedbackRequests] = await Promise.all([
       prisma.task.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
       prisma.taskCompletion.count({ where: { completedAt: { gte: sevenDaysAgo } } }),
+      prisma.taskCompletion.count({ where: { completedAt: { gte: startOfToday } } }),
+      prisma.user.count({
+        where: {
+          OR: [
+            { completions: { some: { completedAt: { gte: sevenDaysAgo } } } },
+            { updatedAt: { gte: sevenDaysAgo } },
+          ],
+        },
+      }),
+      (prisma as any).userRequest
+        ? (prisma as any).userRequest.count({ where: { status: 'PENDING' } }).catch(() => 0)
+        : Promise.resolve(0),
     ]);
 
     return res.json({
       success: true,
       stats: {
-        users: { total: totalUsers, recentlyJoined: recentUsers },
+        totalUsers,
+        activeUsers,
+        totalGroups,
+        totalTasks,
+        completionsToday,
+        pendingFeedbackRequests,
+        users: { total: totalUsers, active: activeUsers, recentlyJoined: recentUsers },
         tasks: { total: totalTasks, createdLast7Days: recentTaskCount },
-        completions: { total: totalCompletions, last7Days: recentCompletionCount },
+        completions: { total: totalCompletions, today: completionsToday, last7Days: recentCompletionCount },
         groups: { total: totalGroups },
         friendships: { total: totalFriendships, pendingRequests: totalFriendRequests },
         notifications: { totalActive: totalNotifications },

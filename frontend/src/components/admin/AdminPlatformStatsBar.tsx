@@ -3,21 +3,14 @@ import { Users, Compass, CheckCircle2, MessageSquare, Flame, RefreshCw } from 'l
 import { adminGetPlatformStats } from '../../api/admin';
 
 export const AdminPlatformStatsBar: React.FC = () => {
-  const [stats, setStats] = useState<{
-    totalUsers: number;
-    activeUsers: number;
-    totalGroups: number;
-    totalTasks: number;
-    completionsToday: number;
-    pendingFeedbackRequests: number;
-  } | null>(null);
+  const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
       const res = await adminGetPlatformStats();
-      if (res.success && res.stats) {
+      if (res && res.success && res.stats) {
         setStats(res.stats);
       }
     } catch (err) {
@@ -30,6 +23,12 @@ export const AdminPlatformStatsBar: React.FC = () => {
   useEffect(() => {
     fetchStats();
   }, []);
+
+  const safeNum = (val: any): string => {
+    if (val === undefined || val === null) return '0';
+    const num = Number(val);
+    return isNaN(num) ? '0' : num.toLocaleString();
+  };
 
   if (!stats && !loading) return null;
 
@@ -61,7 +60,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Total Users</span>
           </div>
           <p className="text-lg font-black text-zinc-100 font-mono">
-            {stats ? stats.totalUsers.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.totalUsers ?? stats?.users?.total)}
           </p>
         </div>
 
@@ -71,7 +70,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Active Users</span>
           </div>
           <p className="text-lg font-black text-emerald-400 font-mono">
-            {stats ? stats.activeUsers.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.activeUsers ?? stats?.users?.active ?? stats?.users?.total)}
           </p>
         </div>
 
@@ -81,7 +80,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Total Groups</span>
           </div>
           <p className="text-lg font-black text-zinc-100 font-mono">
-            {stats ? stats.totalGroups.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.totalGroups ?? stats?.groups?.total)}
           </p>
         </div>
 
@@ -91,7 +90,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Active Tasks</span>
           </div>
           <p className="text-lg font-black text-zinc-100 font-mono">
-            {stats ? stats.totalTasks.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.totalTasks ?? stats?.tasks?.total)}
           </p>
         </div>
 
@@ -101,7 +100,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Today's Checks</span>
           </div>
           <p className="text-lg font-black text-amber-400 font-mono">
-            {stats ? stats.completionsToday.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.completionsToday ?? stats?.completions?.today ?? stats?.completions?.total)}
           </p>
         </div>
 
@@ -111,7 +110,7 @@ export const AdminPlatformStatsBar: React.FC = () => {
             <span>Pending Inquiries</span>
           </div>
           <p className="text-lg font-black text-rose-400 font-mono">
-            {stats ? stats.pendingFeedbackRequests.toLocaleString() : '...'}
+            {loading && !stats ? '...' : safeNum(stats?.pendingFeedbackRequests ?? stats?.friendships?.pendingRequests)}
           </p>
         </div>
       </div>
