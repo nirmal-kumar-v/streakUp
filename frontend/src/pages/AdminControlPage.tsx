@@ -40,6 +40,7 @@ import {
   Gamepad2,
   Trophy,
   Download,
+  RotateCcw,
 } from 'lucide-react';
 import {
   fetchAdminProfile,
@@ -89,6 +90,8 @@ import {
   adminToggleGroupSpecialMode,
   adminSetSpecialActivityCommitment,
   fetchAdminUserRequests,
+  adminResetUserMilestones,
+  adminCreateReminderSchedule,
   AdminUser,
   AdminAuditLogItem,
   AdminGroupItem,
@@ -102,6 +105,12 @@ import { isLinkedInName, LINKEDIN_GAMES_LIST } from '../utils/linkedin';
 import { AdminUserRequestsTab } from '../components/admin/AdminUserRequestsTab';
 import { AdminManagersTab } from '../components/admin/AdminManagersTab';
 import { AdminSendMessageTab } from '../components/admin/AdminSendMessageTab';
+import { AdminPlatformStatsBar } from '../components/admin/AdminPlatformStatsBar';
+import { AdminUserFriendsTab } from '../components/admin/AdminUserFriendsTab';
+import { AdminUserNotificationsTab } from '../components/admin/AdminUserNotificationsTab';
+import { AdminGroupManageModal } from '../components/admin/AdminGroupManageModal';
+import { AdminCreateTaskModal } from '../components/admin/AdminCreateTaskModal';
+import { AdminUncompleteTaskModal } from '../components/admin/AdminUncompleteTaskModal';
 
 export const AdminControlPage: React.FC = () => {
   const toast = useToast();
@@ -132,8 +141,22 @@ export const AdminControlPage: React.FC = () => {
 
   // Sub-tabs inside Selected User Control Center
   const [userTab, setUserTab] = useState<
-    'overview' | 'username_email' | 'streaks' | 'points' | 'reminders' | 'limits' | 'tasks_groups' | 'danger'
+    'overview' | 'username_email' | 'streaks' | 'points' | 'reminders' | 'limits' | 'tasks_groups' | 'friends' | 'notifications' | 'danger'
   >('overview');
+
+  // Modal states for new full-power admin controls
+  const [selectedGroupForManage, setSelectedGroupForManage] = useState<any | null>(null);
+  const [createTaskModalOpen, setCreateTaskModalOpen] = useState(false);
+  const [uncompleteModalTask, setUncompleteModalTask] = useState<any | null>(null);
+
+  // New Custom Reminder Schedule Form State
+  const [customReminderTime, setCustomReminderTime] = useState('');
+  const [customReminderType, setCustomReminderType] = useState<'OVERALL' | 'TASK'>('OVERALL');
+  const [customReminderTaskId, setCustomReminderTaskId] = useState('');
+  const [customReminderInApp, setCustomReminderInApp] = useState(true);
+  const [customReminderEmail, setCustomReminderEmail] = useState(false);
+  const [customReminderReason, setCustomReminderReason] = useState('');
+  const [isCreatingCustomReminder, setIsCreatingCustomReminder] = useState(false);
 
   // ------------------------------------------
   // PIN Modal State for High-Risk Actions
@@ -2633,6 +2656,9 @@ export const AdminControlPage: React.FC = () => {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+        {/* Live Platform Telemetry & Overview Bar */}
+        <AdminPlatformStatsBar />
+
         {/* Primary Navigation Tabs */}
         <div className="flex items-center gap-2 border-b border-dark-border pb-3 overflow-x-auto">
           <button
@@ -3233,6 +3259,28 @@ export const AdminControlPage: React.FC = () => {
                     }`}
                   >
                     Tasks & Groups
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserTab('friends')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                      userTab === 'friends'
+                        ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Friends & Requests
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserTab('notifications')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-colors ${
+                      userTab === 'notifications'
+                        ? 'bg-dark-surface text-flame-400 border border-flame-500/30'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    Notifications Hub
                   </button>
                   <button
                     type="button"
@@ -4977,6 +5025,43 @@ export const AdminControlPage: React.FC = () => {
                         </div>
                       )}
                     </div>
+
+                    {/* Milestone Badges & Reset Controls */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                            <Trophy className="w-4 h-4 text-amber-400" />
+                            <span>Milestone Events & Achievement Celebrations</span>
+                          </h4>
+                          <p className="text-xs text-zinc-400 mt-0.5">
+                            Resetting milestone event records allows the user to re-trigger celebratory milestones and badges (e.g. 7, 30, 100 days) upon completing tasks.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            openPinPrompt(
+                              'Reset Milestone Events',
+                              `Wipe milestone event records for @${selectedUserDetails?.username}? This allows milestone notifications and badges to be re-earned.`,
+                              async (pin) => {
+                                const res = await adminResetUserMilestones(selectedUserDetails.id, {
+                                  reason: `Admin reset milestone events for @${selectedUserDetails.username}`,
+                                  sensitivePin: pin,
+                                });
+                                if (res.success) {
+                                  toast.success(res.message);
+                                }
+                              }
+                            );
+                          }}
+                          className="px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Reset Milestones</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -5783,6 +5868,154 @@ export const AdminControlPage: React.FC = () => {
                         </button>
                       </div>
                     </div>
+
+                    {/* Section 4: Direct Custom Reminder Schedule Creator */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-emerald-400" />
+                          <span>Direct Custom Reminder Schedule Creation</span>
+                        </h4>
+                        <span className="text-[10px] text-zinc-500 font-mono">Bypasses Quotas & Restrictions</span>
+                      </div>
+
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!customReminderTime || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(customReminderTime)) {
+                            toast.error('Valid 24h time in HH:mm format is required.');
+                            return;
+                          }
+                          if (customReminderType === 'TASK' && !customReminderTaskId) {
+                            toast.error('Please select a task for this schedule.');
+                            return;
+                          }
+                          if (!customReminderReason.trim()) {
+                            toast.error('Administrative reason is required.');
+                            return;
+                          }
+
+                          openPinPrompt(
+                            'Create Reminder Schedule',
+                            `Create ${customReminderType} reminder at ${customReminderTime} for @${selectedUserDetails?.username}?`,
+                            async (pin) => {
+                              try {
+                                setIsCreatingCustomReminder(true);
+                                const res = await adminCreateReminderSchedule(selectedUserDetails.id, {
+                                  time: customReminderTime,
+                                  type: customReminderType,
+                                  taskId: customReminderType === 'TASK' ? customReminderTaskId : undefined,
+                                  sendInApp: customReminderInApp,
+                                  sendEmail: customReminderEmail,
+                                  reason: customReminderReason.trim(),
+                                  sensitivePin: pin,
+                                });
+                                if (res.success) {
+                                  toast.success(res.message);
+                                  setCustomReminderTime('');
+                                  setCustomReminderReason('');
+                                  loadUserReminders(selectedUserDetails.id);
+                                }
+                              } finally {
+                                setIsCreatingCustomReminder(false);
+                              }
+                            }
+                          );
+                        }}
+                        className="space-y-4 text-xs"
+                      >
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block font-semibold text-zinc-300 mb-1">Time (HH:mm, 24h) *</label>
+                            <input
+                              type="text"
+                              value={customReminderTime}
+                              onChange={(e) => setCustomReminderTime(e.target.value)}
+                              placeholder="e.g. 21:00"
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500 font-mono"
+                              required
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block font-semibold text-zinc-300 mb-1">Schedule Scope</label>
+                            <select
+                              value={customReminderType}
+                              onChange={(e) => setCustomReminderType(e.target.value as any)}
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500"
+                            >
+                              <option value="OVERALL">OVERALL (Platform Daily Reminder)</option>
+                              <option value="TASK">TASK (Targeted Task Habit)</option>
+                            </select>
+                          </div>
+
+                          {customReminderType === 'TASK' && (
+                            <div>
+                              <label className="block font-semibold text-zinc-300 mb-1">Select Task *</label>
+                              <select
+                                value={customReminderTaskId}
+                                onChange={(e) => setCustomReminderTaskId(e.target.value)}
+                                className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              >
+                                <option value="">Select a task...</option>
+                                {selectedUserDetails?.tasks?.map((t: any) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.title}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex items-center gap-4 bg-dark-surface p-3 rounded-xl border border-dark-border">
+                            <span className="text-zinc-400 font-semibold">Channels:</span>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={customReminderInApp}
+                                onChange={(e) => setCustomReminderInApp(e.target.checked)}
+                                className="rounded border-dark-border text-flame-500"
+                              />
+                              <span className="text-zinc-200">In-App</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={customReminderEmail}
+                                onChange={(e) => setCustomReminderEmail(e.target.checked)}
+                                className="rounded border-dark-border text-flame-500"
+                              />
+                              <span className="text-zinc-200">Email</span>
+                            </label>
+                          </div>
+
+                          <div>
+                            <input
+                              type="text"
+                              value={customReminderReason}
+                              onChange={(e) => setCustomReminderReason(e.target.value)}
+                              placeholder="Administrative reason (e.g. Schedule request)..."
+                              className="w-full px-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-zinc-100 focus:outline-none focus:border-flame-500"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={isCreatingCustomReminder}
+                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Create Reminder Schedule</span>
+                          </button>
+                        </div>
+                      </form>
+                    </div>
                   </div>
                 )}
 
@@ -6513,7 +6746,17 @@ export const AdminControlPage: React.FC = () => {
                           <Layers className="w-4 h-4 text-flame-400" />
                           <span>Personal Habits ({selectedUserDetails?.tasks?.filter((t: any) => !t.isGroupTask).length || 0})</span>
                         </h3>
-                        <span className="text-[10px] text-zinc-500 font-mono">Full Settings & Substring Privacy Controls</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setCreateTaskModalOpen(true)}
+                            className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Create Task For User</span>
+                          </button>
+                          <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono">Full Settings & Controls</span>
+                        </div>
                       </div>
 
                       <div className="space-y-3">
@@ -6568,6 +6811,15 @@ export const AdminControlPage: React.FC = () => {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setUncompleteModalTask(t)}
+                                    className="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+                                    title="Uncomplete Task for Date (-5 pts, recalculates streaks)"
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                    <span>Uncomplete</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => handleOpenTaskEditor(t)}
@@ -6855,6 +7107,24 @@ export const AdminControlPage: React.FC = () => {
                   </div>
                 )}
 
+                {/* SUB-TAB: FRIENDS & SOCIAL NETWORK */}
+                {userTab === 'friends' && selectedUserDetails && (
+                  <AdminUserFriendsTab
+                    userId={selectedUserDetails.id}
+                    username={selectedUserDetails.username}
+                    onRequirePin={openPinPrompt}
+                  />
+                )}
+
+                {/* SUB-TAB: NOTIFICATIONS HUB */}
+                {userTab === 'notifications' && selectedUserDetails && (
+                  <AdminUserNotificationsTab
+                    userId={selectedUserDetails.id}
+                    username={selectedUserDetails.username}
+                    onRequirePin={openPinPrompt}
+                  />
+                )}
+
                 {/* SUB-TAB H: DANGER ZONE & ACCOUNT DELETION */}
                 {userTab === 'danger' && (
                   <div className="bg-rose-500/5 border border-rose-500/30 rounded-2xl p-6 shadow-panel space-y-4">
@@ -7136,6 +7406,14 @@ export const AdminControlPage: React.FC = () => {
                                   <span>{g.isSpecialGroup ? 'Disable Special' : 'Enable Special'}</span>
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedGroupForManage(g)}
+                                className="px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border inline-flex items-center gap-1.5 cursor-pointer bg-dark-card hover:bg-dark-border text-zinc-200 border-dark-border"
+                              >
+                                <Sliders className="w-3.5 h-3.5 text-flame-400" />
+                                <span>Manage Group</span>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleToggleGroupDiscoverability(g)}
@@ -8969,6 +9247,44 @@ export const AdminControlPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* GROUP MANAGEMENT HUB MODAL (MEMBERS, JOIN REQS, INVITES) */}
+      {/* ======================================================== */}
+      {selectedGroupForManage && (
+        <AdminGroupManageModal
+          group={selectedGroupForManage}
+          onClose={() => setSelectedGroupForManage(null)}
+          onRequirePin={openPinPrompt}
+        />
+      )}
+
+      {/* ======================================================== */}
+      {/* ADMIN CREATE TASK FOR USER MODAL                         */}
+      {/* ======================================================== */}
+      {createTaskModalOpen && selectedUserDetails && (
+        <AdminCreateTaskModal
+          userId={selectedUserDetails.id}
+          username={selectedUserDetails.username}
+          onClose={() => setCreateTaskModalOpen(false)}
+          onSuccess={() => handleSelectUser({ id: selectedUserDetails.id })}
+          onRequirePin={openPinPrompt}
+        />
+      )}
+
+      {/* ======================================================== */}
+      {/* ADMIN UNCOMPLETE TASK FOR DATE MODAL                     */}
+      {/* ======================================================== */}
+      {uncompleteModalTask && selectedUserDetails && (
+        <AdminUncompleteTaskModal
+          userId={selectedUserDetails.id}
+          username={selectedUserDetails.username}
+          task={uncompleteModalTask}
+          onClose={() => setUncompleteModalTask(null)}
+          onSuccess={() => handleSelectUser({ id: selectedUserDetails.id })}
+          onRequirePin={openPinPrompt}
+        />
       )}
 
       {/* ======================================================== */}

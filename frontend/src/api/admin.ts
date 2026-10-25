@@ -1086,6 +1086,312 @@ export async function adminSetSpecialActivityCommitment(
   return res.data;
 }
 
+// -------------------------------------------------------
+// PLATFORM TELEMETRY & STATS
+// -------------------------------------------------------
+export async function adminGetPlatformStats() {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    stats: {
+      totalUsers: number;
+      activeUsers: number;
+      totalGroups: number;
+      totalTasks: number;
+      completionsToday: number;
+      pendingFeedbackRequests: number;
+    };
+  }>('/admin/stats');
+  return res.data;
+}
+
+// -------------------------------------------------------
+// FRIENDSHIPS & FRIEND REQUESTS ADMINISTRATION
+// -------------------------------------------------------
+export async function adminGetUserFriendRequests(userId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    incoming: any[];
+    outgoing: any[];
+    friends: any[];
+  }>(`/admin/users/${userId}/friend-requests`);
+  return res.data;
+}
+
+export async function adminForceAcceptFriendRequest(
+  requestId: string,
+  data: { reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/friend-requests/${requestId}/accept`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminForceRejectFriendRequest(
+  requestId: string,
+  data: { reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/friend-requests/${requestId}/reject`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminForceCreateFriendship(
+  data: { userIdA: string; userIdB: string; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    '/admin/friendships/create',
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminForceRemoveFriendship(
+  data: { userIdA: string; userIdB: string; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
+    '/admin/friendships',
+    {
+      data: body,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+// -------------------------------------------------------
+// GROUP JOIN REQUESTS, INVITATIONS & FORCE MEMBERSHIP
+// -------------------------------------------------------
+export async function adminGetGroupJoinRequests(groupId: string, status?: string) {
+  const res = await adminApiClient.get<{ success: boolean; joinRequests: any[] }>(
+    `/admin/groups/${groupId}/join-requests${status ? `?status=${status}` : ''}`
+  );
+  return res.data;
+}
+
+export async function adminRespondToGroupJoinRequest(
+  groupId: string,
+  requestId: string,
+  data: { action: 'APPROVE' | 'REJECT'; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/groups/${groupId}/join-requests/${requestId}/respond`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminGetGroupInvitations(groupId: string) {
+  const res = await adminApiClient.get<{ success: boolean; invitations: any[] }>(
+    `/admin/groups/${groupId}/invitations`
+  );
+  return res.data;
+}
+
+export async function adminCancelGroupInvitation(
+  invitationId: string,
+  data: { reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
+    `/admin/invitations/${invitationId}`,
+    {
+      data: body,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminForceAddMemberToGroup(
+  groupId: string,
+  data: { userId: string; role?: 'MEMBER' | 'ADMIN'; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/groups/${groupId}/force-add-member`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminSetGroupMemberVisibility(
+  groupId: string,
+  userId: string,
+  data: { hiddenFrom: string[]; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; hiddenFrom: string[] }>(
+    `/admin/groups/${groupId}/members/${userId}/visibility`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+// -------------------------------------------------------
+// USER NOTIFICATIONS ADMINISTRATION
+// -------------------------------------------------------
+export async function adminGetUserNotifications(userId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    notifications: any[];
+    total: number;
+    unreadCount: number;
+  }>(`/admin/users/${userId}/notifications`);
+  return res.data;
+}
+
+export async function adminDeleteNotification(notificationId: string) {
+  const res = await adminApiClient.delete<{ success: boolean; message: string }>(
+    `/admin/notifications/${notificationId}`
+  );
+  return res.data;
+}
+
+export async function adminClearUserNotifications(
+  userId: string,
+  data: { reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.delete<{ success: boolean; message: string; count: number }>(
+    `/admin/users/${userId}/notifications`,
+    {
+      data: body,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminMarkAllNotificationsRead(userId: string) {
+  const res = await adminApiClient.post<{ success: boolean; message: string }>(
+    `/admin/users/${userId}/notifications/mark-all-read`
+  );
+  return res.data;
+}
+
+// -------------------------------------------------------
+// TASK CREATION & COMPLETION ADMINISTRATION
+// -------------------------------------------------------
+export async function adminCreateTaskForUser(
+  userId: string,
+  data: {
+    title: string;
+    description?: string;
+    category?: string;
+    priority?: string;
+    recurrence?: string;
+    scheduledDays?: number[];
+    dueTime?: string;
+    groupId?: string;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; task: any }>(
+    `/admin/users/${userId}/tasks`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+export async function adminDeleteTaskCompletion(
+  completionId: string,
+  data: { reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.delete<{ success: boolean; message: string; pointsDeducted: number }>(
+    `/admin/completions/${completionId}`,
+    {
+      data: body,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminUncompleteTask(
+  userId: string,
+  taskId: string,
+  data: { date: string; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; updatedStreaks: any }>(
+    `/admin/users/${userId}/tasks/${taskId}/uncomplete`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+// -------------------------------------------------------
+// POINT LEDGER & MILESTONES RESET
+// -------------------------------------------------------
+export async function adminGetUserPointLedger(userId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    user: { id: string; username: string; points: number };
+    pointLedger: any[];
+    totalEarned: number;
+    totalDeducted: number;
+  }>(`/admin/users/${userId}/point-ledger`);
+  return res.data;
+}
+
+export async function adminResetUserMilestones(
+  userId: string,
+  data: { scopeKey?: string; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.delete<{ success: boolean; message: string; count: number }>(
+    `/admin/users/${userId}/milestones`,
+    {
+      data: body,
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+// -------------------------------------------------------
+// REMINDER SCHEDULE CREATION
+// -------------------------------------------------------
+export async function adminCreateReminderSchedule(
+  userId: string,
+  data: {
+    time: string;
+    type: 'OVERALL' | 'TASK';
+    taskId?: string;
+    sendInApp?: boolean;
+    sendEmail?: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; reminder: any }>(
+    `/admin/users/${userId}/reminders/create`,
+    body,
+    { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
+  );
+  return res.data;
+}
+
+
 
 
 
