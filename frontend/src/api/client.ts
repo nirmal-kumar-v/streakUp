@@ -1,7 +1,12 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { Capacitor } from '@capacitor/core';
 
 // Normalize base URL (strip trailing slash)
-const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+// Preserves existing /api for web and PWA, while directing native Android to the production API.
+const defaultBaseUrl = Capacitor.isNativePlatform()
+  ? 'https://streak-up-karo.vercel.app/api'
+  : '/api';
+const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export const apiClient = axios.create({

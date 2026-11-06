@@ -61,12 +61,13 @@ export const AdminSystemTab: React.FC = () => {
   // Sensitive Action Modal State
   // ------------------------------------------
   const [sensitiveModalAction, setSensitiveModalAction] = useState<
-    'flush_cache' | 'reconcile_streaks' | 'batch_freeze' | 'save_announcement' | null
+    'flush_cache' | 'reconcile_streaks' | 'batch_freeze' | null
   >(null);
   const [sensitivePin, setSensitivePin] = useState('');
   const [batchFreezeAmount, setBatchFreezeAmount] = useState(1);
   const [batchFreezeReason, setBatchFreezeReason] = useState('Platform-wide administrative freeze grant');
   const [isActionRunning, setIsActionRunning] = useState(false);
+  const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
 
   // ------------------------------------------
   // Fetch Health
@@ -119,16 +120,26 @@ export const AdminSystemTab: React.FC = () => {
   // ------------------------------------------
   // Action Handlers
   // ------------------------------------------
-  const handleExecuteSensitiveAction = async () => {
-    if (!sensitivePin.trim()) {
-      toast.error('Secondary Admin PIN is required.');
-      return;
+  const handleSaveAnnouncementDirect = async () => {
+    setIsSavingAnnouncement(true);
+    try {
+      const res = await updateAdminAnnouncement(announcement);
+      if (res.success) {
+        toast.success(res.message || 'Announcement broadcast published successfully!');
+        setAnnouncement(res.announcement);
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to save announcement.'));
+    } finally {
+      setIsSavingAnnouncement(false);
     }
+  };
 
+  const handleExecuteSensitiveAction = async () => {
     setIsActionRunning(true);
     try {
       if (sensitiveModalAction === 'flush_cache') {
-        const res = await adminFlushAllCaches(sensitivePin);
+        const res = await adminFlushAllCaches(sensitivePin.trim() || undefined);
         if (res.success) {
           toast.success(res.message);
           setSensitiveModalAction(null);
@@ -136,7 +147,7 @@ export const AdminSystemTab: React.FC = () => {
           loadHealth();
         }
       } else if (sensitiveModalAction === 'reconcile_streaks') {
-        const res = await adminTriggerStreakReconciliation(sensitivePin);
+        const res = await adminTriggerStreakReconciliation(sensitivePin.trim() || undefined);
         if (res.success) {
           toast.success(res.message);
           setSensitiveModalAction(null);
@@ -147,7 +158,7 @@ export const AdminSystemTab: React.FC = () => {
         const res = await adminBatchGrantFreeze({
           amount: batchFreezeAmount,
           reason: batchFreezeReason,
-          sensitivePin,
+          sensitivePin: sensitivePin.trim(),
         });
         if (res.success) {
           toast.success(res.message);
@@ -155,20 +166,9 @@ export const AdminSystemTab: React.FC = () => {
           setSensitivePin('');
           loadHealth();
         }
-      } else if (sensitiveModalAction === 'save_announcement') {
-        const res = await updateAdminAnnouncement({
-          ...announcement,
-          sensitivePin,
-        });
-        if (res.success) {
-          toast.success(res.message);
-          setAnnouncement(res.announcement);
-          setSensitiveModalAction(null);
-          setSensitivePin('');
-        }
       }
     } catch (err: any) {
-      toast.error(extractErrorMessage(err, 'Action failed. Please verify your Admin PIN.'));
+      toast.error(extractErrorMessage(err, 'Action failed.'));
     } finally {
       setIsActionRunning(false);
     }
@@ -476,10 +476,21 @@ export const AdminSystemTab: React.FC = () => {
           </label>
 
           <button
-            onClick={() => setSensitiveModalAction('save_announcement')}
-            className="px-4 py-2 bg-gradient-to-r from-flame-500 to-amber-500 hover:from-flame-600 hover:to-amber-600 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-flame-500/20"
+            onClick={handleSaveAnnouncementDirect}
+            disabled={isSavingAnnouncement}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-flame-500 to-amber-500 hover:from-flame-600 hover:to-amber-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-flame-500/20 active:scale-95"
           >
-            Save Announcement
+            {isSavingAnnouncement ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Broadcasting...</span>
+              </>
+            ) : (
+              <>
+                <Bell className="w-3.5 h-3.5" />
+                <span>Save Announcement</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -573,10 +584,10 @@ export const AdminSystemTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Sensitive Action PIN Confirmation Modal */}
+      {/* System Action Confirmation Modal */}
       {sensitiveModalAction && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-dark-surface border border-dark-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-dark-surface border border-dark-border rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-fadeIn">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-flame-500/10 border border-flame-500/20 text-flame-400">
                 <Lock className="w-5 h-5" />
@@ -584,12 +595,13 @@ export const AdminSystemTab: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold text-zinc-100">
                   {sensitiveModalAction === 'flush_cache' && 'Confirm Cache Flush'}
-                  {sensitiveModalAction === 'reconcile_streaks' && 'Confirm Global Reconcile'}
-                  {sensitiveModalAction === 'batch_freeze' && 'Confirm Batch Freezes'}
-                  {sensitiveModalAction === 'save_announcement' && 'Confirm Broadcast Update'}
+                  {sensitiveModalAction === 'reconcile_streaks' && 'Confirm Global Streak Reconcile'}
+                  {sensitiveModalAction === 'batch_freeze' && 'Confirm Emergency Batch Freezes'}
                 </h3>
                 <p className="text-xs text-dark-muted">
-                  Requires secondary Sensitive Admin PIN confirmation
+                  {sensitiveModalAction === 'flush_cache' && 'Instantly purges all leaderboard caches & platform stats'}
+                  {sensitiveModalAction === 'reconcile_streaks' && 'Scans and fixes out-of-sync streaks across all accounts'}
+                  {sensitiveModalAction === 'batch_freeze' && 'Grants freeze protection credits to all active users'}
                 </p>
               </div>
             </div>
@@ -598,15 +610,15 @@ export const AdminSystemTab: React.FC = () => {
               <div className="space-y-3 p-3 bg-dark-bg/60 border border-dark-border rounded-xl">
                 <div>
                   <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                    Freezes to Grant per User:
+                    Freezes to Grant per User (1 - 5):
                   </label>
                   <input
                     type="number"
                     min={1}
                     max={5}
                     value={batchFreezeAmount}
-                    onChange={(e) => setBatchFreezeAmount(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-1.5 bg-dark-bg border border-dark-border rounded-lg text-xs text-zinc-100"
+                    onChange={(e) => setBatchFreezeAmount(Math.max(1, Math.min(5, parseInt(e.target.value) || 1)))}
+                    className="w-full px-3 py-1.5 bg-dark-bg border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   />
                 </div>
                 <div>
@@ -617,7 +629,7 @@ export const AdminSystemTab: React.FC = () => {
                     type="text"
                     value={batchFreezeReason}
                     onChange={(e) => setBatchFreezeReason(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-dark-bg border border-dark-border rounded-lg text-xs text-zinc-100"
+                    className="w-full px-3 py-1.5 bg-dark-bg border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                   />
                 </div>
               </div>
@@ -625,15 +637,15 @@ export const AdminSystemTab: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                Enter Secondary Sensitive PIN
+                Admin Sensitive PIN / Password (Optional)
               </label>
               <input
                 type="password"
-                placeholder="6-digit Admin PIN"
+                placeholder="Enter PIN if configured, or leave blank to authorize"
                 value={sensitivePin}
                 onChange={(e) => setSensitivePin(e.target.value)}
                 autoFocus
-                className="w-full px-3.5 py-2.5 bg-dark-bg border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 font-mono tracking-widest"
+                className="w-full px-3.5 py-2.5 bg-dark-bg border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 font-mono tracking-wider"
               />
             </div>
 
@@ -652,10 +664,10 @@ export const AdminSystemTab: React.FC = () => {
               <button
                 type="button"
                 onClick={handleExecuteSensitiveAction}
-                disabled={isActionRunning || !sensitivePin.trim()}
+                disabled={isActionRunning}
                 className="px-5 py-2 bg-flame-500 hover:bg-flame-600 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-lg shadow-flame-500/20"
               >
-                {isActionRunning ? 'Processing...' : 'Confirm & Execute'}
+                {isActionRunning ? 'Executing...' : 'Confirm & Execute'}
               </button>
             </div>
           </div>

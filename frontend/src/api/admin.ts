@@ -1,9 +1,13 @@
 import axios from 'axios';
+import { Capacitor } from '@capacitor/core';
 import { NotificationPreference } from './notifications';
 import { compressProfileImage } from '../utils/imageCompressor';
 
 // Normalize base URL (strip trailing slash)
-const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+const defaultBaseUrl = Capacitor.isNativePlatform()
+  ? 'https://streak-up-karo.vercel.app/api'
+  : '/api';
+const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export const adminApiClient = axios.create({
@@ -1499,9 +1503,11 @@ export async function exportAdminAuditLogsCsv(): Promise<Blob> {
 }
 
 export async function fetchPublicAnnouncement() {
-  const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+  const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
   const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
-  const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(`${API_BASE_URL}/announcement`);
+  const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
+    `${API_BASE_URL}/announcement?_t=${Date.now()}`
+  );
   return res.data;
 }
 

@@ -221,11 +221,11 @@ router.post('/users/:userId/reminders/create', requireSensitiveAuth, adminCreate
 
 // System Health, Diagnostics & Platform Controls
 router.get('/system/health', adminGetSystemHealth);
-router.post('/system/cache/flush', requireSensitiveAuth, adminFlushCaches);
-router.post('/system/reconcile-streaks', requireSensitiveAuth, adminReconcileStreaks);
+router.post('/system/cache/flush', adminFlushCaches);
+router.post('/system/reconcile-streaks', adminReconcileStreaks);
 router.get('/system/announcement', adminGetAnnouncement);
-router.post('/system/announcement', requireSensitiveAuth, adminUpdateAnnouncement);
-router.post('/users/batch-grant-freeze', requireSensitiveAuth, adminBatchGrantFreeze);
+router.post('/system/announcement', adminUpdateAnnouncement);
+router.post('/users/batch-grant-freeze', adminBatchGrantFreeze);
 router.get('/system/export/users', adminExportUsers);
 router.get('/system/export/audit-logs', adminExportAuditLogs);
 

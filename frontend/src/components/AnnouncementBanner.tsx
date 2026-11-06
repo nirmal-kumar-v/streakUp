@@ -14,7 +14,7 @@ export const AnnouncementBanner: React.FC = () => {
       try {
         const res = await fetchPublicAnnouncement();
         if (!isCancelled && res.success && res.announcement && res.announcement.active) {
-          const dismissKey = `streakup_dismissed_announcement_${res.announcement.updatedAt}`;
+          const dismissKey = `streakup_dismissed_announcement_${res.announcement.id || res.announcement.updatedAt}`;
           const isLocallyDismissed = sessionStorage.getItem(dismissKey) === 'true';
 
           if (!isLocallyDismissed && res.announcement.message.trim().length > 0) {
@@ -29,8 +29,14 @@ export const AnnouncementBanner: React.FC = () => {
 
     checkAnnouncement();
 
+    const handleFocus = () => {
+      checkAnnouncement();
+    };
+    window.addEventListener('focus', handleFocus);
+
     return () => {
       isCancelled = true;
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
@@ -41,12 +47,14 @@ export const AnnouncementBanner: React.FC = () => {
   const handleDismiss = () => {
     setIsDismissed(true);
     try {
-      const dismissKey = `streakup_dismissed_announcement_${announcement.updatedAt}`;
+      const dismissKey = `streakup_dismissed_announcement_${announcement.id || announcement.updatedAt}`;
       sessionStorage.setItem(dismissKey, 'true');
     } catch (e) {
       // ignore
     }
   };
+
+  const isExternalLink = announcement.link?.startsWith('http://') || announcement.link?.startsWith('https://');
 
   const getStyleClasses = () => {
     switch (announcement.type) {
@@ -86,13 +94,25 @@ export const AnnouncementBanner: React.FC = () => {
           {renderIcon()}
           <span className="truncate">{announcement.message}</span>
           {announcement.link && (
-            <Link
-              to={announcement.link}
-              className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:opacity-80 shrink-0 ml-1"
-            >
-              <span>{announcement.linkText || 'View Details'}</span>
-              <ChevronRight className="w-3 h-3" />
-            </Link>
+            isExternalLink ? (
+              <a
+                href={announcement.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:opacity-80 shrink-0 ml-1"
+              >
+                <span>{announcement.linkText || 'View Details'}</span>
+                <ChevronRight className="w-3 h-3" />
+              </a>
+            ) : (
+              <Link
+                to={announcement.link}
+                className="inline-flex items-center gap-1 font-semibold underline underline-offset-2 hover:opacity-80 shrink-0 ml-1"
+              >
+                <span>{announcement.linkText || 'View Details'}</span>
+                <ChevronRight className="w-3 h-3" />
+              </Link>
+            )
           )}
         </div>
 

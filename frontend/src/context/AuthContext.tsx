@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, getMe, logoutUser } from '../api/auth';
+import { syncTokenToWidget, clearTokenFromWidget } from '../utils/nativeWidgetBridge';
 
 export interface AuthContextType {
   user: User | null;
@@ -66,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (err?.response?.status === 401) {
         localStorage.removeItem('streakup_token');
         localStorage.removeItem('streakup_user');
+        clearTokenFromWidget();
         setUser(null);
         setToken(null);
       }
@@ -76,11 +78,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshUser();
-  }, [refreshUser]);
+    if (token) {
+      syncTokenToWidget(token);
+    }
+  }, [refreshUser, token]);
 
   const login = useCallback((newToken: string, newUser: User) => {
     localStorage.setItem('streakup_token', newToken);
     localStorage.setItem('streakup_user', JSON.stringify(newUser));
+    syncTokenToWidget(newToken);
     setToken(newToken);
     setUser(newUser);
   }, []);
@@ -93,6 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       localStorage.removeItem('streakup_token');
       localStorage.removeItem('streakup_user');
+      clearTokenFromWidget();
       setUser(null);
       setToken(null);
     }
@@ -101,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUser = useCallback((updatedFields: Partial<User>, newToken?: string) => {
     if (newToken) {
       localStorage.setItem('streakup_token', newToken);
+      syncTokenToWidget(newToken);
       setToken(newToken);
     }
     setUser((prevUser) => {

@@ -10,6 +10,7 @@
     "dev": "concurrently -n \"BACKEND,FRONTEND\" -c \"amber,emerald\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
+    "build:android": "npm --prefix frontend run cap:build",
     "test": "npm --prefix backend run test"
   },
   "dependencies": {

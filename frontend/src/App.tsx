@@ -1,5 +1,7 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, Link } from 'react-router-dom';
+import { App as CapApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BadgeProvider } from './context/BadgeContext';
 import { ToastProvider } from './context/ToastContext';
@@ -16,6 +18,7 @@ import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
+import { AnnouncementPopup } from './components/AnnouncementPopup';
 import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
 import { PublicFeedbackModal } from './components/PublicFeedbackModal';
@@ -155,7 +158,35 @@ export const AppContent: React.FC = () => {
   useAllDevicesDisableZoom();
   const { isAuthenticated } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [publicFeedbackOpen, setPublicFeedbackOpen] = React.useState(false);
+
+  // Deep linking for widget tap and native URL schemes (e.g. streakup://dashboard)
+  React.useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let cleanupListener: (() => void) | null = null;
+    CapApp.addListener('appUrlOpen', (event) => {
+      try {
+        const urlStr = event.url || '';
+        // Extract pathname from streakup://dashboard or https://streak-up-karo.vercel.app/dashboard
+        if (urlStr.includes('streakup://')) {
+          const path = urlStr.split('streakup://')[1];
+          if (path) {
+            navigate(path.startsWith('/') ? path : `/${path}`);
+          }
+        }
+      } catch (e) {
+        console.warn('[DeepLink] Failed to parse incoming URL:', e);
+      }
+    }).then((handle) => {
+      cleanupListener = () => handle.remove();
+    }).catch(() => {});
+
+    return () => {
+      if (cleanupListener) cleanupListener();
+    };
+  }, [navigate]);
 
   // Auto-reset any scroll locks whenever navigating between pages
   React.useEffect(() => {
@@ -239,6 +270,7 @@ export const AppContent: React.FC = () => {
     <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100 overflow-x-hidden">
       <AppLockScreen />
       <AnnouncementBanner />
+      <AnnouncementPopup />
       <OfflineBanner />
       <Navbar />
       <StreakCelebration />

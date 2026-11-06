@@ -39,6 +39,7 @@ import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
 import { calculateOptimisticUserStreak } from '../utils/streak';
+import { syncStatsToWidget } from '../utils/nativeWidgetBridge';
 
 const DASHBOARD_CACHE_KEY = 'streakup_dashboard_summary_cache';
 
@@ -123,6 +124,15 @@ export const DashboardPage: React.FC = () => {
           setOverallFreezeBalance(sumRes.user.overallFreezeBalance || 0);
           setOverallFreezeRechargeDays(sumRes.user.overallFreezeRechargeDays || 0);
           setRecentProtectedDates(sumRes.user.protectedDates || []);
+        }
+        if (sumRes.stats && sumRes.user) {
+          syncStatsToWidget({
+            streak: sumRes.user.currentStreak,
+            completedToday: sumRes.stats.completedTodayCount,
+            totalTasks: sumRes.stats.totalActiveTasks,
+            percentage: sumRes.stats.completionPercentage,
+            userName: sumRes.user.name || undefined,
+          });
         }
       }
     } catch (err) {

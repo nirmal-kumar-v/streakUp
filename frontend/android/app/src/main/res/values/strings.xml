@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StreakUp</string>
+    <string name="title_activity_main">StreakUp</string>
+    <string name="package_name">com.streakup.app</string>
+    <string name="custom_url_scheme">com.streakup.app</string>
+</resources>

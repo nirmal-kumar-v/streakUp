@@ -57,23 +57,23 @@ export function getPlatformAnnouncement(): PlatformAnnouncement {
 }
 
 export function updatePlatformAnnouncement(
-  data: Partial<Omit<PlatformAnnouncement, 'id' | 'createdAt' | 'updatedAt'>>
+  data: Partial<Omit<PlatformAnnouncement, 'createdAt' | 'updatedAt'>>
 ): PlatformAnnouncement {
   ensureDataDir();
   const current = getPlatformAnnouncement();
   const updated: PlatformAnnouncement = {
     ...current,
     ...data,
+    id: data.id || `announcement_${Date.now()}`,
     updatedAt: new Date().toISOString(),
   };
 
   try {
     fs.writeFileSync(ANNOUNCEMENT_FILE, JSON.stringify(updated, null, 2), 'utf-8');
-    cachedAnnouncement = updated;
   } catch (err) {
-    console.error('[AnnouncementService] Failed to save announcement file:', err);
-    throw new Error('Failed to persist announcement');
+    console.error('[AnnouncementService] Failed to save announcement file (falling back to memory):', err);
   }
-
+  
+  cachedAnnouncement = updated;
   return updated;
 }
