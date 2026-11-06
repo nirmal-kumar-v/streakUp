@@ -2,9 +2,13 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, Lock, RefreshCw, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { Capacitor } from '@capacitor/core';
 
 // Normalize base URL (strip trailing slash)
-const rawBaseUrl = import.meta.env.VITE_API_URL || '/api';
+const defaultBaseUrl = Capacitor.isNativePlatform()
+  ? 'https://streak-up-henna.vercel.app/api'
+  : '/api';
+const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 export interface SuperAdminData {

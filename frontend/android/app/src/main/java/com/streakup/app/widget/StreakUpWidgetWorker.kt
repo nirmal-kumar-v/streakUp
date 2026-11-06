@@ -105,7 +105,7 @@ class StreakUpWidgetWorker(
     companion object {
         private const val TAG = "StreakUpWidgetWorker"
         private const val WORK_NAME = "streakup_widget_periodic_refresh"
-        const val API_ENDPOINT = "https://streak-up-karo.vercel.app/api/tasks/dashboard-summary"
+        const val API_ENDPOINT = "https://streak-up-henna.vercel.app/api/tasks/dashboard-summary"
 
         fun enqueuePeriodicWork(context: Context) {
             val constraints = Constraints.Builder()

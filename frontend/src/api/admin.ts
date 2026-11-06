@@ -5,7 +5,7 @@ import { compressProfileImage } from '../utils/imageCompressor';
 
 // Normalize base URL (strip trailing slash)
 const defaultBaseUrl = Capacitor.isNativePlatform()
-  ? 'https://streak-up-karo.vercel.app/api'
+  ? 'https://streak-up-henna.vercel.app/api'
   : '/api';
 const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');

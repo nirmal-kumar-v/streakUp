@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import com.streakup.app.MainActivity
@@ -32,84 +33,116 @@ class StreakUpWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private const val TAG = "StreakUpWidgetProvider"
+
         fun updateAppWidget(
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int
         ) {
-            val views = RemoteViews(context.packageName, R.layout.widget_streakup)
-            val isLoggedIn = SecureStorage.isLoggedIn(context)
+            try {
+                val views = RemoteViews(context.packageName, R.layout.widget_streakup)
+                val isLoggedIn = SecureStorage.isLoggedIn(context)
 
-            if (isLoggedIn) {
-                views.setViewVisibility(R.id.widget_logged_in_container, View.VISIBLE)
-                views.setViewVisibility(R.id.widget_logged_out_container, View.GONE)
+                if (isLoggedIn) {
+                    views.setViewVisibility(R.id.widget_logged_in_container, View.VISIBLE)
+                    views.setViewVisibility(R.id.widget_logged_out_container, View.GONE)
 
-                val stats = SecureStorage.getWidgetStats(context)
+                    val stats = SecureStorage.getWidgetStats(context)
 
-                // Streak counter
-                views.setTextViewText(R.id.widget_streak_count, stats.streak.toString())
+                    // Streak counter
+                    views.setTextViewText(R.id.widget_streak_count, stats.streak.toString())
 
-                // Tasks fraction
-                val tasksCountText = if (stats.totalTasks > 0) {
-                    "${stats.completedToday} / ${stats.totalTasks} Done"
+                    // Tasks fraction
+                    val tasksCountText = if (stats.totalTasks > 0) {
+                        "${stats.completedToday} / ${stats.totalTasks} Done"
+                    } else {
+                        "No tasks today"
+                    }
+                    views.setTextViewText(R.id.widget_tasks_count, tasksCountText)
+
+                    // Progress Bar & Percentage
+                    val clampedPercentage = stats.percentage.coerceIn(0, 100)
+                    views.setProgressBar(R.id.widget_progress_bar, 100, clampedPercentage, false)
+                    views.setTextViewText(R.id.widget_progress_percentage, "$clampedPercentage%")
+
+                    // User name header
+                    views.setTextViewText(
+                        R.id.widget_user_name,
+                        if (!stats.userName.isNullOrBlank()) stats.userName else "Daily Focus"
+                    )
+
+                    // Contextual status message
+                    val statusText = when {
+                        !stats.statusMessage.isNullOrBlank() -> stats.statusMessage
+                        stats.totalTasks > 0 && stats.completedToday >= stats.totalTasks -> "🎉 All caught up for today!"
+                        stats.totalTasks > 0 -> "${stats.totalTasks - stats.completedToday} tasks left today"
+                        else -> "Tap to open your dashboard"
+                    }
+                    views.setTextViewText(R.id.widget_status_message, statusText)
                 } else {
-                    "No tasks today"
+                    views.setViewVisibility(R.id.widget_logged_in_container, View.GONE)
+                    views.setViewVisibility(R.id.widget_logged_out_container, View.VISIBLE)
                 }
-                views.setTextViewText(R.id.widget_tasks_count, tasksCountText)
 
-                // Progress Bar & Percentage
-                val clampedPercentage = stats.percentage.coerceIn(0, 100)
-                views.setProgressBar(R.id.widget_progress_bar, 100, clampedPercentage, false)
-                views.setTextViewText(R.id.widget_progress_percentage, "$clampedPercentage%")
+                // Clicking anywhere on the widget launches the StreakUp dashboard
+                val intent = Intent(context, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = Uri.parse("streakup://dashboard")
+                    `package` = context.packageName
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
 
-                // User name header
-                views.setTextViewText(
-                    R.id.widget_user_name,
-                    if (!stats.userName.isNullOrBlank()) stats.userName else "Daily Focus"
+                val pendingIntent = PendingIntent.getActivity(
+                    context,
+                    0,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                // Contextual status message
-                val statusText = when {
-                    !stats.statusMessage.isNullOrBlank() -> stats.statusMessage
-                    stats.totalTasks > 0 && stats.completedToday >= stats.totalTasks -> "🎉 All caught up for today!"
-                    stats.totalTasks > 0 -> "${stats.totalTasks - stats.completedToday} tasks left today"
-                    else -> "Tap to open your dashboard"
+                views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
+
+                appWidgetManager.updateAppWidget(appWidgetId, views)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error updating widget id $appWidgetId: ${t.message}", t)
+                try {
+                    // Safe fallback view so widget never displays a system loading error
+                    val fallbackViews = RemoteViews(context.packageName, R.layout.widget_streakup)
+                    fallbackViews.setViewVisibility(R.id.widget_logged_in_container, View.GONE)
+                    fallbackViews.setViewVisibility(R.id.widget_logged_out_container, View.VISIBLE)
+
+                    val intent = Intent(context, MainActivity::class.java).apply {
+                        action = Intent.ACTION_MAIN
+                        `package` = context.packageName
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    val pendingIntent = PendingIntent.getActivity(
+                        context,
+                        0,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    fallbackViews.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
+                    appWidgetManager.updateAppWidget(appWidgetId, fallbackViews)
+                } catch (fallbackError: Throwable) {
+                    Log.e(TAG, "Fallback widget inflation error: ${fallbackError.message}", fallbackError)
                 }
-                views.setTextViewText(R.id.widget_status_message, statusText)
-            } else {
-                views.setViewVisibility(R.id.widget_logged_in_container, View.GONE)
-                views.setViewVisibility(R.id.widget_logged_out_container, View.VISIBLE)
             }
-
-            // Clicking any part of the widget launches the StreakUp dashboard
-            val intent = Intent(context, MainActivity::class.java).apply {
-                action = Intent.ACTION_VIEW
-                data = Uri.parse("streakup://dashboard")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                0,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
-
-            appWidgetManager.updateAppWidget(appWidgetId, views)
         }
 
         fun updateAllWidgets(context: Context) {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val component = ComponentName(context, StreakUpWidgetProvider::class.java)
-            val appWidgetIds = appWidgetManager.getAppWidgetIds(component)
-            if (appWidgetIds.isNotEmpty()) {
-                for (id in appWidgetIds) {
-                    updateAppWidget(context, appWidgetManager, id)
+            try {
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val component = ComponentName(context, StreakUpWidgetProvider::class.java)
+                val appWidgetIds = appWidgetManager.getAppWidgetIds(component)
+                if (appWidgetIds != null && appWidgetIds.isNotEmpty()) {
+                    for (id in appWidgetIds) {
+                        updateAppWidget(context, appWidgetManager, id)
+                    }
                 }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error updating all widgets: ${t.message}", t)
             }
         }
     }
 }
-
