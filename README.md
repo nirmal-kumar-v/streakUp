@@ -199,3 +199,5 @@ Vercel will:
 2. Build the Vite production bundle into `frontend/dist`.
 3. Deploy Express routes as Serverless Functions (`api/index.ts` handling all `/api/*` traffic).
 4. Serve both your frontend SPA and backend API from your single Vercel domain (e.g. `https://streakup.vercel.app`), with zero CORS friction!
+
+oct 17 2026
