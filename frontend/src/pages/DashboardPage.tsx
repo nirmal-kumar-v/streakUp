@@ -127,6 +127,20 @@ export const DashboardPage: React.FC = () => {
     loadDashboard();
   }, [loadDashboard]);
 
+  // Instantly keep native Android home-screen widget synchronized in real-time
+  useEffect(() => {
+    if (!tasks || tasks.length === 0) return;
+    const completedToday = tasks.filter((t) => t.completedToday).length;
+    const totalTasks = tasks.length;
+    syncStatsToWidget({
+      streak: user?.currentStreak || 0,
+      completedToday,
+      totalTasks,
+      percentage: totalTasks > 0 ? Math.round((completedToday / totalTasks) * 100) : 0,
+      userName: user?.name,
+    });
+  }, [tasks, user?.currentStreak, user?.name]);
+
   // Handle Tick / Untick
   const handleToggleComplete = async (task: Task) => {
     if (processingTaskIdsRef.current.has(task.id)) {

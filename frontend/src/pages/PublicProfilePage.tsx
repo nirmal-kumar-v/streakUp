@@ -416,8 +416,8 @@ export const PublicProfilePage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
-              {unlockedBadgesCount} / {allMilestones.length} Badges Unlocked
+            <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 whitespace-nowrap">
+              {unlockedBadgesCount}/{allMilestones.length}
             </span>
           </div>
         </div>

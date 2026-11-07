@@ -45,6 +45,11 @@
                 android:resource="@xml/streakup_widget_info" />
         </receiver>
 
+        <!-- Widget Transition Alarm Receiver (5:00 PM cutoff and midnight reset) -->
+        <receiver
+            android:name=".widget.StreakUpWidgetAlarmReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

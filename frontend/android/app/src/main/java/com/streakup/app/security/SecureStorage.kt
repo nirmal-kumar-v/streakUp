@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class WidgetStats(
     val streak: Int,
@@ -29,6 +32,7 @@ object SecureStorage {
     private const val KEY_PERCENTAGE = "widget_percentage"
     private const val KEY_USER_NAME = "widget_user_name"
     private const val KEY_STATUS_MSG = "widget_status_message"
+    private const val KEY_LAST_UPDATE_DATE = "widget_last_update_date"
 
     /**
      * Retrieves Android Keystore-backed EncryptedSharedPreferences for the JWT token.
@@ -121,6 +125,7 @@ object SecureStorage {
     ) {
         try {
             val prefs = getWidgetStatsPreferences(context)
+            val currentDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             prefs.edit().apply {
                 putBoolean(KEY_IS_LOGGED_IN, true)
                 putInt(KEY_STREAK, streak)
@@ -128,6 +133,7 @@ object SecureStorage {
                 putInt(KEY_TOTAL, totalTasks)
                 putInt(KEY_PERCENTAGE, percentage)
                 putString(KEY_USER_NAME, userName)
+                putString(KEY_LAST_UPDATE_DATE, currentDateStr)
                 if (statusMessage != null) {
                     putString(KEY_STATUS_MSG, statusMessage)
                 }
@@ -141,13 +147,22 @@ object SecureStorage {
     fun getWidgetStats(context: Context): WidgetStats {
         return try {
             val prefs = getWidgetStatsPreferences(context)
+            val currentDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val lastUpdateDate = prefs.getString(KEY_LAST_UPDATE_DATE, null)
+            val isNewDay = lastUpdateDate != null && lastUpdateDate != currentDateStr
+
+            val completed = if (isNewDay) 0 else prefs.getInt(KEY_COMPLETED, 0)
+            val total = prefs.getInt(KEY_TOTAL, 0)
+            val streak = prefs.getInt(KEY_STREAK, 0)
+            val percentage = if (total > 0) ((completed.toFloat() / total) * 100).toInt() else 0
+
             WidgetStats(
-                streak = prefs.getInt(KEY_STREAK, 0),
-                completedToday = prefs.getInt(KEY_COMPLETED, 0),
-                totalTasks = prefs.getInt(KEY_TOTAL, 0),
-                percentage = prefs.getInt(KEY_PERCENTAGE, 0),
+                streak = streak,
+                completedToday = completed,
+                totalTasks = total,
+                percentage = percentage,
                 userName = prefs.getString(KEY_USER_NAME, null),
-                statusMessage = prefs.getString(KEY_STATUS_MSG, null)
+                statusMessage = if (isNewDay) null else prefs.getString(KEY_STATUS_MSG, null)
             )
         } catch (t: Throwable) {
             WidgetStats(0, 0, 0, 0, null, null)
