@@ -26,3 +26,4 @@ class StreakUpWidgetAlarmReceiver : BroadcastReceiver() {
         private const val TAG = "StreakUpWidgetAlarm"
     }
 }
+

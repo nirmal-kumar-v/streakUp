@@ -89,3 +89,4 @@ object WidgetMotivationalEngine {
         return ContextualMotivation(message, isCompleted = false, textColorHex = "#a1a1aa")
     }
 }
+
