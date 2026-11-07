@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { fetchPublicProfile, PublicProfile } from '../api/user';
 import { sendFriendRequest, acceptFriendRequest, removeFriend } from '../api/friends';
 import { useAuth } from '../context/AuthContext';
@@ -22,9 +22,16 @@ import {
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { extractErrorMessage } from '../utils/error';
+import { PremiumStreakMedal } from '../components/PremiumStreakMedal';
+import {
+  getStreakMilestones,
+  isMilestoneUnlocked,
+  openStreakMilestoneModal,
+} from '../utils/streakMilestones';
 
 export const PublicProfilePage: React.FC = () => {
   const { username } = useParams<{ username: string }>();
+  const [searchParams] = useSearchParams();
   const { isAuthenticated } = useAuth();
   const { decrementFriendRequests } = useBadges();
   const toast = useToast();
@@ -54,6 +61,39 @@ export const PublicProfilePage: React.FC = () => {
   useEffect(() => {
     loadProfile();
   }, [username]);
+
+  // Open modal if user arrived via a badge share link (?badge=50)
+  useEffect(() => {
+    if (profile) {
+      const badgeParam = searchParams.get('badge') || searchParams.get('milestone');
+      if (badgeParam) {
+        const days = parseInt(badgeParam, 10);
+        if (!isNaN(days) && days > 0) {
+          openStreakMilestoneModal({
+            currentStreak: profile.currentStreak,
+            longestStreak: profile.longestStreak,
+            userName: profile.name,
+            userHandle: profile.username,
+            targetMilestoneDays: days,
+            isOwner: profile.relationshipStatus === 'SELF',
+          });
+        }
+      }
+    }
+  }, [profile, searchParams]);
+
+  // Compute profile milestones
+  const allMilestones = useMemo(() => {
+    if (!profile) return [];
+    return getStreakMilestones(Math.max(profile.currentStreak || 0, profile.longestStreak || 0));
+  }, [profile]);
+
+  const unlockedBadgesCount = useMemo(() => {
+    if (!profile) return 0;
+    return allMilestones.filter((m) =>
+      isMilestoneUnlocked(m.days, profile.currentStreak || 0, profile.longestStreak || 0)
+    ).length;
+  }, [allMilestones, profile]);
 
   const handleAddFriend = async () => {
     if (!profile || isActionPending) return;
@@ -262,24 +302,48 @@ export const PublicProfilePage: React.FC = () => {
       {/* Stats Cards (Requirement 9 + Connections Count) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {/* Current Streak */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center">
+        <div
+          onClick={() =>
+            openStreakMilestoneModal({
+              currentStreak: profile.currentStreak,
+              longestStreak: profile.longestStreak,
+              userName: profile.name,
+              userHandle: profile.username,
+              isOwner: profile.relationshipStatus === 'SELF',
+            })
+          }
+          className="bg-dark-card border border-dark-border hover:border-flame-500/50 transition-all rounded-2xl p-5 shadow-panel text-center cursor-pointer group"
+          title="Click to view streak badges & achievements"
+        >
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
-            <Flame className="w-4 h-4 text-flame-500" />
-            <span>Current Streak</span>
+            <Flame className="w-4 h-4 text-flame-500 group-hover:scale-110 transition-transform" />
+            <span className="group-hover:text-flame-400 transition-colors">Current Streak</span>
           </div>
-          <div className="text-3xl font-black font-mono text-flame-400">
+          <div className="text-3xl font-black font-mono text-flame-400 group-hover:scale-105 transition-transform inline-block">
             {profile.currentStreak}
             <span className="text-xs font-normal text-dark-muted ml-1">days</span>
           </div>
         </div>
 
         {/* Longest Streak */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center">
+        <div
+          onClick={() =>
+            openStreakMilestoneModal({
+              currentStreak: profile.currentStreak,
+              longestStreak: profile.longestStreak,
+              userName: profile.name,
+              userHandle: profile.username,
+              isOwner: profile.relationshipStatus === 'SELF',
+            })
+          }
+          className="bg-dark-card border border-dark-border hover:border-amber-500/50 transition-all rounded-2xl p-5 shadow-panel text-center cursor-pointer group"
+          title="Click to view streak badges & achievements"
+        >
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
-            <Trophy className="w-4 h-4 text-amber-400" />
-            <span>Best Streak</span>
+            <Trophy className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="group-hover:text-amber-300 transition-colors">Best Streak</span>
           </div>
-          <div className="text-3xl font-black font-mono text-zinc-100">
+          <div className="text-3xl font-black font-mono text-zinc-100 group-hover:text-amber-200 transition-colors">
             {profile.longestStreak}
             <span className="text-xs font-normal text-dark-muted ml-1">days</span>
           </div>
@@ -328,6 +392,101 @@ export const PublicProfilePage: React.FC = () => {
               {profile.connectionsCount === 1 ? 'friend' : 'friends'}
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Streak Badges & Milestones Showcase (Requirement: seen by friends on profile page) */}
+      <div className="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-panel space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-dark-border/60">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-gradient-to-br from-amber-500/20 to-flame-500/20 border border-amber-500/30 rounded-xl text-amber-400">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+                <span>Streak Badges & Milestones</span>
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                  Official
+                </span>
+              </h3>
+              <p className="text-xs text-dark-muted">
+                Official milestone badges unlocked for unbroken consistency. Click any badge to view card & share.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400">
+              {unlockedBadgesCount} / {allMilestones.length} Badges Unlocked
+            </span>
+          </div>
+        </div>
+
+        {/* Milestone Badges Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-3.5 pt-1">
+          {allMilestones.map((milestone) => {
+            const unlocked = isMilestoneUnlocked(milestone.days, profile.currentStreak, profile.longestStreak);
+            const isActive = profile.currentStreak >= milestone.days;
+
+            return (
+              <button
+                key={milestone.days}
+                type="button"
+                onClick={() =>
+                  openStreakMilestoneModal({
+                    currentStreak: profile.currentStreak,
+                    longestStreak: profile.longestStreak,
+                    userName: profile.name,
+                    userHandle: profile.username,
+                    targetMilestoneDays: milestone.days,
+                    isOwner: profile.relationshipStatus === 'SELF',
+                  })
+                }
+                className={`relative p-4 rounded-2xl border text-center flex flex-col items-center justify-between gap-3 transition-all duration-200 cursor-pointer group ${
+                  isActive
+                    ? 'bg-gradient-to-b from-amber-500/10 to-transparent border-amber-500/40 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 hover:scale-[1.03]'
+                    : unlocked
+                    ? 'bg-dark-surface/80 border-dark-border hover:border-amber-500/40 hover:scale-[1.03]'
+                    : 'bg-dark-bg/40 border-dark-border/60 opacity-60 hover:opacity-80'
+                }`}
+              >
+                {/* 3D Medal */}
+                <div className="py-1">
+                  <PremiumStreakMedal
+                    days={milestone.days}
+                    tier={milestone.tier}
+                    size="md"
+                    isLocked={!unlocked}
+                  />
+                </div>
+
+                {/* Details */}
+                <div className="space-y-1 w-full">
+                  <span className="text-xs font-bold text-zinc-100 block truncate group-hover:text-amber-300 transition-colors">
+                    {milestone.title}
+                  </span>
+
+                  <div className="flex items-center justify-center">
+                    {isActive ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        <Flame className="w-2.5 h-2.5 fill-emerald-400" />
+                        <span>Active Flame</span>
+                      </span>
+                    ) : unlocked ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                        <Check className="w-2.5 h-2.5 text-amber-400" />
+                        <span>Unlocked</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-zinc-500 bg-zinc-800/80 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                        <span>{milestone.days}d goal</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

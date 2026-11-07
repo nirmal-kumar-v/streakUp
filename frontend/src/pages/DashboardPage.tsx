@@ -38,6 +38,8 @@ import { DateTime } from 'luxon';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
+import { openStreakMilestoneModal } from '../utils/streakMilestones';
+import { Sparkles } from 'lucide-react';
 import { calculateOptimisticUserStreak } from '../utils/streak';
 import { syncStatsToWidget } from '../utils/nativeWidgetBridge';
 import { getPersistentData, setPersistentData } from '../utils/persistentCache';
@@ -722,12 +724,23 @@ export const DashboardPage: React.FC = () => {
       {/* Metric Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Current Streak with Discreet Freeze Status */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-visible">
+        <div
+          onClick={() =>
+            openStreakMilestoneModal({
+              currentStreak: user?.currentStreak || 0,
+              longestStreak: user?.longestStreak || 0,
+              userName: user?.name,
+              userHandle: user?.username,
+            })
+          }
+          className="bg-dark-card border border-dark-border hover:border-flame-500/50 transition-all rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-visible cursor-pointer group"
+          title="Click to view streak badges & milestones"
+        >
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2 gap-1.5">
-            <span className="truncate">Overall Streak</span>
+            <span className="truncate group-hover:text-flame-400 transition-colors">Overall Streak</span>
             <div className="flex items-center gap-2 shrink-0">
               {/* Secondary Discreet Freeze Indicator */}
-              <div className="relative group/freeze">
+              <div className="relative group/freeze" onClick={(e) => e.stopPropagation()}>
                 <button
                   type="button"
                   aria-label="Overall Streak Freeze Status"
@@ -780,25 +793,44 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl sm:text-4xl font-black font-mono text-flame-400">
-              {user?.currentStreak || 0}
+          <div className="flex items-baseline justify-between mt-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-black font-mono text-flame-400 group-hover:scale-105 transition-transform inline-block">
+                {user?.currentStreak || 0}
+              </span>
+              <span className="text-xs text-dark-muted font-medium">days</span>
+            </div>
+            <span className="text-[11px] font-semibold text-amber-400/90 group-hover:text-amber-300 flex items-center gap-1 transition-colors bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+              <Sparkles className="w-3 h-3 text-amber-400" />
+              <span>Badges</span>
             </span>
-            <span className="text-xs text-dark-muted font-medium">days</span>
           </div>
         </div>
 
         {/* Longest Streak */}
-        <div className="bg-dark-card border border-dark-border rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-hidden">
+        <div
+          onClick={() =>
+            openStreakMilestoneModal({
+              currentStreak: user?.currentStreak || 0,
+              longestStreak: user?.longestStreak || 0,
+              userName: user?.name,
+              userHandle: user?.username,
+            })
+          }
+          className="bg-dark-card border border-dark-border hover:border-amber-500/50 transition-all rounded-2xl p-4 sm:p-5 shadow-panel relative overflow-hidden cursor-pointer group"
+          title="Click to view streak badges & milestones"
+        >
           <div className="flex items-center justify-between text-dark-muted text-xs font-semibold uppercase tracking-wider mb-2">
-            <span>Longest Streak</span>
-            <Trophy className="w-4 h-4 text-amber-400" />
+            <span className="group-hover:text-amber-300 transition-colors">Longest Streak</span>
+            <Trophy className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
           </div>
-          <div className="flex items-baseline gap-2 mt-2">
-            <span className="text-3xl sm:text-4xl font-black font-mono text-zinc-100">
-              {user?.longestStreak || 0}
-            </span>
-            <span className="text-xs text-dark-muted font-medium">days record</span>
+          <div className="flex items-baseline justify-between mt-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-black font-mono text-zinc-100 group-hover:text-amber-200 transition-colors">
+                {user?.longestStreak || 0}
+              </span>
+              <span className="text-xs text-dark-muted font-medium">days record</span>
+            </div>
           </div>
         </div>
 

@@ -15,6 +15,7 @@ import {
   Bell,
 } from 'lucide-react';
 import { InitialsAvatar } from './InitialsAvatar';
+import { openStreakMilestoneModal } from '../utils/streakMilestones';
 
 export const Navbar: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -240,14 +241,23 @@ export const Navbar: React.FC = () => {
                 </Link>
 
                 {/* Current Streak Indicator: Flame Vector + Numeric Value Only */}
-                <div
+                <button
+                  type="button"
+                  onClick={() =>
+                    openStreakMilestoneModal({
+                      currentStreak: user.currentStreak,
+                      longestStreak: user.longestStreak,
+                      userName: user.name,
+                      userHandle: user.username,
+                    })
+                  }
                   data-streak-indicator="true"
-                  title={`${user.currentStreak}-day streak`}
-                  aria-label={`${user.currentStreak} day streak`}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold transition-all duration-300 ${
+                  title={`${user.currentStreak}-day streak • Tap to view badges & milestones`}
+                  aria-label={`${user.currentStreak} day streak • Tap to view badges & milestones`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-mono text-xs font-bold transition-all duration-300 cursor-pointer active:scale-95 hover:border-amber-500/60 ${
                     isStreakHighlighted
                       ? 'bg-flame-500/25 border-flame-500 text-amber-300 ring-2 ring-flame-500/40 shadow-lg shadow-flame-500/30 scale-110'
-                      : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-100'
+                      : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-100 hover:bg-zinc-800'
                   }`}
                 >
                   <Flame
@@ -256,7 +266,7 @@ export const Navbar: React.FC = () => {
                     }`}
                   />
                   <span>{user.currentStreak}</span>
-                </div>
+                </button>
 
                 {/* Profile Pill */}
                 <Link
@@ -343,13 +353,22 @@ export const Navbar: React.FC = () => {
                 </Link>
 
                 {/* Mobile Streak Display: Flame Vector + Numeric Value Only */}
-                <div
+                <button
+                  type="button"
+                  onClick={() =>
+                    openStreakMilestoneModal({
+                      currentStreak: user.currentStreak,
+                      longestStreak: user.longestStreak,
+                      userName: user.name,
+                      userHandle: user.username,
+                    })
+                  }
                   data-streak-indicator="true"
-                  aria-label={`${user.currentStreak} day streak`}
-                  className={`flex items-center gap-1 text-xs font-bold font-mono px-2 py-1 rounded-lg border transition-all duration-300 ${
+                  aria-label={`${user.currentStreak} day streak • Tap to view badges & milestones`}
+                  className={`flex items-center gap-1 text-xs font-bold font-mono px-2 py-1 rounded-lg border transition-all duration-300 cursor-pointer active:scale-95 hover:border-amber-500/60 ${
                     isStreakHighlighted
                       ? 'bg-flame-500/25 border-flame-500 text-amber-300 ring-2 ring-flame-500/40 shadow-lg shadow-flame-500/30 scale-110'
-                      : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-100'
+                      : 'bg-zinc-800/60 border-zinc-700/40 text-zinc-100 hover:bg-zinc-800'
                   }`}
                 >
                   <Flame
@@ -358,7 +377,7 @@ export const Navbar: React.FC = () => {
                     }`}
                   />
                   <span>{user.currentStreak}</span>
-                </div>
+                </button>
               </>
             )}
 

@@ -18,6 +18,7 @@ import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
 import { AnnouncementPopup } from './components/AnnouncementPopup';
+import { StreakMilestoneModal } from './components/StreakMilestoneModal';
 import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
 import { PublicFeedbackModal } from './components/PublicFeedbackModal';
@@ -270,6 +271,7 @@ export const AppContent: React.FC = () => {
       <AppLockScreen />
       <AnnouncementPopup />
       <OfflineBanner />
+      <StreakMilestoneModal />
       <Navbar />
       <StreakCelebration />
       {isAuthenticated && <PostCompletionNudge />}

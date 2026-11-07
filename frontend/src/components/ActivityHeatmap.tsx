@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { ActivityTaskInfo, fetchActivityHistory, ActivityHistoryResponse } from '../api/tasks';
 import { useBodyScrollLock } from '../utils/scrollLock';
 import { getPersistentData, setPersistentData } from '../utils/persistentCache';
+import { openStreakMilestoneModal } from '../utils/streakMilestones';
 
 interface ActivityHeatmapProps {
   timezone?: string;
@@ -321,12 +322,24 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
 
         {/* Aggregate Stats */}
         <div className="flex items-center flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono">
-          <div className="flex items-center gap-1.5 text-flame-400 font-semibold">
-            <Flame className="w-3.5 h-3.5 fill-flame-500 text-flame-500 shrink-0" />
+          <button
+            type="button"
+            onClick={() =>
+              openStreakMilestoneModal({
+                currentStreak: streak,
+                longestStreak: user?.longestStreak || streak,
+                userName: user?.name,
+                userHandle: user?.username,
+              })
+            }
+            title="View streak badges and milestones"
+            className="flex items-center gap-1.5 text-flame-400 font-semibold hover:text-amber-300 transition-colors cursor-pointer group"
+          >
+            <Flame className="w-3.5 h-3.5 fill-flame-500 text-flame-500 shrink-0 group-hover:scale-110 transition-transform" />
             <span>
               <strong>{streak}</strong> {streak === 1 ? 'day streak' : 'days streak'}
             </span>
-          </div>
+          </button>
           <div className="flex items-center gap-1.5 text-zinc-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span>
