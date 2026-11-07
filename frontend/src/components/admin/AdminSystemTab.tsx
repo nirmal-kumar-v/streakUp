@@ -68,6 +68,7 @@ export const AdminSystemTab: React.FC = () => {
   // ------------------------------------------
   const [announcementLogs, setAnnouncementLogs] = useState<PlatformAnnouncementData[]>([]);
   const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [togglingAnnouncementId, setTogglingAnnouncementId] = useState<string | null>(null);
 
   // ------------------------------------------
@@ -168,22 +169,30 @@ export const AdminSystemTab: React.FC = () => {
   };
 
   const handleDeleteAnnouncement = async (id: string) => {
-    if (!window.confirm('Delete this announcement permanently from database? Users who open the app after deletion will not see it.')) {
-      return;
-    }
     setDeletingAnnouncementId(id);
+    setConfirmDeleteId(null);
     try {
+      // Optimistically remove from state immediately
+      setAnnouncementLogs((prev) => prev.filter((a) => a.id !== id));
+      if (announcement.id === id) {
+        setAnnouncement((prev) => ({
+          ...prev,
+          id: 'default',
+          active: false,
+          message: '',
+        }));
+      }
+
       const res = await deleteAdminAnnouncement(id);
       if (res.success) {
-        toast.success(res.message || 'Announcement deleted.');
-        if (res.announcements) {
+        toast.success(res.message || 'Announcement deleted permanently.');
+        if (res.announcements && Array.isArray(res.announcements)) {
           setAnnouncementLogs(res.announcements);
-        } else {
-          setAnnouncementLogs((prev) => prev.filter((a) => a.id !== id));
         }
       }
     } catch (err: any) {
       toast.error(extractErrorMessage(err, 'Failed to delete announcement.'));
+      loadAnnouncement();
     } finally {
       setDeletingAnnouncementId(null);
     }
@@ -696,20 +705,40 @@ export const AdminSystemTab: React.FC = () => {
                       <Power className="w-3.5 h-3.5" />
                     </button>
 
-                    {/* Delete Permanently */}
-                    <button
-                      type="button"
-                      disabled={deletingAnnouncementId === item.id}
-                      onClick={() => handleDeleteAnnouncement(item.id)}
-                      title="Delete permanently from database (users who open the app will not see it)"
-                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-200 transition disabled:opacity-50"
-                    >
-                      {deletingAnnouncementId === item.id ? (
-                        <div className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
-                      ) : (
+                    {/* Delete Permanently Button with Safe Inline Confirmation */}
+                    {confirmDeleteId === item.id ? (
+                      <div className="flex items-center gap-1.5 animate-fadeIn">
+                        <button
+                          type="button"
+                          disabled={deletingAnnouncementId === item.id}
+                          onClick={() => handleDeleteAnnouncement(item.id)}
+                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-[11px] rounded-lg shadow-sm transition disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {deletingAnnouncementId === item.id ? (
+                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <span>Confirm</span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-1 bg-dark-bg hover:bg-dark-hover border border-dark-border text-zinc-400 hover:text-zinc-200 text-[11px] rounded-lg transition"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={deletingAnnouncementId === item.id}
+                        onClick={() => setConfirmDeleteId(item.id)}
+                        title="Delete permanently from database"
+                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 border border-rose-500/30 text-rose-400 hover:text-rose-200 transition disabled:opacity-50"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,11 +1,11 @@
 {
-  "id": "announcement_1794066817128_o088",
-  "active": true,
-  "message": "Announcement 2 - 1794066817128",
-  "type": "warning",
-  "link": "",
-  "linkText": "",
+  "id": "deleted",
+  "active": false,
+  "message": "Welcome to StreakUp! Zero-buffering performance, seamless native widgets, and multi-user broadcast messaging are now live.",
+  "type": "success",
+  "link": "/tasks",
+  "linkText": "Explore Tasks",
   "dismissible": true,
-  "createdAt": "2026-11-07T15:53:37.128Z",
-  "updatedAt": "2026-11-07T15:53:37.128Z"
+  "createdAt": "2026-11-07T17:03:23.695Z",
+  "updatedAt": "2026-11-07T17:03:23.697Z"
 }

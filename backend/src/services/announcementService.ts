@@ -66,31 +66,8 @@ export async function initAnnouncementTable(): Promise<void> {
       )
     `);
     isTableInitialized = true;
-
-    // If table is newly created and empty, seed initial announcement from JSON file
-    const existing = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*)::int as count FROM "platform_announcements"`
-    );
-    const count = Number(existing?.[0]?.count ?? 0);
-    if (count === 0) {
-      const initial = getFileAnnouncement();
-      await prisma.$executeRawUnsafe(
-        `
-        INSERT INTO "platform_announcements" ("id", "active", "message", "type", "link", "link_text", "dismissible", "created_at", "updated_at")
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-        ON CONFLICT ("id") DO NOTHING
-        `,
-        initial.id,
-        initial.active,
-        initial.message.trim(),
-        initial.type,
-        initial.link || null,
-        initial.linkText || null,
-        initial.dismissible !== false
-      );
-    }
   } catch {
-    // If DB is temporarily unavailable, fall back to file
+    // If DB is temporarily unavailable, fall back to memory
   }
 }
 
@@ -123,22 +100,20 @@ export async function getAllPlatformAnnouncements(): Promise<PlatformAnnouncemen
       ORDER BY "created_at" DESC, "updated_at" DESC
     `);
 
-    if (Array.isArray(rows) && rows.length > 0) {
+    if (Array.isArray(rows)) {
       const list = rows.map(mapRowToAnnouncement);
       cachedAnnouncements = list;
       return list;
     }
   } catch (err: any) {
-    // Fall back to memory/file
+    console.error('[AnnouncementService] Failed to query announcements from database:', err.message);
   }
 
-  if (cachedAnnouncements && cachedAnnouncements.length > 0) {
+  if (cachedAnnouncements !== null) {
     return cachedAnnouncements;
   }
 
-  const fileAnn = getFileAnnouncement();
-  cachedAnnouncements = [fileAnn];
-  return [fileAnn];
+  return [];
 }
 
 /**
@@ -161,7 +136,7 @@ export async function getActivePlatformAnnouncements(): Promise<PlatformAnnounce
       return rows.map(mapRowToAnnouncement);
     }
   } catch (err: any) {
-    // Fall back to file/memory
+    // Fall back to memory
   }
 
   const all = await getAllPlatformAnnouncements();
@@ -176,8 +151,7 @@ export async function getPlatformAnnouncement(): Promise<PlatformAnnouncement> {
   if (active.length > 0) {
     return active[active.length - 1]; // newest active
   }
-  const all = await getAllPlatformAnnouncements();
-  return all[0] || DEFAULT_ANNOUNCEMENT;
+  return { ...DEFAULT_ANNOUNCEMENT, active: false, message: '' };
 }
 
 /**
@@ -304,8 +278,26 @@ export async function deletePlatformAnnouncement(id: string): Promise<boolean> {
     console.error('[AnnouncementService] Failed to delete announcement from database:', err.message);
   }
 
+  // Also deactivate fallback file if it matches
+  try {
+    ensureDataDir();
+    if (fs.existsSync(ANNOUNCEMENT_FILE)) {
+      const raw = fs.readFileSync(ANNOUNCEMENT_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed.id === id) {
+        fs.writeFileSync(
+          ANNOUNCEMENT_FILE,
+          JSON.stringify({ ...DEFAULT_ANNOUNCEMENT, active: false, id: 'deleted' }, null, 2),
+          'utf-8'
+        );
+      }
+    }
+  } catch {}
+
   if (cachedAnnouncements) {
     cachedAnnouncements = cachedAnnouncements.filter((a) => a.id !== id);
+  } else {
+    cachedAnnouncements = [];
   }
 
   return true;
