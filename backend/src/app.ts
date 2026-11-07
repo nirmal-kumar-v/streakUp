@@ -44,6 +44,7 @@ import { runReminderCheck } from './services/reminderSchedulerService';
 import { loadUserAdminConfigsFromDb } from './services/adminConfigService';
 import { initSpecialGroupsDatabaseAndMigrate } from './services/specialGroupMigration';
 import { reconcileStaleStreaks } from './services/streakService';
+import { initAnnouncementTable, getPlatformAnnouncement } from './services/announcementService';
 
 // Preload user admin configs from PostgreSQL into in-memory cache
 loadUserAdminConfigsFromDb().catch(() => {});
@@ -51,6 +52,8 @@ loadUserAdminConfigsFromDb().catch(() => {});
 initSpecialGroupsDatabaseAndMigrate().catch(() => {});
 // Reconcile broken streaks for inactive users on startup
 reconcileStaleStreaks().catch(() => {});
+// Initialize platform announcements table and seed initial announcement
+initAnnouncementTable().catch(() => {});
 
 
 // Health & Info endpoint (accessible at both /api/health and /health)
@@ -66,15 +69,14 @@ const handleHealth = (_req: Request, res: Response) => {
     hasJwtSecret: Boolean(process.env.JWT_SECRET)
   });
 };
-import { getPlatformAnnouncement } from './services/announcementService';
 
-app.get('/api/announcement', (_req: Request, res: Response) => {
-  const announcement = getPlatformAnnouncement();
+app.get('/api/announcement', async (_req: Request, res: Response) => {
+  const announcement = await getPlatformAnnouncement();
   res.json({ success: true, announcement });
 });
 
-app.get('/announcement', (_req: Request, res: Response) => {
-  const announcement = getPlatformAnnouncement();
+app.get('/announcement', async (_req: Request, res: Response) => {
+  const announcement = await getPlatformAnnouncement();
   res.json({ success: true, announcement });
 });
 

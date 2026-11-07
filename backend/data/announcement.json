@@ -1,11 +1,11 @@
 {
-  "id": "announcement_1793191212581",
-  "active": false,
-  "message": "Thank you for using this app! You can share your feedback in Settings.",
+  "id": "announcement_1794065511126_dmtl",
+  "active": true,
+  "message": "Exciting new features - test 1794065509898",
   "type": "success",
-  "link": "",
-  "linkText": "",
+  "link": "/tasks",
+  "linkText": "Check Tasks",
   "dismissible": true,
-  "createdAt": "2026-10-28T12:33:38.150Z",
-  "updatedAt": "2026-10-28T12:40:12.581Z"
+  "createdAt": "2026-11-07T15:30:17.953Z",
+  "updatedAt": "2026-11-07T15:31:51.126Z"
 }

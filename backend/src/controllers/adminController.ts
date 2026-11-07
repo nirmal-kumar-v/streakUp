@@ -5911,7 +5911,7 @@ export async function adminReconcileStreaks(req: AdminAuthenticatedRequest, res:
  */
 export async function adminGetAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
   try {
-    const announcement = getPlatformAnnouncement();
+    const announcement = await getPlatformAnnouncement();
     return res.json({ success: true, announcement });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: 'Failed to retrieve announcement.' });
@@ -5925,9 +5925,9 @@ export async function adminGetAnnouncement(req: AdminAuthenticatedRequest, res: 
 export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const { active, message, type, link, linkText, dismissible } = req.body;
-    const current = getPlatformAnnouncement();
+    const current = await getPlatformAnnouncement();
 
-    const updated = updatePlatformAnnouncement({
+    const updated = await updatePlatformAnnouncement({
       active: typeof active === 'boolean' ? active : current.active,
       message: typeof message === 'string' ? message : current.message,
       type: type || current.type,

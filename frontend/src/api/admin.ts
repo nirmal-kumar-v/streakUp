@@ -1505,13 +1505,34 @@ export async function exportAdminAuditLogsCsv(): Promise<Blob> {
   return res.data;
 }
 
-export async function fetchPublicAnnouncement() {
+export async function fetchPublicAnnouncement(): Promise<{ success: boolean; announcement: PlatformAnnouncementData | null }> {
   const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
   const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
-  const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
-    `${API_BASE_URL}/announcement?_t=${Date.now()}`
-  );
-  return res.data;
+  try {
+    const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
+      `${API_BASE_URL}/announcement?_t=${Date.now()}`,
+      { timeout: 10000 }
+    );
+    if (res.data && res.data.announcement) {
+      return res.data;
+    }
+  } catch (err) {
+    // If relative /api fails on web dev environment, fallback to production backend
+    if (!Capacitor.isNativePlatform() && API_BASE_URL === '/api') {
+      try {
+        const fallbackRes = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
+          `https://streak-up-henna.vercel.app/api/announcement?_t=${Date.now()}`,
+          { timeout: 10000 }
+        );
+        if (fallbackRes.data && fallbackRes.data.announcement) {
+          return fallbackRes.data;
+        }
+      } catch {
+        // Fallback also failed (e.g. offline)
+      }
+    }
+  }
+  return { success: false, announcement: null };
 }
 
 
