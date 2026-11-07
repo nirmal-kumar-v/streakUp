@@ -17,7 +17,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { StreakCelebration } from './components/StreakCelebration';
 import { PostCompletionNudge } from './components/PostCompletionNudge';
 import { OfflineBanner } from './components/OfflineBanner';
-import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { AnnouncementPopup } from './components/AnnouncementPopup';
 import { apiClient } from './api/client';
 import { useAllDevicesDisableZoom } from './hooks/useAllDevicesDisableZoom';
@@ -269,7 +268,6 @@ export const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-dark-bg text-zinc-100 overflow-x-hidden">
       <AppLockScreen />
-      <AnnouncementBanner />
       <AnnouncementPopup />
       <OfflineBanner />
       <Navbar />

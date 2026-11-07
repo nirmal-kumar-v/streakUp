@@ -44,7 +44,11 @@ import { runReminderCheck } from './services/reminderSchedulerService';
 import { loadUserAdminConfigsFromDb } from './services/adminConfigService';
 import { initSpecialGroupsDatabaseAndMigrate } from './services/specialGroupMigration';
 import { reconcileStaleStreaks } from './services/streakService';
-import { initAnnouncementTable, getPlatformAnnouncement } from './services/announcementService';
+import {
+  initAnnouncementTable,
+  getPlatformAnnouncement,
+  getActivePlatformAnnouncements,
+} from './services/announcementService';
 
 // Preload user admin configs from PostgreSQL into in-memory cache
 loadUserAdminConfigsFromDb().catch(() => {});
@@ -71,13 +75,21 @@ const handleHealth = (_req: Request, res: Response) => {
 };
 
 app.get('/api/announcement', async (_req: Request, res: Response) => {
-  const announcement = await getPlatformAnnouncement();
-  res.json({ success: true, announcement });
+  const announcements = await getActivePlatformAnnouncements();
+  res.json({
+    success: true,
+    announcements,
+    announcement: announcements[0] || null,
+  });
 });
 
 app.get('/announcement', async (_req: Request, res: Response) => {
-  const announcement = await getPlatformAnnouncement();
-  res.json({ success: true, announcement });
+  const announcements = await getActivePlatformAnnouncements();
+  res.json({
+    success: true,
+    announcements,
+    announcement: announcements[0] || null,
+  });
 });
 
 app.get('/api/health', handleHealth);

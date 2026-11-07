@@ -85,6 +85,8 @@ import {
   adminReconcileStreaks,
   adminGetAnnouncement,
   adminUpdateAnnouncement,
+  adminDeleteAnnouncement,
+  adminToggleAnnouncement,
   adminBatchGrantFreeze,
   adminExportUsers,
   adminExportAuditLogs,
@@ -224,7 +226,12 @@ router.get('/system/health', adminGetSystemHealth);
 router.post('/system/cache/flush', adminFlushCaches);
 router.post('/system/reconcile-streaks', adminReconcileStreaks);
 router.get('/system/announcement', adminGetAnnouncement);
+router.get('/system/announcements', adminGetAnnouncement);
 router.post('/system/announcement', adminUpdateAnnouncement);
+router.post('/system/announcements', adminUpdateAnnouncement);
+router.delete('/system/announcements/:id', adminDeleteAnnouncement);
+router.delete('/system/announcement/:id', adminDeleteAnnouncement);
+router.patch('/system/announcements/:id/toggle', adminToggleAnnouncement);
 router.post('/users/batch-grant-freeze', adminBatchGrantFreeze);
 router.get('/system/export/users', adminExportUsers);
 router.get('/system/export/audit-logs', adminExportAuditLogs);

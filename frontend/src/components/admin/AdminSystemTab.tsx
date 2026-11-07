@@ -5,6 +5,8 @@ import {
   adminTriggerStreakReconciliation,
   fetchAdminAnnouncement,
   updateAdminAnnouncement,
+  deleteAdminAnnouncement,
+  toggleAdminAnnouncement,
   adminBatchGrantFreeze,
   exportAdminUsersCsv,
   exportAdminAuditLogsCsv,
@@ -32,6 +34,9 @@ import {
   Clock,
   Lock,
   Eye,
+  Trash2,
+  History,
+  Power,
 } from 'lucide-react';
 
 export const AdminSystemTab: React.FC = () => {
@@ -57,6 +62,13 @@ export const AdminSystemTab: React.FC = () => {
     createdAt: '',
     updatedAt: '',
   });
+
+  // ------------------------------------------
+  // Announcement History Logs & Management State
+  // ------------------------------------------
+  const [announcementLogs, setAnnouncementLogs] = useState<PlatformAnnouncementData[]>([]);
+  const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | null>(null);
+  const [togglingAnnouncementId, setTogglingAnnouncementId] = useState<string | null>(null);
 
   // ------------------------------------------
   // Sensitive Action Modal State
@@ -88,13 +100,18 @@ export const AdminSystemTab: React.FC = () => {
   }, [toast]);
 
   // ------------------------------------------
-  // Fetch Announcement
+  // Fetch Announcement & Announcement Logs
   // ------------------------------------------
   const loadAnnouncement = useCallback(async () => {
     try {
       const res = await fetchAdminAnnouncement();
-      if (res.success && res.announcement) {
-        setAnnouncement(res.announcement);
+      if (res.success) {
+        if (res.announcement) {
+          setAnnouncement(res.announcement);
+        }
+        if (res.announcements && Array.isArray(res.announcements)) {
+          setAnnouncementLogs(res.announcements);
+        }
       }
     } catch (err: any) {
       toast.error(extractErrorMessage(err, 'Failed to fetch platform announcement.'));
@@ -119,27 +136,73 @@ export const AdminSystemTab: React.FC = () => {
   };
 
   // ------------------------------------------
-  // Action Handlers
+  // Action Handlers: Announcement Broadcast & Deletion
   // ------------------------------------------
   const handleSaveAnnouncementDirect = async () => {
+    if (!announcement.message.trim()) {
+      toast.error('Announcement message cannot be empty.');
+      return;
+    }
     setIsSavingAnnouncement(true);
     try {
       const res = await updateAdminAnnouncement(announcement);
       if (res.success) {
         toast.success(res.message || 'Announcement broadcast published! All users will receive the pop-up modal.');
-        setAnnouncement(res.announcement);
-        if (res.announcement.active) {
-          window.dispatchEvent(
-            new CustomEvent('streakup_announcement_triggered', {
-              detail: res.announcement,
-            })
-          );
+        if (res.announcement) {
+          setAnnouncement(res.announcement);
         }
+        if (res.announcements) {
+          setAnnouncementLogs(res.announcements);
+        }
+        window.dispatchEvent(
+          new CustomEvent('streakup_announcement_triggered', {
+            detail: res.announcement,
+          })
+        );
       }
     } catch (err: any) {
       toast.error(extractErrorMessage(err, 'Failed to save announcement.'));
     } finally {
       setIsSavingAnnouncement(false);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id: string) => {
+    if (!window.confirm('Delete this announcement permanently from database? Users who open the app after deletion will not see it.')) {
+      return;
+    }
+    setDeletingAnnouncementId(id);
+    try {
+      const res = await deleteAdminAnnouncement(id);
+      if (res.success) {
+        toast.success(res.message || 'Announcement deleted.');
+        if (res.announcements) {
+          setAnnouncementLogs(res.announcements);
+        } else {
+          setAnnouncementLogs((prev) => prev.filter((a) => a.id !== id));
+        }
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to delete announcement.'));
+    } finally {
+      setDeletingAnnouncementId(null);
+    }
+  };
+
+  const handleToggleAnnouncement = async (id: string, currentActive: boolean) => {
+    setTogglingAnnouncementId(id);
+    try {
+      const res = await toggleAdminAnnouncement(id, !currentActive);
+      if (res.success) {
+        toast.success(res.message);
+        if (res.announcements) {
+          setAnnouncementLogs(res.announcements);
+        }
+      }
+    } catch (err: any) {
+      toast.error(extractErrorMessage(err, 'Failed to toggle announcement.'));
+    } finally {
+      setTogglingAnnouncementId(null);
     }
   };
 
@@ -517,10 +580,141 @@ export const AdminSystemTab: React.FC = () => {
             ) : (
               <>
                 <Bell className="w-3.5 h-3.5" />
-                <span>Save Announcement</span>
+                <span>Publish Announcement Broadcast</span>
               </>
             )}
           </button>
+        </div>
+
+        {/* Announcement History & Logs */}
+        <div className="pt-6 border-t border-dark-border/60 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-300">
+              <History className="w-4 h-4 text-flame-400" />
+              <span>Announcement Broadcast History & Logs</span>
+              <span className="px-2 py-0.5 rounded-full bg-white/10 text-[10px] text-zinc-400 font-mono">
+                {announcementLogs.length}
+              </span>
+            </div>
+            <span className="text-[11px] text-dark-muted">
+              {announcementLogs.filter((a) => a.active).length} currently active & visible to users
+            </span>
+          </div>
+
+          {announcementLogs.length === 0 ? (
+            <div className="p-4 rounded-xl bg-dark-bg/60 border border-dark-border text-center text-xs text-dark-muted">
+              No previous announcements recorded.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {announcementLogs.map((item) => (
+                <div
+                  key={item.id}
+                  className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                    item.active
+                      ? 'bg-dark-bg/90 border-white/15 shadow-sm'
+                      : 'bg-dark-bg/40 border-dark-border opacity-70'
+                  }`}
+                >
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                          item.type === 'alert'
+                            ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                            : item.type === 'warning'
+                            ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                            : item.type === 'success'
+                            ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                            : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                        }`}
+                      >
+                        {item.type}
+                      </span>
+
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                          item.active
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                        }`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${item.active ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+                        {item.active ? 'Broadcasting' : 'Inactive'}
+                      </span>
+
+                      {item.createdAt && (
+                        <span className="text-[11px] text-dark-muted font-mono">
+                          {new Date(item.createdAt).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-zinc-200 line-clamp-2 select-text">{item.message}</p>
+
+                    {item.link && (
+                      <span className="text-[11px] text-cyan-400 underline block truncate">
+                        {item.linkText || item.link}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    {/* Preview Pop-up */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent('streakup_announcement_triggered', {
+                            detail: { ...item, active: true },
+                          })
+                        );
+                      }}
+                      title="Preview this pop-up"
+                      className="p-1.5 rounded-lg bg-dark-bg hover:bg-dark-hover border border-dark-border text-zinc-400 hover:text-white transition"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                    </button>
+
+                    {/* Toggle Active */}
+                    <button
+                      type="button"
+                      disabled={togglingAnnouncementId === item.id}
+                      onClick={() => handleToggleAnnouncement(item.id, item.active)}
+                      title={item.active ? 'Deactivate announcement' : 'Activate announcement'}
+                      className={`p-1.5 rounded-lg border transition ${
+                        item.active
+                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                          : 'bg-dark-bg border-dark-border text-zinc-500 hover:text-zinc-200'
+                      }`}
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Delete Permanently */}
+                    <button
+                      type="button"
+                      disabled={deletingAnnouncementId === item.id}
+                      onClick={() => handleDeleteAnnouncement(item.id)}
+                      title="Delete permanently from database (users who open the app will not see it)"
+                      className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-200 transition disabled:opacity-50"
+                    >
+                      {deletingAnnouncementId === item.id ? (
+                        <div className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

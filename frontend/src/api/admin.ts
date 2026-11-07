@@ -1465,7 +1465,20 @@ export async function adminTriggerStreakReconciliation(sensitivePin?: string) {
 }
 
 export async function fetchAdminAnnouncement() {
-  const res = await adminApiClient.get<{ success: boolean; announcement: PlatformAnnouncementData }>('/admin/system/announcement');
+  const res = await adminApiClient.get<{
+    success: boolean;
+    announcement: PlatformAnnouncementData;
+    announcements: PlatformAnnouncementData[];
+  }>('/admin/system/announcements');
+  return res.data;
+}
+
+export async function fetchAdminAnnouncements() {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    announcements: PlatformAnnouncementData[];
+    announcement?: PlatformAnnouncementData;
+  }>('/admin/system/announcements');
   return res.data;
 }
 
@@ -1473,11 +1486,35 @@ export async function updateAdminAnnouncement(
   data: Partial<PlatformAnnouncementData> & { sensitivePin?: string }
 ) {
   const { sensitivePin, ...body } = data;
-  const res = await adminApiClient.post<{ success: boolean; message: string; announcement: PlatformAnnouncementData }>(
-    '/admin/system/announcement',
+  const res = await adminApiClient.post<{
+    success: boolean;
+    message: string;
+    announcement: PlatformAnnouncementData;
+    announcements: PlatformAnnouncementData[];
+  }>(
+    '/admin/system/announcements',
     body,
     { headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {} }
   );
+  return res.data;
+}
+
+export async function deleteAdminAnnouncement(id: string) {
+  const res = await adminApiClient.delete<{
+    success: boolean;
+    message: string;
+    announcements: PlatformAnnouncementData[];
+  }>(`/admin/system/announcements/${id}`);
+  return res.data;
+}
+
+export async function toggleAdminAnnouncement(id: string, active?: boolean) {
+  const res = await adminApiClient.patch<{
+    success: boolean;
+    message: string;
+    announcement: PlatformAnnouncementData;
+    announcements: PlatformAnnouncementData[];
+  }>(`/admin/system/announcements/${id}/toggle`, { active });
   return res.data;
 }
 
@@ -1505,34 +1542,56 @@ export async function exportAdminAuditLogsCsv(): Promise<Blob> {
   return res.data;
 }
 
-export async function fetchPublicAnnouncement(): Promise<{ success: boolean; announcement: PlatformAnnouncementData | null }> {
+export async function fetchPublicAnnouncement(): Promise<{
+  success: boolean;
+  announcement: PlatformAnnouncementData | null;
+  announcements: PlatformAnnouncementData[];
+}> {
   const rawBaseUrl = import.meta.env.VITE_API_URL || defaultBaseUrl;
   const API_BASE_URL = rawBaseUrl.replace(/\/+$/, '');
   try {
-    const res = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
+    const res = await axios.get<{
+      success: boolean;
+      announcement: PlatformAnnouncementData;
+      announcements: PlatformAnnouncementData[];
+    }>(
       `${API_BASE_URL}/announcement?_t=${Date.now()}`,
       { timeout: 10000 }
     );
-    if (res.data && res.data.announcement) {
-      return res.data;
+    if (res.data) {
+      const list = res.data.announcements || (res.data.announcement ? [res.data.announcement] : []);
+      return {
+        success: Boolean(res.data.success),
+        announcements: list,
+        announcement: res.data.announcement || list[0] || null,
+      };
     }
   } catch (err) {
     // If relative /api fails on web dev environment, fallback to production backend
     if (!Capacitor.isNativePlatform() && API_BASE_URL === '/api') {
       try {
-        const fallbackRes = await axios.get<{ success: boolean; announcement: PlatformAnnouncementData }>(
+        const fallbackRes = await axios.get<{
+          success: boolean;
+          announcement: PlatformAnnouncementData;
+          announcements: PlatformAnnouncementData[];
+        }>(
           `https://streak-up-henna.vercel.app/api/announcement?_t=${Date.now()}`,
           { timeout: 10000 }
         );
-        if (fallbackRes.data && fallbackRes.data.announcement) {
-          return fallbackRes.data;
+        if (fallbackRes.data) {
+          const list = fallbackRes.data.announcements || (fallbackRes.data.announcement ? [fallbackRes.data.announcement] : []);
+          return {
+            success: Boolean(fallbackRes.data.success),
+            announcements: list,
+            announcement: fallbackRes.data.announcement || list[0] || null,
+          };
         }
       } catch {
         // Fallback also failed (e.g. offline)
       }
     }
   }
-  return { success: false, announcement: null };
+  return { success: false, announcement: null, announcements: [] };
 }
 
 

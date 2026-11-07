@@ -1,11 +1,11 @@
 {
-  "id": "announcement_1794065511126_dmtl",
+  "id": "announcement_1794066817128_o088",
   "active": true,
-  "message": "Exciting new features - test 1794065509898",
-  "type": "success",
-  "link": "/tasks",
-  "linkText": "Check Tasks",
+  "message": "Announcement 2 - 1794066817128",
+  "type": "warning",
+  "link": "",
+  "linkText": "",
   "dismissible": true,
-  "createdAt": "2026-11-07T15:30:17.953Z",
-  "updatedAt": "2026-11-07T15:31:51.126Z"
+  "createdAt": "2026-11-07T15:53:37.128Z",
+  "updatedAt": "2026-11-07T15:53:37.128Z"
 }

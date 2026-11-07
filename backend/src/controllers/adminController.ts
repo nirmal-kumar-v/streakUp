@@ -23,7 +23,14 @@ import {
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
 import swrCache from '../utils/cacheService';
-import { getPlatformAnnouncement, updatePlatformAnnouncement } from '../services/announcementService';
+import {
+  getPlatformAnnouncement,
+  getAllPlatformAnnouncements,
+  createPlatformAnnouncement,
+  updatePlatformAnnouncement,
+  deletePlatformAnnouncement,
+  togglePlatformAnnouncement,
+} from '../services/announcementService';
 import { calculateNextOccurrence, runReminderCheck } from '../services/reminderSchedulerService';
 import { validateImageBuffer } from '../utils/imageValidator';
 import {
@@ -5906,52 +5913,145 @@ export async function adminReconcileStreaks(req: AdminAuthenticatedRequest, res:
 }
 
 /**
- * GET /api/admin/system/announcement
- * Fetch platform announcement config
+ * GET /api/admin/system/announcement (and /system/announcements)
+ * Fetch platform announcement history logs and current config
  */
 export async function adminGetAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
   try {
-    const announcement = await getPlatformAnnouncement();
-    return res.json({ success: true, announcement });
+    const announcements = await getAllPlatformAnnouncements();
+    const active = announcements.filter((a) => a.active);
+    return res.json({
+      success: true,
+      announcements,
+      announcement: active[0] || announcements[0] || null,
+    });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: 'Failed to retrieve announcement.' });
+    return res.status(500).json({ success: false, error: 'Failed to retrieve announcements.' });
   }
 }
 
 /**
- * POST /api/admin/system/announcement
- * Update platform announcement broadcast banner
+ * POST /api/admin/system/announcement (and /system/announcements)
+ * Create or update platform announcement broadcast
  */
 export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
   try {
-    const { active, message, type, link, linkText, dismissible } = req.body;
-    const current = await getPlatformAnnouncement();
+    const { id, active, message, type, link, linkText, dismissible } = req.body;
 
-    const updated = await updatePlatformAnnouncement({
-      active: typeof active === 'boolean' ? active : current.active,
-      message: typeof message === 'string' ? message : current.message,
-      type: type || current.type,
-      link: typeof link === 'string' ? link : current.link,
-      linkText: typeof linkText === 'string' ? linkText : current.linkText,
-      dismissible: typeof dismissible === 'boolean' ? dismissible : current.dismissible,
-    });
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'Announcement message is required.' });
+    }
+
+    let updated;
+    if (id) {
+      updated = await updatePlatformAnnouncement({
+        id,
+        active: typeof active === 'boolean' ? active : true,
+        message: message.trim(),
+        type: type || 'info',
+        link: typeof link === 'string' ? link.trim() : undefined,
+        linkText: typeof linkText === 'string' ? linkText.trim() : undefined,
+        dismissible: typeof dismissible === 'boolean' ? dismissible : true,
+      });
+    } else {
+      updated = await createPlatformAnnouncement({
+        active: typeof active === 'boolean' ? active : true,
+        message: message.trim(),
+        type: type || 'info',
+        link: typeof link === 'string' ? link.trim() : undefined,
+        linkText: typeof linkText === 'string' ? linkText.trim() : undefined,
+        dismissible: typeof dismissible === 'boolean' ? dismissible : true,
+      });
+    }
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
       action: 'SYSTEM_ANNOUNCEMENT_UPDATE',
-      reason: 'Updated platform broadcast announcement banner',
-      beforeState: current,
+      reason: 'Published platform broadcast announcement',
       afterState: updated,
     });
 
+    const all = await getAllPlatformAnnouncements();
+
     return res.json({
       success: true,
-      message: 'Platform announcement updated successfully.',
+      message: 'Platform announcement broadcast published successfully.',
       announcement: updated,
+      announcements: all,
     });
   } catch (err: any) {
     console.error('adminUpdateAnnouncement error:', err);
-    return res.status(500).json({ success: false, error: 'Failed to update announcement.' });
+    return res.status(500).json({ success: false, error: 'Failed to save announcement.' });
+  }
+}
+
+/**
+ * DELETE /api/admin/system/announcements/:id
+ * Delete an announcement permanently so no future users will see it
+ */
+export async function adminDeleteAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Announcement ID is required.' });
+    }
+
+    await deletePlatformAnnouncement(id);
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SYSTEM_ANNOUNCEMENT_DELETE',
+      reason: `Permanently deleted announcement: ${id}`,
+    });
+
+    const all = await getAllPlatformAnnouncements();
+
+    return res.json({
+      success: true,
+      message: 'Announcement deleted successfully. Users will no longer see it.',
+      announcements: all,
+    });
+  } catch (err: any) {
+    console.error('adminDeleteAnnouncement error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to delete announcement.' });
+  }
+}
+
+/**
+ * PATCH /api/admin/system/announcements/:id/toggle
+ * Toggle active status of an announcement
+ */
+export async function adminToggleAnnouncement(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const { active } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'Announcement ID is required.' });
+    }
+
+    const updated = await togglePlatformAnnouncement(id, active);
+    if (!updated) {
+      return res.status(404).json({ success: false, error: 'Announcement not found.' });
+    }
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'SYSTEM_ANNOUNCEMENT_TOGGLE',
+      reason: `Toggled announcement ${id} active=${updated.active}`,
+      afterState: updated,
+    });
+
+    const all = await getAllPlatformAnnouncements();
+
+    return res.json({
+      success: true,
+      message: `Announcement ${updated.active ? 'activated' : 'deactivated'} successfully.`,
+      announcement: updated,
+      announcements: all,
+    });
+  } catch (err: any) {
+    console.error('adminToggleAnnouncement error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to toggle announcement.' });
   }
 }
 

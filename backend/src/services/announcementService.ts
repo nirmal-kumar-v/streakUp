@@ -19,17 +19,17 @@ const ANNOUNCEMENT_FILE = path.join(DATA_DIR, 'announcement.json');
 
 const DEFAULT_ANNOUNCEMENT: PlatformAnnouncement = {
   id: 'default-announcement',
-  active: false,
-  message: '',
-  type: 'info',
-  link: '',
-  linkText: '',
+  active: true,
+  message: 'Welcome to StreakUp! Zero-buffering performance, seamless native widgets, and multi-user broadcast messaging are now live.',
+  type: 'success',
+  link: '/tasks',
+  linkText: 'Explore Tasks',
   dismissible: true,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };
 
-let cachedAnnouncement: PlatformAnnouncement | null = null;
+let cachedAnnouncements: PlatformAnnouncement[] | null = null;
 let isTableInitialized = false;
 
 function ensureDataDir(): void {
@@ -94,91 +94,180 @@ export async function initAnnouncementTable(): Promise<void> {
   }
 }
 
-export async function getPlatformAnnouncement(): Promise<PlatformAnnouncement> {
+function mapRowToAnnouncement(r: any): PlatformAnnouncement {
+  return {
+    id: r.id || 'default-announcement',
+    active: Boolean(r.active),
+    message: r.message || '',
+    type: (r.type as any) || 'info',
+    link: r.link || '',
+    linkText: r.linkText || '',
+    dismissible: r.dismissible !== false,
+    createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : new Date().toISOString(),
+  };
+}
+
+/**
+ * Fetch all announcements for admin log view (both active and inactive)
+ */
+export async function getAllPlatformAnnouncements(): Promise<PlatformAnnouncement[]> {
   await initAnnouncementTable();
 
-  // 1. Query PostgreSQL database first (authoritative across all serverless instances)
   try {
     const rows = await prisma.$queryRawUnsafe<any[]>(`
       SELECT "id", "active", "message", "type", "link",
              "link_text" as "linkText", "dismissible",
              "created_at" as "createdAt", "updated_at" as "updatedAt"
       FROM "platform_announcements"
-      ORDER BY "updated_at" DESC
-      LIMIT 1
+      ORDER BY "created_at" DESC, "updated_at" DESC
     `);
 
     if (Array.isArray(rows) && rows.length > 0) {
-      const r = rows[0];
-      const result: PlatformAnnouncement = {
-        id: r.id || 'default-announcement',
-        active: Boolean(r.active),
-        message: r.message || '',
-        type: (r.type as any) || 'info',
-        link: r.link || '',
-        linkText: r.linkText || '',
-        dismissible: r.dismissible !== false,
-        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
-        updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : new Date().toISOString(),
-      };
-      cachedAnnouncement = result;
-      return result;
+      const list = rows.map(mapRowToAnnouncement);
+      cachedAnnouncements = list;
+      return list;
     }
   } catch (err: any) {
-    // Database query failed, fall back to memory/file
+    // Fall back to memory/file
   }
 
-  // 2. Fallback to memory cache
-  if (cachedAnnouncement) {
-    return cachedAnnouncement;
+  if (cachedAnnouncements && cachedAnnouncements.length > 0) {
+    return cachedAnnouncements;
   }
 
-  // 3. Fallback to local json file
-  ensureDataDir();
-  try {
-    if (fs.existsSync(ANNOUNCEMENT_FILE)) {
-      const raw = fs.readFileSync(ANNOUNCEMENT_FILE, 'utf-8');
-      cachedAnnouncement = { ...DEFAULT_ANNOUNCEMENT, ...JSON.parse(raw) };
-      return cachedAnnouncement!;
-    }
-  } catch {}
-
-  cachedAnnouncement = { ...DEFAULT_ANNOUNCEMENT };
-  return cachedAnnouncement;
+  const fileAnn = getFileAnnouncement();
+  cachedAnnouncements = [fileAnn];
+  return [fileAnn];
 }
 
-export async function updatePlatformAnnouncement(
+/**
+ * Fetch all ACTIVE announcements for user display (ordered oldest to newest so they queue in sequence)
+ */
+export async function getActivePlatformAnnouncements(): Promise<PlatformAnnouncement[]> {
+  await initAnnouncementTable();
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT "id", "active", "message", "type", "link",
+             "link_text" as "linkText", "dismissible",
+             "created_at" as "createdAt", "updated_at" as "updatedAt"
+      FROM "platform_announcements"
+      WHERE "active" = true
+      ORDER BY "created_at" ASC
+    `);
+
+    if (Array.isArray(rows)) {
+      return rows.map(mapRowToAnnouncement);
+    }
+  } catch (err: any) {
+    // Fall back to file/memory
+  }
+
+  const all = await getAllPlatformAnnouncements();
+  return all.filter((a) => a.active);
+}
+
+/**
+ * Backward compatibility: get single latest active announcement
+ */
+export async function getPlatformAnnouncement(): Promise<PlatformAnnouncement> {
+  const active = await getActivePlatformAnnouncements();
+  if (active.length > 0) {
+    return active[active.length - 1]; // newest active
+  }
+  const all = await getAllPlatformAnnouncements();
+  return all[0] || DEFAULT_ANNOUNCEMENT;
+}
+
+/**
+ * Create a brand-new broadcast announcement
+ */
+export async function createPlatformAnnouncement(
   data: Partial<Omit<PlatformAnnouncement, 'createdAt' | 'updatedAt'>>
 ): Promise<PlatformAnnouncement> {
   await initAnnouncementTable();
 
-  const current = await getPlatformAnnouncement();
   const now = new Date().toISOString();
-  // Always generate a unique ID on active publication so every client device gets the pop-up modal
-  const newId = `announcement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const finalId = data.active ? newId : (data.id || current.id);
+  const id = `announcement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-  const updated: PlatformAnnouncement = {
-    ...current,
-    ...data,
-    id: finalId,
+  const created: PlatformAnnouncement = {
+    id,
+    active: data.active !== false,
+    message: (data.message || '').trim(),
+    type: data.type || 'info',
+    link: (data.link || '').trim(),
+    linkText: (data.linkText || '').trim(),
+    dismissible: data.dismissible !== false,
+    createdAt: now,
     updatedAt: now,
   };
 
-  // 1. Persist to PostgreSQL database (authoritative across all Vercel serverless containers)
+  // 1. Persist to PostgreSQL
   try {
     await prisma.$executeRawUnsafe(
       `
       INSERT INTO "platform_announcements" ("id", "active", "message", "type", "link", "link_text", "dismissible", "created_at", "updated_at")
       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-      ON CONFLICT ("id") DO UPDATE SET
-        "active" = EXCLUDED."active",
-        "message" = EXCLUDED."message",
-        "type" = EXCLUDED."type",
-        "link" = EXCLUDED."link",
-        "link_text" = EXCLUDED."link_text",
-        "dismissible" = EXCLUDED."dismissible",
-        "updated_at" = NOW()
+      `,
+      created.id,
+      created.active,
+      created.message,
+      created.type,
+      created.link || null,
+      created.linkText || null,
+      created.dismissible
+    );
+  } catch (err: any) {
+    console.error('[AnnouncementService] Failed to insert announcement into database:', err.message);
+  }
+
+  // 2. Persist to file if writable
+  try {
+    ensureDataDir();
+    fs.writeFileSync(ANNOUNCEMENT_FILE, JSON.stringify(created, null, 2), 'utf-8');
+  } catch {}
+
+  // Update in-memory cache
+  if (cachedAnnouncements) {
+    cachedAnnouncements = [created, ...cachedAnnouncements];
+  } else {
+    cachedAnnouncements = [created];
+  }
+
+  return created;
+}
+
+/**
+ * Update an existing announcement
+ */
+export async function updatePlatformAnnouncement(
+  data: Partial<PlatformAnnouncement>
+): Promise<PlatformAnnouncement> {
+  await initAnnouncementTable();
+
+  if (!data.id) {
+    return createPlatformAnnouncement(data);
+  }
+
+  const all = await getAllPlatformAnnouncements();
+  const existing = all.find((a) => a.id === data.id);
+  const now = new Date().toISOString();
+
+  const updated: PlatformAnnouncement = {
+    ...(existing || DEFAULT_ANNOUNCEMENT),
+    ...data,
+    id: data.id,
+    updatedAt: now,
+  };
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `
+      UPDATE "platform_announcements"
+      SET "active" = $2, "message" = $3, "type" = $4, "link" = $5,
+          "link_text" = $6, "dismissible" = $7, "updated_at" = NOW()
+      WHERE "id" = $1
       `,
       updated.id,
       updated.active,
@@ -189,15 +278,52 @@ export async function updatePlatformAnnouncement(
       updated.dismissible !== false
     );
   } catch (err: any) {
-    console.error('[AnnouncementService] Database upsert failed:', err.message);
+    console.error('[AnnouncementService] Failed to update announcement in database:', err.message);
   }
 
-  // 2. Also write to local file if writable (e.g. local dev / tests)
-  try {
-    ensureDataDir();
-    fs.writeFileSync(ANNOUNCEMENT_FILE, JSON.stringify(updated, null, 2), 'utf-8');
-  } catch {}
+  if (cachedAnnouncements) {
+    cachedAnnouncements = cachedAnnouncements.map((a) => (a.id === updated.id ? updated : a));
+  }
 
-  cachedAnnouncement = updated;
   return updated;
+}
+
+/**
+ * Delete an announcement permanently from the database.
+ * Once deleted, no user opening the app/website will ever see it again!
+ */
+export async function deletePlatformAnnouncement(id: string): Promise<boolean> {
+  await initAnnouncementTable();
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM "platform_announcements" WHERE "id" = $1`,
+      id
+    );
+  } catch (err: any) {
+    console.error('[AnnouncementService] Failed to delete announcement from database:', err.message);
+  }
+
+  if (cachedAnnouncements) {
+    cachedAnnouncements = cachedAnnouncements.filter((a) => a.id !== id);
+  }
+
+  return true;
+}
+
+/**
+ * Toggle active status of an announcement
+ */
+export async function togglePlatformAnnouncement(
+  id: string,
+  forceActive?: boolean
+): Promise<PlatformAnnouncement | null> {
+  await initAnnouncementTable();
+
+  const all = await getAllPlatformAnnouncements();
+  const item = all.find((a) => a.id === id);
+  if (!item) return null;
+
+  const nextActive = typeof forceActive === 'boolean' ? forceActive : !item.active;
+  return updatePlatformAnnouncement({ id, active: nextActive });
 }
