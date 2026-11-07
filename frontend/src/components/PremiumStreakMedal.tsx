@@ -5,6 +5,7 @@ import { Lock } from 'lucide-react';
 interface PremiumStreakMedalProps {
   days: number;
   tier?: MilestoneTier;
+  ribbonText?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'custom';
   customSize?: number;
   isLocked?: boolean;
@@ -16,6 +17,7 @@ interface PremiumStreakMedalProps {
 export const PremiumStreakMedal: React.FC<PremiumStreakMedalProps> = ({
   days,
   tier = 'gold',
+  ribbonText,
   size = 'lg',
   customSize,
   isLocked = false,
@@ -24,6 +26,7 @@ export const PremiumStreakMedal: React.FC<PremiumStreakMedalProps> = ({
   onClick,
 }) => {
   const uid = useId().replace(/:/g, '_');
+  const bannerLabel = ribbonText || (days >= 365 ? (days === 365 ? '1 YEAR STREAK' : `${Math.floor(days / 365)} YEARS STREAK`) : 'DAY STREAK');
 
   const dimension = customSize
     ? customSize
@@ -388,32 +391,32 @@ export const PremiumStreakMedal: React.FC<PremiumStreakMedalProps> = ({
             opacity="0.5"
           />
 
-          {/* Ribbon Embossed Text: DAY STREAK */}
+          {/* Ribbon Embossed Text */}
           <text
             x="100"
             y="151"
             textAnchor="middle"
             fill="#2A1200"
-            fontSize="10"
+            fontSize={bannerLabel.length > 12 ? '8.5' : '10'}
             fontWeight="900"
             fontFamily="system-ui, -apple-system, sans-serif"
-            letterSpacing="0.16em"
+            letterSpacing={bannerLabel.length > 12 ? '0.08em' : '0.16em'}
             dy="1"
             opacity="0.75"
           >
-            DAY STREAK
+            {bannerLabel}
           </text>
           <text
             x="100"
             y="150"
             textAnchor="middle"
             fill="#FFFFFF"
-            fontSize="10"
+            fontSize={bannerLabel.length > 12 ? '8.5' : '10'}
             fontWeight="900"
             fontFamily="system-ui, -apple-system, sans-serif"
-            letterSpacing="0.16em"
+            letterSpacing={bannerLabel.length > 12 ? '0.08em' : '0.16em'}
           >
-            DAY STREAK
+            {bannerLabel}
           </text>
         </g>
 

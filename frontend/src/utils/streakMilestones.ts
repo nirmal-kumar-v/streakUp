@@ -21,7 +21,7 @@ export interface StreakMilestone {
   ribbonText: string;
 }
 
-const STATIC_MILESTONES: StreakMilestone[] = [
+const BASE_MILESTONES: StreakMilestone[] = [
   {
     days: 25,
     name: '25-Day Bronze Flame',
@@ -63,7 +63,7 @@ const STATIC_MILESTONES: StreakMilestone[] = [
     name: '100-Day Century Diamond',
     title: 'Century Diamond Badge',
     tier: 'diamond',
-    description: 'The monumental Century Mark: 100 days of absolute consistency and unbreakable perseverance.',
+    description: 'The monumental Century Mark: 100 days of absolute consistency and perseverance.',
     tagline: '100 Days Century Streak',
     accentColor: '#B388FF',
     glowColor: 'rgba(179, 136, 255, 0.55)',
@@ -118,33 +118,70 @@ const STATIC_MILESTONES: StreakMilestone[] = [
     gradientStops: ['#FFF8E1', '#FFB300', '#E65100'],
     ribbonText: '300 DAY STREAK',
   },
+  // After 300th day: 1 Year (365d), 2 Years (730d), 3 Years (1095d)...
+  {
+    days: 365,
+    name: '1-Year Solar Master',
+    title: '1-Year Streak Badge',
+    tier: 'mythic',
+    description: '365 consecutive days: a full solar revolution of unbroken dedication and supreme mastery.',
+    tagline: '365 Days • 1 Year Streak',
+    accentColor: '#FFD700',
+    glowColor: 'rgba(255, 215, 0, 0.75)',
+    gradientStops: ['#FFFFFF', '#FFD700', '#FF8F00'],
+    ribbonText: '1 YEAR STREAK',
+  },
+  {
+    days: 730,
+    name: '2-Year Immortal Legend',
+    title: '2-Year Streak Badge',
+    tier: 'titan',
+    description: '730 days: two consecutive years of unwavering habit building. A legendary human milestone.',
+    tagline: '730 Days • 2 Years Streak',
+    accentColor: '#FF9100',
+    glowColor: 'rgba(255, 145, 0, 0.75)',
+    gradientStops: ['#FFF8E1', '#FF6D00', '#BF360C'],
+    ribbonText: '2 YEARS STREAK',
+  },
+  {
+    days: 1095,
+    name: '3-Year Transcendent Flame',
+    title: '3-Year Streak Badge',
+    tier: 'diamond',
+    description: '1,095 days: three complete years of relentless consistency. Transcendent willpower.',
+    tagline: '1095 Days • 3 Years Streak',
+    accentColor: '#B388FF',
+    glowColor: 'rgba(179, 136, 255, 0.75)',
+    gradientStops: ['#EDE7F6', '#7C4DFF', '#311B92'],
+    ribbonText: '3 YEARS STREAK',
+  },
 ];
 
 /**
- * Generate all milestones up to a given ceiling, dynamically creating
- * any milestone multiples of 50 beyond 300 (e.g. 350, 400, 450, 500...).
+ * Returns all milestones. Beyond 3 years, adds subsequent annual milestones (4 years = 1460d, 5 years = 1825d...).
+ * Strict rule: No 350, 400, 450, or 500. After 300, it is 1 Year (365d), 2 Years (730d), 3 Years (1095d)...
  */
 export function getStreakMilestones(maxDays?: number): StreakMilestone[] {
-  const highestLimit = Math.max(300, maxDays || 0) + 50;
-  const list = [...STATIC_MILESTONES];
+  const highestLimit = Math.max(1095, maxDays || 0) + 365;
+  const list = [...BASE_MILESTONES];
 
-  let nextDays = 350;
+  let nextYear = 4;
+  let nextDays = nextYear * 365; // 1460, 1825...
   while (nextDays <= highestLimit) {
-    const tierCycle: MilestoneTier[] = ['gold', 'platinum', 'diamond', 'ruby', 'emerald', 'titan', 'mythic'];
-    const tier = tierCycle[(nextDays / 50) % tierCycle.length];
     list.push({
       days: nextDays,
-      name: `${nextDays}-Day Legend Flame`,
-      title: `${nextDays} Days Legend Badge`,
-      tier,
-      description: `${nextDays} days of unbroken excellence: an extraordinary feat of human willpower.`,
-      tagline: `${nextDays} Days Legend Streak`,
+      name: `${nextYear}-Year Legend Flame`,
+      title: `${nextYear}-Year Streak Badge`,
+      tier: 'mythic',
+      description: `${nextDays} days: ${nextYear} full years of unbroken excellence in the StreakUp Hall of Fame.`,
+      tagline: `${nextDays} Days • ${nextYear} Years Streak`,
       accentColor: '#FFD700',
-      glowColor: 'rgba(255, 215, 0, 0.6)',
-      gradientStops: ['#FFF9C4', '#FFC107', '#FF6F00'],
-      ribbonText: `${nextDays} DAY STREAK`,
+      glowColor: 'rgba(255, 215, 0, 0.8)',
+      gradientStops: ['#FFFFFF', '#FFD700', '#FF6F00'],
+      ribbonText: `${nextYear} YEARS STREAK`,
     });
-    nextDays += 50;
+    nextYear++;
+    nextDays = nextYear * 365;
   }
 
   return list;
@@ -169,11 +206,11 @@ export function getNextMilestone(currentStreak: number, longestStreak?: number):
   progressPercent: number;
 } | null {
   const effectiveBest = Math.max(currentStreak || 0, longestStreak || 0);
-  const all = getStreakMilestones(effectiveBest + 100);
+  const all = getStreakMilestones(effectiveBest + 400);
   const next = all.find((m) => m.days > currentStreak);
   if (!next) return null;
 
-  // Previous threshold
+  // Previous milestone threshold
   const prevMilestoneDays = all
     .filter((m) => m.days < next.days)
     .reduce((max, m) => Math.max(max, m.days), 0);
@@ -207,4 +244,3 @@ export function openStreakMilestoneModal(detail?: OpenStreakModalDetail): void {
     })
   );
 }
-

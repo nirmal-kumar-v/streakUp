@@ -1,7 +1,7 @@
 import { StreakMilestone } from './streakMilestones';
 
 export interface StreakCardExportParams {
-  milestone: StreakMilestone;
+  milestone?: StreakMilestone | null;
   currentStreak: number;
   userName?: string;
   userHandle?: string;
@@ -10,9 +10,21 @@ export interface StreakCardExportParams {
 /**
  * Renders an ultra-high resolution (1080x1080) celebratory card image
  * strictly matching the CodeChef / StreakUp premium aesthetic (Sample Image 1 & 2).
+ * Supports both milestone badges and active current streak cards.
  */
 export async function renderStreakCardCanvas(params: StreakCardExportParams): Promise<HTMLCanvasElement> {
-  const { milestone, userName } = params;
+  const { milestone, currentStreak, userName } = params;
+  const displayDays = milestone ? milestone.days : Math.max(1, currentStreak);
+  const displayTagline = milestone
+    ? milestone.tagline
+    : `${displayDays} Day${displayDays === 1 ? '' : 's'} streak`;
+  const displayTitle = milestone
+    ? milestone.title
+    : (displayDays === 1 ? 'First Flame Ignited' : `${displayDays} Days Active Streak`);
+  const ribbonText = milestone?.ribbonText
+    ? (milestone.ribbonText.includes('YEAR') ? milestone.ribbonText : 'DAY STREAK')
+    : 'DAY STREAK';
+
   const size = 1080;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -85,7 +97,7 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
   ctx.fillStyle = '#E5E7EB';
   ctx.fillText('Congratulations! For maintaining', size / 2, 175);
 
-  // Main bold highlight headline: "50 Days coding streak" (or "50 Days Habit Streak")
+  // Main bold highlight headline: "50 Days coding streak" (or "1 Day streak")
   ctx.font = '900 56px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   const headlineGrad = ctx.createLinearGradient(size / 2 - 250, 240, size / 2 + 250, 240);
   headlineGrad.addColorStop(0, '#FFE57F');
@@ -94,7 +106,7 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
   ctx.fillStyle = headlineGrad;
   ctx.shadowColor = 'rgba(255, 180, 0, 0.5)';
   ctx.shadowBlur = 24;
-  ctx.fillText(milestone.tagline, size / 2, 245);
+  ctx.fillText(displayTagline, size / 2, 245);
   ctx.shadowBlur = 0; // reset
 
   // 4. Center 3D Floating Medallion (Drawn using high-res vector primitives)
@@ -160,21 +172,21 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
   ctx.closePath();
   ctx.fill();
 
-  // Center Bold Number (e.g. 50, 25, 75, 100)
+  // Center Bold Number (e.g. 50, 25, 75, 100, or current streak)
   ctx.font = '900 108px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = '#261200'; // drop shadow text
-  ctx.fillText(String(milestone.days), medalCenterX, medalCenterY + 34);
+  ctx.fillText(String(displayDays), medalCenterX, medalCenterY + 34);
 
   ctx.fillStyle = '#FFFFFA';
   ctx.strokeStyle = '#4A2A00';
   ctx.lineWidth = 5;
-  ctx.strokeText(String(milestone.days), medalCenterX, medalCenterY + 30);
-  ctx.fillText(String(milestone.days), medalCenterX, medalCenterY + 30);
+  ctx.strokeText(String(displayDays), medalCenterX, medalCenterY + 30);
+  ctx.fillText(String(displayDays), medalCenterX, medalCenterY + 30);
 
-  // Lower Wrapped Ribbon ("DAY STREAK")
+  // Lower Wrapped Ribbon ("DAY STREAK" or "1 YEAR STREAK")
   const ribbonY = medalCenterY + 75;
-  const ribbonW = 260;
+  const ribbonW = 270;
   const ribbonH = 46;
 
   // Ribbon tail folds
@@ -209,9 +221,9 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
   ctx.stroke();
 
   // Ribbon Text
-  ctx.font = '900 21px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font = '900 20px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillStyle = '#3E1C00';
-  ctx.fillText('DAY STREAK', medalCenterX, ribbonY + 31);
+  ctx.fillText(ribbonText, medalCenterX, ribbonY + 31);
 
   // Sparkle stars around medal (Sample Image 1)
   const sparkles = [
@@ -232,17 +244,17 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
     ctx.fill();
   }
 
-  // 5. Badge Title (e.g. "Gold Streak Badge", matching Sample Image 1)
+  // 5. Badge / Streak Title
   ctx.textAlign = 'center';
   ctx.font = '800 46px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillText(milestone.title, size / 2, 830);
+  ctx.fillText(displayTitle, size / 2, 830);
 
   // User acknowledgment
   if (userName) {
     ctx.font = '600 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.fillStyle = '#9CA3AF';
-    ctx.fillText(`Achieved by ${userName}`, size / 2, 875);
+    ctx.fillText(`Maintained by ${userName}`, size / 2, 875);
   }
 
   // 6. Brand Footer ("STREAKUP", matching Sample Image 1 CodeChef placement)
@@ -258,21 +270,24 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
 }
 
 /**
- * Download the generated badge card image as a PNG file.
+ * Download the generated badge / streak card image as a PNG file.
  */
 export async function downloadStreakCardImage(params: StreakCardExportParams): Promise<void> {
   const canvas = await renderStreakCardCanvas(params);
   const dataUrl = canvas.toDataURL('image/png');
   const a = document.createElement('a');
   a.href = dataUrl;
-  a.download = `StreakUp_${params.milestone.days}_Day_Streak_Badge.png`;
+  const fileName = params.milestone
+    ? `StreakUp_${params.milestone.days}_Day_Streak_Badge.png`
+    : `StreakUp_${params.currentStreak}_Day_Streak_Card.png`;
+  a.download = fileName;
   document.body.appendChild(a);
   a.click();
   a.remove();
 }
 
 /**
- * Share the badge card via Web Share API or fall back to copying share text.
+ * Share the streak card or milestone badge via Web Share API or fall back to copying share text.
  */
 export async function shareStreakBadge(params: StreakCardExportParams): Promise<{
   shared: boolean;
@@ -280,7 +295,9 @@ export async function shareStreakBadge(params: StreakCardExportParams): Promise<
   message: string;
 }> {
   const canvas = await renderStreakCardCanvas(params);
-  const shareText = `🔥 I just earned the ${params.milestone.title} on StreakUp for maintaining an unbroken ${params.milestone.days}-day streak! Keep the flame burning!`;
+  const shareText = params.milestone
+    ? `🔥 I just earned the ${params.milestone.title} on StreakUp for maintaining an unbroken ${params.milestone.days}-day streak! Keep the flame burning!`
+    : `🔥 I'm currently on an unbroken ${params.currentStreak}-day streak on StreakUp! Keep the flame burning!`;
   const shareUrl = window.location.origin;
 
   // Try Web Share API with image file attachment
@@ -288,22 +305,22 @@ export async function shareStreakBadge(params: StreakCardExportParams): Promise<
     try {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (blob && navigator.canShare && navigator.canShare({ files: [new File([blob], 'streak_badge.png', { type: 'image/png' })] })) {
-        const file = new File([blob], `StreakUp_${params.milestone.days}d_badge.png`, { type: 'image/png' });
+        const file = new File([blob], params.milestone ? `StreakUp_${params.milestone.days}d_badge.png` : `StreakUp_${params.currentStreak}d_streak.png`, { type: 'image/png' });
         await navigator.share({
-          title: `StreakUp ${params.milestone.title}`,
+          title: params.milestone ? `StreakUp ${params.milestone.title}` : `StreakUp ${params.currentStreak}-Day Streak`,
           text: shareText,
           files: [file],
         });
-        return { shared: true, copied: false, message: 'Badge shared successfully!' };
+        return { shared: true, copied: false, message: 'Card shared successfully!' };
       }
 
       // Fallback: share text & URL
       await navigator.share({
-        title: `StreakUp ${params.milestone.title}`,
+        title: params.milestone ? `StreakUp ${params.milestone.title}` : `StreakUp ${params.currentStreak}-Day Streak`,
         text: shareText,
         url: shareUrl,
       });
-      return { shared: true, copied: false, message: 'Badge shared successfully!' };
+      return { shared: true, copied: false, message: 'Card shared successfully!' };
     } catch (e: any) {
       if (e.name === 'AbortError') {
         return { shared: false, copied: false, message: 'Share cancelled.' };
@@ -314,7 +331,7 @@ export async function shareStreakBadge(params: StreakCardExportParams): Promise<
   // Clipboard fallback
   try {
     await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
-    return { shared: false, copied: true, message: 'Badge achievement copied to clipboard!' };
+    return { shared: false, copied: true, message: 'Achievement copied to clipboard!' };
   } catch {
     return { shared: false, copied: false, message: 'Unable to share directly. You can download the card!' };
   }

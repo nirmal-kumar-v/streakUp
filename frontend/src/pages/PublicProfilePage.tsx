@@ -432,7 +432,9 @@ export const PublicProfilePage: React.FC = () => {
               <button
                 key={milestone.days}
                 type="button"
-                onClick={() =>
+                disabled={!unlocked}
+                onClick={() => {
+                  if (!unlocked) return;
                   openStreakMilestoneModal({
                     currentStreak: profile.currentStreak,
                     longestStreak: profile.longestStreak,
@@ -440,14 +442,14 @@ export const PublicProfilePage: React.FC = () => {
                     userHandle: profile.username,
                     targetMilestoneDays: milestone.days,
                     isOwner: profile.relationshipStatus === 'SELF',
-                  })
-                }
-                className={`relative p-4 rounded-2xl border text-center flex flex-col items-center justify-between gap-3 transition-all duration-200 cursor-pointer group ${
+                  });
+                }}
+                className={`relative p-4 rounded-2xl border text-center flex flex-col items-center justify-between gap-3 transition-all duration-200 ${
                   isActive
-                    ? 'bg-gradient-to-b from-amber-500/10 to-transparent border-amber-500/40 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 hover:scale-[1.03]'
+                    ? 'bg-gradient-to-b from-amber-500/10 to-transparent border-amber-500/40 hover:border-amber-400 hover:shadow-lg hover:shadow-amber-500/10 hover:scale-[1.03] cursor-pointer group'
                     : unlocked
-                    ? 'bg-dark-surface/80 border-dark-border hover:border-amber-500/40 hover:scale-[1.03]'
-                    : 'bg-dark-bg/40 border-dark-border/60 opacity-60 hover:opacity-80'
+                    ? 'bg-dark-surface/80 border-dark-border hover:border-amber-500/40 hover:scale-[1.03] cursor-pointer group'
+                    : 'bg-dark-bg/40 border-dark-border/40 opacity-50 cursor-not-allowed select-none'
                 }`}
               >
                 {/* 3D Medal */}
