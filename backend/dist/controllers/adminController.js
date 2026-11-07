@@ -96,6 +96,36 @@ exports.getMemberSpecialActivitiesAdmin = getMemberSpecialActivitiesAdmin;
 exports.adminCorrectSpecialActivityStreak = adminCorrectSpecialActivityStreak;
 exports.adminGrantSpecialActivityDate = adminGrantSpecialActivityDate;
 exports.adminSetSpecialActivityCommitment = adminSetSpecialActivityCommitment;
+exports.adminGetUserFriendRequests = adminGetUserFriendRequests;
+exports.adminForceAcceptFriendRequest = adminForceAcceptFriendRequest;
+exports.adminForceRejectFriendRequest = adminForceRejectFriendRequest;
+exports.adminForceCreateFriendship = adminForceCreateFriendship;
+exports.adminForceRemoveFriendship = adminForceRemoveFriendship;
+exports.adminGetGroupJoinRequests = adminGetGroupJoinRequests;
+exports.adminRespondToGroupJoinRequest = adminRespondToGroupJoinRequest;
+exports.adminGetGroupInvitations = adminGetGroupInvitations;
+exports.adminCancelGroupInvitation = adminCancelGroupInvitation;
+exports.adminForceAddMemberToGroup = adminForceAddMemberToGroup;
+exports.adminGetUserNotifications = adminGetUserNotifications;
+exports.adminDeleteNotification = adminDeleteNotification;
+exports.adminClearUserNotifications = adminClearUserNotifications;
+exports.adminMarkAllNotificationsRead = adminMarkAllNotificationsRead;
+exports.adminCreateTaskForUser = adminCreateTaskForUser;
+exports.adminDeleteTaskCompletion = adminDeleteTaskCompletion;
+exports.adminGetPlatformStats = adminGetPlatformStats;
+exports.adminGetUserPointLedger = adminGetUserPointLedger;
+exports.adminCreateReminderSchedule = adminCreateReminderSchedule;
+exports.adminResetUserMilestones = adminResetUserMilestones;
+exports.adminSetGroupMemberVisibility = adminSetGroupMemberVisibility;
+exports.adminUncompleteTask = adminUncompleteTask;
+exports.adminGetSystemHealth = adminGetSystemHealth;
+exports.adminFlushCaches = adminFlushCaches;
+exports.adminReconcileStreaks = adminReconcileStreaks;
+exports.adminGetAnnouncement = adminGetAnnouncement;
+exports.adminUpdateAnnouncement = adminUpdateAnnouncement;
+exports.adminBatchGrantFreeze = adminBatchGrantFreeze;
+exports.adminExportUsers = adminExportUsers;
+exports.adminExportAuditLogs = adminExportAuditLogs;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const prisma_1 = __importDefault(require("../config/prisma"));
@@ -104,11 +134,15 @@ const client_1 = require("@prisma/client");
 const emailService_1 = require("../services/emailService");
 const streakService_1 = require("../services/streakService");
 const adminConfigService_1 = require("../services/adminConfigService");
+const leaderboardController_1 = require("./leaderboardController");
+const cacheService_1 = __importDefault(require("../utils/cacheService"));
+const announcementService_1 = require("../services/announcementService");
 const reminderSchedulerService_1 = require("../services/reminderSchedulerService");
 const imageValidator_1 = require("../utils/imageValidator");
 const linkedInGameService_1 = require("../services/linkedInGameService");
 const managerService_1 = require("../services/managerService");
 const adminMessageService_1 = require("../services/adminMessageService");
+const userRequestService_1 = require("../services/userRequestService");
 const specialGroupRegistry_1 = require("../services/specialGroupRegistry");
 const specialGroupService_1 = require("../services/specialGroupService");
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
@@ -1689,10 +1723,13 @@ async function adminManageGroupMember(req, res) {
             return res.status(404).json({ success: false, error: 'Group not found.' });
         }
         const member = group.members.find((m) => m.userId === targetUserId);
-        if (!member) {
+        if (!member && role !== 'OWNER') {
             return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
         }
         if (role === 'REMOVE') {
+            if (!member) {
+                return res.status(404).json({ success: false, error: 'Target user is not a member of this group.' });
+            }
             if (member.role === 'OWNER') {
                 return res.status(400).json({ success: false, error: 'Cannot remove group owner. Transfer ownership to another member first.' });
             }
@@ -1725,11 +1762,18 @@ async function adminManageGroupMember(req, res) {
                     where: { id: groupId },
                     data: { ownerId: targetUserId },
                 });
-                // Promote target user to OWNER in group members
-                await tx.groupMember.update({
-                    where: { groupId_userId: { groupId, userId: targetUserId } },
-                    data: { role: 'OWNER' },
-                });
+                // Promote target user to OWNER in group members or add them as member if new
+                if (member) {
+                    await tx.groupMember.update({
+                        where: { groupId_userId: { groupId, userId: targetUserId } },
+                        data: { role: 'OWNER' },
+                    });
+                }
+                else {
+                    await tx.groupMember.create({
+                        data: { groupId, userId: targetUserId, role: 'OWNER' },
+                    });
+                }
             }
             else {
                 await tx.groupMember.update({
@@ -1743,7 +1787,7 @@ async function adminManageGroupMember(req, res) {
             action: role === 'OWNER' ? 'TRANSFER_GROUP_OWNERSHIP' : 'UPDATE_GROUP_MEMBER_ROLE',
             targetUserId,
             reason,
-            beforeState: { groupId, groupName: group.name, oldRole: member.role, previousOwnerId: group.ownerId },
+            beforeState: { groupId, groupName: group.name, oldRole: member?.role || 'NONE', previousOwnerId: group.ownerId },
             afterState: { groupId, newRole: role, newOwnerId: role === 'OWNER' ? targetUserId : group.ownerId },
         });
         return res.json({
@@ -3907,5 +3951,1344 @@ async function adminSetSpecialActivityCommitment(req, res) {
     catch (err) {
         console.error('adminSetSpecialActivityCommitment error:', err);
         return res.status(500).json({ success: false, error: 'Failed to update member POTD commitment.' });
+    }
+}
+// ========================================================
+// ========================================================
+//  SUPER ADMIN EXTENDED POWER FEATURES (20 NEW)
+// ========================================================
+// ========================================================
+// -------------------------------------------------------
+// 1. VIEW ALL FRIEND REQUESTS FOR A USER
+// -------------------------------------------------------
+/**
+ * GET /api/admin/users/:userId/friend-requests
+ * Returns all pending sent & received friend requests for a user
+ */
+async function adminGetUserFriendRequests(req, res) {
+    try {
+        const { userId } = req.params;
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const [sent, received] = await Promise.all([
+            prisma_1.default.friendRequest.findMany({
+                where: { senderId: userId },
+                include: { receiver: { select: { id: true, username: true, name: true, profileImage: true } } },
+                orderBy: { createdAt: 'desc' },
+            }),
+            prisma_1.default.friendRequest.findMany({
+                where: { receiverId: userId },
+                include: { sender: { select: { id: true, username: true, name: true, profileImage: true } } },
+                orderBy: { createdAt: 'desc' },
+            }),
+        ]);
+        return res.json({ success: true, sent, received });
+    }
+    catch (err) {
+        console.error('adminGetUserFriendRequests error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch friend requests.' });
+    }
+}
+// -------------------------------------------------------
+// 2. FORCE-ACCEPT A FRIEND REQUEST (ADMIN)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/friend-requests/:requestId/accept
+ * Forces acceptance of a pending friend request and creates the friendship
+ */
+async function adminForceAcceptFriendRequest(req, res) {
+    try {
+        const { requestId } = req.params;
+        const { reason } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        const request = await prisma_1.default.friendRequest.findUnique({
+            where: { id: requestId },
+            include: {
+                sender: { select: { id: true, username: true } },
+                receiver: { select: { id: true, username: true } },
+            },
+        });
+        if (!request)
+            return res.status(404).json({ success: false, error: 'Friend request not found.' });
+        if (request.status !== 'PENDING') {
+            return res.status(400).json({ success: false, error: `Friend request is already ${request.status}.` });
+        }
+        const [u1, u2] = request.senderId < request.receiverId
+            ? [request.senderId, request.receiverId]
+            : [request.receiverId, request.senderId];
+        await prisma_1.default.$transaction(async (tx) => {
+            await tx.friendRequest.update({ where: { id: requestId }, data: { status: 'ACCEPTED' } });
+            await tx.friendship.upsert({
+                where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } },
+                create: { user1Id: u1, user2Id: u2 },
+                update: {},
+            });
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'FORCE_ACCEPT_FRIEND_REQUEST',
+            targetUserId: request.senderId,
+            targetUser: `@${request.sender.username} → @${request.receiver.username}`,
+            reason,
+            beforeState: { status: 'PENDING' },
+            afterState: { status: 'ACCEPTED' },
+        });
+        return res.json({
+            success: true,
+            message: `Friend request between @${request.sender.username} and @${request.receiver.username} accepted by admin.`,
+        });
+    }
+    catch (err) {
+        console.error('adminForceAcceptFriendRequest error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to accept friend request.' });
+    }
+}
+// -------------------------------------------------------
+// 3. FORCE-REJECT / CANCEL A FRIEND REQUEST (ADMIN)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/friend-requests/:requestId/reject
+ * Forces rejection/cancellation of any pending friend request
+ */
+async function adminForceRejectFriendRequest(req, res) {
+    try {
+        const { requestId } = req.params;
+        const { reason } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        const request = await prisma_1.default.friendRequest.findUnique({
+            where: { id: requestId },
+            include: {
+                sender: { select: { id: true, username: true } },
+                receiver: { select: { id: true, username: true } },
+            },
+        });
+        if (!request)
+            return res.status(404).json({ success: false, error: 'Friend request not found.' });
+        await prisma_1.default.friendRequest.delete({ where: { id: requestId } });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'FORCE_REJECT_FRIEND_REQUEST',
+            targetUserId: request.senderId,
+            targetUser: `@${request.sender.username} → @${request.receiver.username}`,
+            reason,
+            beforeState: { status: request.status },
+            afterState: { deleted: true },
+        });
+        return res.json({
+            success: true,
+            message: `Friend request from @${request.sender.username} to @${request.receiver.username} cancelled/rejected by admin.`,
+        });
+    }
+    catch (err) {
+        console.error('adminForceRejectFriendRequest error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to reject friend request.' });
+    }
+}
+// -------------------------------------------------------
+// 4. FORCE-CREATE FRIENDSHIP BETWEEN TWO USERS (ADMIN)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/friendships/create
+ * Bypasses the friend request flow and directly creates a friendship between two users
+ */
+async function adminForceCreateFriendship(req, res) {
+    try {
+        const { userIdA, userIdB, reason } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!userIdA || !userIdB || userIdA === userIdB) {
+            return res.status(400).json({ success: false, error: 'Two distinct user IDs are required.' });
+        }
+        const [userA, userB] = await Promise.all([
+            prisma_1.default.user.findUnique({ where: { id: userIdA }, select: { id: true, username: true } }),
+            prisma_1.default.user.findUnique({ where: { id: userIdB }, select: { id: true, username: true } }),
+        ]);
+        if (!userA)
+            return res.status(404).json({ success: false, error: 'User A not found.' });
+        if (!userB)
+            return res.status(404).json({ success: false, error: 'User B not found.' });
+        const [u1, u2] = userIdA < userIdB ? [userIdA, userIdB] : [userIdB, userIdA];
+        const existing = await prisma_1.default.friendship.findUnique({ where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } } });
+        if (existing) {
+            return res.status(400).json({ success: false, error: 'These users are already friends.' });
+        }
+        await prisma_1.default.$transaction(async (tx) => {
+            await tx.friendship.create({ data: { user1Id: u1, user2Id: u2 } });
+            // Remove any pending friend requests between them
+            await tx.friendRequest.deleteMany({
+                where: {
+                    OR: [
+                        { senderId: userIdA, receiverId: userIdB },
+                        { senderId: userIdB, receiverId: userIdA },
+                    ],
+                },
+            });
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'FORCE_CREATE_FRIENDSHIP',
+            targetUserId: userIdA,
+            targetUser: `@${userA.username} & @${userB.username}`,
+            reason,
+            afterState: { user1Id: u1, user2Id: u2 },
+        });
+        return res.json({
+            success: true,
+            message: `Friendship between @${userA.username} and @${userB.username} created by admin.`,
+        });
+    }
+    catch (err) {
+        console.error('adminForceCreateFriendship error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to create friendship.' });
+    }
+}
+// -------------------------------------------------------
+// 5. FORCE-REMOVE FRIENDSHIP (ADMIN)
+// -------------------------------------------------------
+/**
+ * DELETE /api/admin/friendships
+ * Removes friendship between two users (admin force unfriend)
+ */
+async function adminForceRemoveFriendship(req, res) {
+    try {
+        const { userIdA, userIdB, reason } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!userIdA || !userIdB) {
+            return res.status(400).json({ success: false, error: 'Both user IDs are required.' });
+        }
+        const [userA, userB] = await Promise.all([
+            prisma_1.default.user.findUnique({ where: { id: userIdA }, select: { id: true, username: true } }),
+            prisma_1.default.user.findUnique({ where: { id: userIdB }, select: { id: true, username: true } }),
+        ]);
+        if (!userA || !userB)
+            return res.status(404).json({ success: false, error: 'One or both users not found.' });
+        const [u1, u2] = userIdA < userIdB ? [userIdA, userIdB] : [userIdB, userIdA];
+        const friendship = await prisma_1.default.friendship.findUnique({ where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } } });
+        if (!friendship)
+            return res.status(404).json({ success: false, error: 'These users are not friends.' });
+        await prisma_1.default.friendship.delete({ where: { user1Id_user2Id: { user1Id: u1, user2Id: u2 } } });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'FORCE_REMOVE_FRIENDSHIP',
+            targetUserId: userIdA,
+            targetUser: `@${userA.username} & @${userB.username}`,
+            reason,
+            beforeState: { user1Id: u1, user2Id: u2 },
+            afterState: { removed: true },
+        });
+        return res.json({
+            success: true,
+            message: `Friendship between @${userA.username} and @${userB.username} removed by admin.`,
+        });
+    }
+    catch (err) {
+        console.error('adminForceRemoveFriendship error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to remove friendship.' });
+    }
+}
+// -------------------------------------------------------
+// 6. VIEW & MANAGE GROUP JOIN REQUESTS (ADMIN)
+// -------------------------------------------------------
+/**
+ * GET /api/admin/groups/:groupId/join-requests
+ * Returns all join requests (pending, approved, rejected) for a group
+ */
+async function adminGetGroupJoinRequests(req, res) {
+    try {
+        const { groupId } = req.params;
+        const statusFilter = req.query.status;
+        const group = await prisma_1.default.group.findUnique({ where: { id: groupId }, select: { id: true, name: true } });
+        if (!group)
+            return res.status(404).json({ success: false, error: 'Group not found.' });
+        const requests = await prisma_1.default.groupJoinRequest.findMany({
+            where: {
+                groupId,
+                ...(statusFilter ? { status: statusFilter } : {}),
+            },
+            include: { user: { select: { id: true, username: true, name: true, profileImage: true } } },
+            orderBy: { createdAt: 'desc' },
+        });
+        return res.json({ success: true, group, requests });
+    }
+    catch (err) {
+        console.error('adminGetGroupJoinRequests error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch join requests.' });
+    }
+}
+/**
+ * POST /api/admin/groups/:groupId/join-requests/:requestId/respond
+ * Admin approves or rejects a group join request
+ */
+async function adminRespondToGroupJoinRequest(req, res) {
+    try {
+        const { groupId, requestId } = req.params;
+        const { action, reason } = req.body; // action: 'APPROVE' | 'REJECT'
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!['APPROVE', 'REJECT'].includes(action)) {
+            return res.status(400).json({ success: false, error: 'action must be APPROVE or REJECT.' });
+        }
+        const joinRequest = await prisma_1.default.groupJoinRequest.findUnique({
+            where: { id: requestId },
+            include: {
+                user: { select: { id: true, username: true } },
+                group: { select: { id: true, name: true } },
+            },
+        });
+        if (!joinRequest || joinRequest.groupId !== groupId) {
+            return res.status(404).json({ success: false, error: 'Join request not found for this group.' });
+        }
+        if (action === 'APPROVE') {
+            await prisma_1.default.$transaction(async (tx) => {
+                await tx.groupJoinRequest.update({ where: { id: requestId }, data: { status: 'ACCEPTED' } });
+                await tx.groupMember.upsert({
+                    where: { groupId_userId: { groupId, userId: joinRequest.userId } },
+                    create: { groupId, userId: joinRequest.userId, role: 'MEMBER' },
+                    update: {},
+                });
+            });
+        }
+        else {
+            await prisma_1.default.groupJoinRequest.update({ where: { id: requestId }, data: { status: 'REJECTED' } });
+        }
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: `ADMIN_${action}_GROUP_JOIN_REQUEST`,
+            targetUserId: joinRequest.userId,
+            targetUser: `@${joinRequest.user.username} (Group: ${joinRequest.group.name})`,
+            reason,
+            beforeState: { status: 'PENDING' },
+            afterState: { status: action === 'APPROVE' ? 'ACCEPTED' : 'REJECTED' },
+        });
+        return res.json({
+            success: true,
+            message: `Join request for @${joinRequest.user.username} in "${joinRequest.group.name}" has been ${action === 'APPROVE' ? 'approved' : 'rejected'}.`,
+        });
+    }
+    catch (err) {
+        console.error('adminRespondToGroupJoinRequest error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to process join request.' });
+    }
+}
+// -------------------------------------------------------
+// 7. VIEW & MANAGE GROUP INVITATIONS (ADMIN)
+// -------------------------------------------------------
+/**
+ * GET /api/admin/groups/:groupId/invitations
+ * Returns all invitations for a group
+ */
+async function adminGetGroupInvitations(req, res) {
+    try {
+        const { groupId } = req.params;
+        const group = await prisma_1.default.group.findUnique({ where: { id: groupId }, select: { id: true, name: true } });
+        if (!group)
+            return res.status(404).json({ success: false, error: 'Group not found.' });
+        const invitations = await prisma_1.default.groupInvitation.findMany({
+            where: { groupId },
+            include: {
+                inviter: { select: { id: true, username: true, name: true } },
+                invitee: { select: { id: true, username: true, name: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        return res.json({ success: true, group, invitations });
+    }
+    catch (err) {
+        console.error('adminGetGroupInvitations error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch group invitations.' });
+    }
+}
+/**
+ * DELETE /api/admin/invitations/:invitationId
+ * Admin cancels/removes a group invitation
+ */
+async function adminCancelGroupInvitation(req, res) {
+    try {
+        const { invitationId } = req.params;
+        const { reason } = req.body;
+        const invitation = await prisma_1.default.groupInvitation.findUnique({
+            where: { id: invitationId },
+            include: {
+                inviter: { select: { username: true } },
+                invitee: { select: { id: true, username: true } },
+                group: { select: { name: true } },
+            },
+        });
+        if (!invitation)
+            return res.status(404).json({ success: false, error: 'Invitation not found.' });
+        await prisma_1.default.groupInvitation.delete({ where: { id: invitationId } });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_CANCEL_GROUP_INVITATION',
+            targetUserId: invitation.inviteeId,
+            targetUser: `@${invitation.invitee.username} (Group: ${invitation.group.name})`,
+            reason: reason || 'Admin cancelled group invitation',
+            beforeState: { status: invitation.status },
+            afterState: { deleted: true },
+        });
+        return res.json({ success: true, message: 'Group invitation cancelled by admin.' });
+    }
+    catch (err) {
+        console.error('adminCancelGroupInvitation error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to cancel invitation.' });
+    }
+}
+// -------------------------------------------------------
+// 8. ADMIN FORCE-ADD USER TO GROUP (BYPASS JOIN REQUEST)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/groups/:groupId/force-add-member
+ * Directly adds a user to a group as MEMBER without needing a join request or invitation
+ */
+async function adminForceAddMemberToGroup(req, res) {
+    try {
+        const { groupId } = req.params;
+        const { userId, role = 'MEMBER', reason, sendInApp, sendEmail: shouldSendEmail } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!userId)
+            return res.status(400).json({ success: false, error: 'userId is required.' });
+        if (!['MEMBER', 'ADMIN'].includes(role)) {
+            return res.status(400).json({ success: false, error: 'role must be MEMBER or ADMIN.' });
+        }
+        const [group, user] = await Promise.all([
+            prisma_1.default.group.findUnique({ where: { id: groupId }, select: { id: true, name: true, ownerId: true } }),
+            prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } }),
+        ]);
+        if (!group)
+            return res.status(404).json({ success: false, error: 'Group not found.' });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const existing = await prisma_1.default.groupMember.findUnique({
+            where: { groupId_userId: { groupId, userId } },
+        });
+        if (existing) {
+            return res.status(400).json({ success: false, error: `@${user.username} is already a member of this group.` });
+        }
+        await prisma_1.default.$transaction(async (tx) => {
+            await tx.groupMember.create({ data: { groupId, userId, role: role } });
+            // Clear any pending join requests
+            await tx.groupJoinRequest.deleteMany({ where: { groupId, userId } });
+            // Clear any pending invitations
+            await tx.groupInvitation.deleteMany({ where: { groupId, inviteeId: userId } });
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_FORCE_ADD_GROUP_MEMBER',
+            targetUserId: userId,
+            targetUser: `@${user.username} (Group: ${group.name})`,
+            reason,
+            afterState: { groupId, userId, role },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: `Added to Group "${group.name}"`,
+            reason,
+            changesSummary: `You have been added to the group "${group.name}" with role ${role} by an administrator.`,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+        });
+        return res.json({
+            success: true,
+            message: `@${user.username} has been added to "${group.name}" as ${role}.`,
+        });
+    }
+    catch (err) {
+        console.error('adminForceAddMemberToGroup error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to add member to group.' });
+    }
+}
+// -------------------------------------------------------
+// 9. VIEW USER NOTIFICATIONS (ADMIN)
+// -------------------------------------------------------
+/**
+ * GET /api/admin/users/:userId/notifications
+ * Returns recent notifications for a user (paginated)
+ */
+async function adminGetUserNotifications(req, res) {
+    try {
+        const { userId } = req.params;
+        const page = Math.max(1, parseInt(req.query.page || '1', 10));
+        const limit = Math.min(100, parseInt(req.query.limit || '30', 10));
+        const skip = (page - 1) * limit;
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const [notifications, total] = await Promise.all([
+            prisma_1.default.notification.findMany({
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            prisma_1.default.notification.count({ where: { userId } }),
+        ]);
+        return res.json({
+            success: true,
+            notifications,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit) || 1,
+        });
+    }
+    catch (err) {
+        console.error('adminGetUserNotifications error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch user notifications.' });
+    }
+}
+// -------------------------------------------------------
+// 10. DELETE A SPECIFIC NOTIFICATION (ADMIN)
+// -------------------------------------------------------
+/**
+ * DELETE /api/admin/notifications/:notificationId
+ * Permanently removes a specific notification
+ */
+async function adminDeleteNotification(req, res) {
+    try {
+        const { notificationId } = req.params;
+        const { reason } = req.body;
+        const notification = await prisma_1.default.notification.findUnique({ where: { id: notificationId } });
+        if (!notification)
+            return res.status(404).json({ success: false, error: 'Notification not found.' });
+        await prisma_1.default.notification.delete({ where: { id: notificationId } });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_DELETE_NOTIFICATION',
+            targetUserId: notification.userId,
+            reason: reason || 'Admin deleted notification',
+            beforeState: { id: notificationId, title: notification.title, category: notification.category },
+            afterState: { deleted: true },
+        });
+        return res.json({ success: true, message: 'Notification deleted by admin.' });
+    }
+    catch (err) {
+        console.error('adminDeleteNotification error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to delete notification.' });
+    }
+}
+// -------------------------------------------------------
+// 11. CLEAR ALL NOTIFICATIONS FOR A USER (ADMIN)
+// -------------------------------------------------------
+/**
+ * DELETE /api/admin/users/:userId/notifications
+ * Bulk-clears (dismisses or permanently deletes) all notifications for a user
+ */
+async function adminClearUserNotifications(req, res) {
+    try {
+        const { userId } = req.params;
+        const { mode = 'dismiss', reason } = req.body; // mode: 'dismiss' | 'delete'
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        let count = 0;
+        if (mode === 'delete') {
+            const result = await prisma_1.default.notification.deleteMany({ where: { userId } });
+            count = result.count;
+        }
+        else {
+            const result = await prisma_1.default.notification.updateMany({
+                where: { userId, isDismissed: false },
+                data: { isDismissed: true, dismissedAt: new Date() },
+            });
+            count = result.count;
+        }
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: mode === 'delete' ? 'ADMIN_DELETE_ALL_NOTIFICATIONS' : 'ADMIN_DISMISS_ALL_NOTIFICATIONS',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: { mode, count },
+        });
+        return res.json({
+            success: true,
+            message: `${count} notification(s) ${mode === 'delete' ? 'permanently deleted' : 'dismissed'} for @${user.username}.`,
+            count,
+        });
+    }
+    catch (err) {
+        console.error('adminClearUserNotifications error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to clear notifications.' });
+    }
+}
+// -------------------------------------------------------
+// 12. MARK ALL NOTIFICATIONS AS READ FOR A USER (ADMIN)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/users/:userId/notifications/mark-all-read
+ * Marks every unread notification as read for a user
+ */
+async function adminMarkAllNotificationsRead(req, res) {
+    try {
+        const { userId } = req.params;
+        const { reason } = req.body;
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const result = await prisma_1.default.notification.updateMany({
+            where: { userId, isRead: false },
+            data: { isRead: true, readAt: new Date() },
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_MARK_ALL_NOTIFICATIONS_READ',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason: reason || 'Admin marked all notifications as read',
+            afterState: { markedReadCount: result.count },
+        });
+        return res.json({
+            success: true,
+            message: `${result.count} notification(s) marked as read for @${user.username}.`,
+            count: result.count,
+        });
+    }
+    catch (err) {
+        console.error('adminMarkAllNotificationsRead error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to mark notifications as read.' });
+    }
+}
+// -------------------------------------------------------
+// 13. ADMIN CREATE TASK FOR A USER
+// -------------------------------------------------------
+/**
+ * POST /api/admin/users/:userId/tasks
+ * Creates a new personal or group task on behalf of a user
+ */
+async function adminCreateTaskForUser(req, res) {
+    try {
+        const { userId } = req.params;
+        const { title, description, category = 'General', priority = 'MEDIUM', recurrence = 'DAILY', scheduledDays, dueTime, groupId, reason, sendInApp, sendEmail: shouldSendEmail, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!title || typeof title !== 'string' || title.trim().length === 0) {
+            return res.status(400).json({ success: false, error: 'Task title is required.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const days = Array.isArray(scheduledDays) ? scheduledDays : [0, 1, 2, 3, 4, 5, 6];
+        let normalizedTitle;
+        try {
+            normalizedTitle = title.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+        }
+        catch (_) { }
+        const task = await prisma_1.default.task.create({
+            data: {
+                userId,
+                title: title.trim(),
+                normalizedTitle: normalizedTitle || undefined,
+                description: description || null,
+                category,
+                priority,
+                recurrence,
+                scheduledDays: days,
+                dueTime: dueTime || null,
+                status: 'ACTIVE',
+                groupId: groupId || null,
+                isGroupTask: Boolean(groupId),
+            },
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_CREATE_TASK',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: { taskId: task.id, title: task.title },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'New Task Added to Your Dashboard',
+            reason,
+            changesSummary: `A new task "${task.title}" has been added to your dashboard by an administrator.`,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+        });
+        return res.status(201).json({
+            success: true,
+            message: `Task "${task.title}" created for @${user.username}.`,
+            task,
+        });
+    }
+    catch (err) {
+        console.error('adminCreateTaskForUser error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to create task.' });
+    }
+}
+// -------------------------------------------------------
+// 14. ADMIN DELETE A TASK COMPLETION RECORD
+// -------------------------------------------------------
+/**
+ * DELETE /api/admin/completions/:completionId
+ * Permanently removes a task completion record and recalculates streaks
+ */
+async function adminDeleteTaskCompletion(req, res) {
+    try {
+        const { completionId } = req.params;
+        const { reason, recalculate = true } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        const completion = await prisma_1.default.taskCompletion.findUnique({
+            where: { id: completionId },
+            include: {
+                user: { select: { id: true, username: true, timezone: true } },
+                task: { select: { id: true, title: true } },
+            },
+        });
+        if (!completion)
+            return res.status(404).json({ success: false, error: 'Task completion not found.' });
+        await prisma_1.default.taskCompletion.delete({ where: { id: completionId } });
+        let updatedStreaks = null;
+        if (recalculate) {
+            await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, completion.taskId, completion.userId, completion.user.timezone);
+            updatedStreaks = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, completion.userId, completion.user.timezone);
+        }
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_DELETE_TASK_COMPLETION',
+            targetUserId: completion.userId,
+            targetUser: `@${completion.user.username}`,
+            reason,
+            beforeState: { completionId, taskId: completion.taskId, taskTitle: completion.task.title, completionDate: completion.completionDate },
+            afterState: { deleted: true, recalculated: recalculate, updatedStreaks },
+        });
+        return res.json({
+            success: true,
+            message: `Completion for task "${completion.task.title}" on ${completion.completionDate} deleted. Streaks${recalculate ? ' recalculated' : ' unchanged'}.`,
+            streaks: updatedStreaks,
+        });
+    }
+    catch (err) {
+        console.error('adminDeleteTaskCompletion error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to delete task completion.' });
+    }
+}
+// -------------------------------------------------------
+// 15. VIEW PLATFORM STATS OVERVIEW (ADMIN DASHBOARD)
+// -------------------------------------------------------
+let cachedPlatformStats = null;
+const STATS_CACHE_TTL_MS = 30 * 1000; // 30 seconds cache for instant response
+/**
+ * GET /api/admin/stats
+ * Returns aggregated platform-wide statistics for the admin dashboard
+ */
+async function adminGetPlatformStats(req, res) {
+    try {
+        const now = Date.now();
+        if (cachedPlatformStats && (now - cachedPlatformStats.timestamp < STATS_CACHE_TTL_MS)) {
+            return res.json({ success: true, stats: cachedPlatformStats.stats });
+        }
+        const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const [totalUsers, totalTasks, totalCompletions, totalGroups, totalFriendships, totalFriendRequests, totalNotifications, totalAuditLogs, completionsToday, activeUsers,] = await Promise.all([
+            prisma_1.default.user.count(),
+            prisma_1.default.task.count(),
+            prisma_1.default.taskCompletion.count(),
+            prisma_1.default.group.count(),
+            prisma_1.default.friendship.count(),
+            prisma_1.default.friendRequest.count({ where: { status: 'PENDING' } }),
+            prisma_1.default.notification.count({ where: { isDismissed: false } }),
+            prisma_1.default.adminAuditLog.count(),
+            prisma_1.default.taskCompletion.count({ where: { completedAt: { gte: startOfToday } } }),
+            prisma_1.default.user.count({ where: { updatedAt: { gte: sevenDaysAgo } } }),
+        ]);
+        let pendingFeedbackRequests = 0;
+        try {
+            const userRequests = await (0, userRequestService_1.getAllUserRequests)({ status: 'PENDING' });
+            pendingFeedbackRequests = userRequests.length;
+        }
+        catch {
+            pendingFeedbackRequests = totalFriendRequests;
+        }
+        const stats = {
+            totalUsers,
+            activeUsers,
+            totalGroups,
+            totalTasks,
+            completionsToday,
+            pendingFeedbackRequests,
+            users: { total: totalUsers, active: activeUsers },
+            tasks: { total: totalTasks },
+            completions: { total: totalCompletions, today: completionsToday },
+            groups: { total: totalGroups },
+            friendships: { total: totalFriendships, pendingRequests: totalFriendRequests },
+            notifications: { totalActive: totalNotifications },
+            auditLogs: { total: totalAuditLogs },
+        };
+        cachedPlatformStats = { timestamp: now, stats };
+        return res.json({
+            success: true,
+            stats,
+        });
+    }
+    catch (err) {
+        console.error('adminGetPlatformStats error:', err);
+        if (cachedPlatformStats) {
+            return res.json({ success: true, stats: cachedPlatformStats.stats });
+        }
+        return res.status(500).json({ success: false, error: 'Failed to fetch platform statistics.' });
+    }
+}
+// -------------------------------------------------------
+// 16. VIEW USER'S POINT LEDGER (ADMIN)
+// -------------------------------------------------------
+/**
+ * GET /api/admin/users/:userId/point-ledger
+ * Returns paginated point ledger entries for a user
+ */
+async function adminGetUserPointLedger(req, res) {
+    try {
+        const { userId } = req.params;
+        const page = Math.max(1, parseInt(req.query.page || '1', 10));
+        const limit = Math.min(100, parseInt(req.query.limit || '50', 10));
+        const skip = (page - 1) * limit;
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, points: true },
+        });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const [entries, total] = await Promise.all([
+            prisma_1.default.pointLedger.findMany({
+                where: { userId },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+                include: { task: { select: { id: true, title: true } } },
+            }),
+            prisma_1.default.pointLedger.count({ where: { userId } }),
+        ]);
+        return res.json({
+            success: true,
+            user: { id: user.id, username: user.username, currentPoints: user.points },
+            entries,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit) || 1,
+        });
+    }
+    catch (err) {
+        console.error('adminGetUserPointLedger error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch point ledger.' });
+    }
+}
+// -------------------------------------------------------
+// 17. ADMIN CREATE REMINDER SCHEDULE FOR A USER
+// -------------------------------------------------------
+/**
+ * POST /api/admin/users/:userId/reminders/create
+ * Creates a reminder schedule entry for a user (overall or task-specific)
+ */
+async function adminCreateReminderSchedule(req, res) {
+    try {
+        const { userId } = req.params;
+        const { time, scope = 'OVERALL', taskId, isEnabled = true, reason, sendInApp, sendEmail: shouldSendEmail } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!time || !/^\d{2}:\d{2}$/.test(time)) {
+            return res.status(400).json({ success: false, error: 'Time must be in HH:mm format (24-hour).' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        if (taskId) {
+            const task = await prisma_1.default.task.findUnique({ where: { id: taskId } });
+            if (!task || task.userId !== userId) {
+                return res.status(404).json({ success: false, error: 'Task not found for this user.' });
+            }
+        }
+        const reminder = await prisma_1.default.reminderSchedule.upsert({
+            where: { userId_scope_taskId_time: { userId, scope: scope, taskId: taskId || null, time } },
+            create: { userId, scope: scope, taskId: taskId || null, time, isEnabled },
+            update: { isEnabled },
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_CREATE_REMINDER',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: reminder,
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Reminder Schedule Created',
+            reason,
+            changesSummary: `A ${scope === 'OVERALL' ? 'daily' : 'task'} reminder at ${time} has been set up for you by an administrator.`,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+        });
+        return res.status(201).json({
+            success: true,
+            message: `Reminder at ${time} created for @${user.username}.`,
+            reminder,
+        });
+    }
+    catch (err) {
+        console.error('adminCreateReminderSchedule error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to create reminder schedule.' });
+    }
+}
+// -------------------------------------------------------
+// 18. ADMIN RESET USER MILESTONE EVENTS
+// -------------------------------------------------------
+/**
+ * DELETE /api/admin/users/:userId/milestones
+ * Wipes milestone events for a user (so they can re-earn milestone notifications)
+ * Optionally scoped to OVERALL or a specific task scope key
+ */
+async function adminResetUserMilestones(req, res) {
+    try {
+        const { userId } = req.params;
+        const { scopeKey, reason } = req.body; // scopeKey: 'OVERALL' | 'TASK:<taskId>' | undefined (all)
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const where = { userId };
+        if (scopeKey)
+            where.scopeKey = scopeKey;
+        const result = await prisma_1.default.milestoneEvent.deleteMany({ where });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_RESET_MILESTONES',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: { deletedCount: result.count, scopeKey: scopeKey || 'ALL' },
+        });
+        return res.json({
+            success: true,
+            message: `${result.count} milestone event(s) reset for @${user.username}${scopeKey ? ` (scope: ${scopeKey})` : ''}.`,
+            count: result.count,
+        });
+    }
+    catch (err) {
+        console.error('adminResetUserMilestones error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to reset milestones.' });
+    }
+}
+// -------------------------------------------------------
+// 19. ADMIN OVERRIDE GROUP MEMBER VISIBILITY (HIDDEN FROM)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/groups/:groupId/members/:userId/visibility
+ * Updates the hiddenFrom list on a GroupMember row (who this member hides from in group)
+ */
+async function adminSetGroupMemberVisibility(req, res) {
+    try {
+        const { groupId, userId } = req.params;
+        const { hiddenFrom, reason } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!Array.isArray(hiddenFrom)) {
+            return res.status(400).json({ success: false, error: 'hiddenFrom must be an array of usernames/IDs.' });
+        }
+        const [group, user, member] = await Promise.all([
+            prisma_1.default.group.findUnique({ where: { id: groupId }, select: { id: true, name: true } }),
+            prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true } }),
+            prisma_1.default.groupMember.findUnique({ where: { groupId_userId: { groupId, userId } } }),
+        ]);
+        if (!group)
+            return res.status(404).json({ success: false, error: 'Group not found.' });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        if (!member)
+            return res.status(404).json({ success: false, error: 'User is not a member of this group.' });
+        const before = { hiddenFrom: member.hiddenFrom };
+        const updated = await prisma_1.default.groupMember.update({
+            where: { groupId_userId: { groupId, userId } },
+            data: { hiddenFrom },
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_SET_GROUP_MEMBER_VISIBILITY',
+            targetUserId: userId,
+            targetUser: `@${user.username} (Group: ${group.name})`,
+            reason,
+            beforeState: before,
+            afterState: { hiddenFrom: updated.hiddenFrom },
+        });
+        return res.json({
+            success: true,
+            message: `Visibility settings for @${user.username} in "${group.name}" updated.`,
+            hiddenFrom: updated.hiddenFrom,
+        });
+    }
+    catch (err) {
+        console.error('adminSetGroupMemberVisibility error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update member visibility.' });
+    }
+}
+// -------------------------------------------------------
+// 20. ADMIN UNCOMPLETE A TASK (REMOVE A COMPLETION & RECALCULATE)
+// -------------------------------------------------------
+/**
+ * POST /api/admin/users/:userId/tasks/:taskId/uncomplete
+ * Admin-removes a task completion for a specific date and recalculates streaks/points
+ */
+async function adminUncompleteTask(req, res) {
+    try {
+        const { userId, taskId } = req.params;
+        const { date, reason, sendInApp, sendEmail: shouldSendEmail } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'Administrative reason is required.' });
+        }
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ success: false, error: 'A valid date in YYYY-MM-DD format is required.' });
+        }
+        const [user, task] = await Promise.all([
+            prisma_1.default.user.findUnique({ where: { id: userId }, select: { id: true, username: true, timezone: true, points: true } }),
+            prisma_1.default.task.findUnique({ where: { id: taskId }, select: { id: true, title: true, userId: true } }),
+        ]);
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        if (!task || task.userId !== userId)
+            return res.status(404).json({ success: false, error: 'Task not found for this user.' });
+        const completion = await prisma_1.default.taskCompletion.findUnique({
+            where: { taskId_completionDate: { taskId, completionDate: date } },
+        });
+        if (!completion) {
+            return res.status(404).json({ success: false, error: `No completion found for task "${task.title}" on ${date}.` });
+        }
+        const beforeState = { completionId: completion.id, completionDate: date, points: user.points };
+        await prisma_1.default.$transaction(async (tx) => {
+            // Remove the completion
+            await tx.taskCompletion.delete({ where: { id: completion.id } });
+            // Deduct completion points (5 pts per completion)
+            const newPoints = Math.max(0, user.points - 5);
+            await tx.user.update({ where: { id: userId }, data: { points: newPoints } });
+            // Add a deduction ledger entry
+            await tx.pointLedger.create({
+                data: {
+                    userId,
+                    taskId,
+                    points: -5,
+                    reason: `ADMIN_UNCOMPLETE: ${reason.slice(0, 80)}`,
+                    date,
+                },
+            }).catch(() => { }); // Ignore unique constraint if entry already exists
+        });
+        // Recalculate streaks
+        await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, taskId, userId, user.timezone);
+        const updatedStreaks = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, user.timezone);
+        const changesSummary = `Completion for task "${task.title}" on ${date} has been removed by an administrator (-5 pts). Your streak has been recalculated.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'ADMIN_UNCOMPLETE_TASK',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState,
+            afterState: {
+                completionRemoved: true,
+                pointsDeducted: 5,
+                updatedStreaks,
+            },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: `Task Completion Removed for ${date}`,
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+        });
+        return res.json({
+            success: true,
+            message: `Completion for "${task.title}" on ${date} removed by admin. Streaks recalculated.`,
+            updatedStreaks,
+        });
+    }
+    catch (err) {
+        console.error('adminUncompleteTask error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to uncomplete task.' });
+    }
+}
+// ==========================================
+// 19. SYSTEM HEALTH, DIAGNOSTICS & PLATFORM POWERS
+// ==========================================
+/**
+ * GET /api/admin/system/health
+ * Live database query latency, server memory, uptime, table row counts
+ */
+async function adminGetSystemHealth(req, res) {
+    try {
+        const start = Date.now();
+        await prisma_1.default.$queryRaw `SELECT 1`;
+        const dbLatencyMs = Date.now() - start;
+        const [totalUsers, totalTasks, totalCompletions, totalGroups, totalFriendships, totalNotifications, totalAuditLogs, totalFreezeLogs,] = await Promise.all([
+            prisma_1.default.user.count(),
+            prisma_1.default.task.count(),
+            prisma_1.default.taskCompletion.count(),
+            prisma_1.default.group.count(),
+            prisma_1.default.friendship.count(),
+            prisma_1.default.notification.count(),
+            prisma_1.default.adminAuditLog.count(),
+            prisma_1.default.freezeLog.count(),
+        ]);
+        const memory = process.memoryUsage();
+        const uptimeSeconds = Math.floor(process.uptime());
+        return res.json({
+            success: true,
+            health: {
+                status: 'HEALTHY',
+                dbLatencyMs,
+                uptimeSeconds,
+                memory: {
+                    rssMb: Math.round((memory.rss / (1024 * 1024)) * 10) / 10,
+                    heapUsedMb: Math.round((memory.heapUsed / (1024 * 1024)) * 10) / 10,
+                    heapTotalMb: Math.round((memory.heapTotal / (1024 * 1024)) * 10) / 10,
+                },
+                nodeVersion: process.version,
+                platform: process.platform,
+                environment: process.env.VERCEL ? 'vercel-serverless' : 'node-server',
+                tableCounts: {
+                    users: totalUsers,
+                    tasks: totalTasks,
+                    taskCompletions: totalCompletions,
+                    groups: totalGroups,
+                    friendships: totalFriendships,
+                    notifications: totalNotifications,
+                    auditLogs: totalAuditLogs,
+                    freezeLogs: totalFreezeLogs,
+                },
+            },
+        });
+    }
+    catch (err) {
+        console.error('adminGetSystemHealth error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve system health diagnostics.' });
+    }
+}
+/**
+ * POST /api/admin/system/cache/flush
+ * Manually flushes in-memory leaderboard caches and platform stats caches
+ */
+async function adminFlushCaches(req, res) {
+    try {
+        (0, leaderboardController_1.clearLeaderboardCache)();
+        cachedPlatformStats = null;
+        cacheService_1.default.clearAll();
+        await (0, adminConfigService_1.loadUserAdminConfigsFromDb)().catch(() => { });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'SYSTEM_CACHE_FLUSH',
+            reason: 'Flushed all system in-memory caches manually from Admin Dashboard',
+            beforeState: { flushed: false },
+            afterState: { flushed: true, timestamp: new Date().toISOString() },
+        });
+        return res.json({
+            success: true,
+            message: 'All system in-memory caches (Leaderboards, Platform Stats, Admin Configs) flushed successfully.',
+        });
+    }
+    catch (err) {
+        console.error('adminFlushCaches error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to flush system caches.' });
+    }
+}
+/**
+ * POST /api/admin/system/reconcile-streaks
+ * Triggers an on-demand global streak reconciliation across all users
+ */
+async function adminReconcileStreaks(req, res) {
+    try {
+        const result = await (0, streakService_1.reconcileStaleStreaks)(prisma_1.default);
+        cacheService_1.default.clearAll();
+        (0, leaderboardController_1.clearLeaderboardCache)();
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'SYSTEM_STREAK_RECONCILIATION',
+            reason: 'Manually triggered global streak reconciliation across all users and tasks',
+            beforeState: null,
+            afterState: result,
+        });
+        return res.json({
+            success: true,
+            message: `Reconciliation cycle completed: ${result.updatedUsers} users and ${result.updatedTasks} tasks reconciled.`,
+            result,
+        });
+    }
+    catch (err) {
+        console.error('adminReconcileStreaks error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to reconcile streaks.' });
+    }
+}
+/**
+ * GET /api/admin/system/announcement
+ * Fetch platform announcement config
+ */
+async function adminGetAnnouncement(req, res) {
+    try {
+        const announcement = (0, announcementService_1.getPlatformAnnouncement)();
+        return res.json({ success: true, announcement });
+    }
+    catch (err) {
+        return res.status(500).json({ success: false, error: 'Failed to retrieve announcement.' });
+    }
+}
+/**
+ * POST /api/admin/system/announcement
+ * Update platform announcement broadcast banner
+ */
+async function adminUpdateAnnouncement(req, res) {
+    try {
+        const { active, message, type, link, linkText, dismissible } = req.body;
+        const current = (0, announcementService_1.getPlatformAnnouncement)();
+        const updated = (0, announcementService_1.updatePlatformAnnouncement)({
+            active: typeof active === 'boolean' ? active : current.active,
+            message: typeof message === 'string' ? message : current.message,
+            type: type || current.type,
+            link: typeof link === 'string' ? link : current.link,
+            linkText: typeof linkText === 'string' ? linkText : current.linkText,
+            dismissible: typeof dismissible === 'boolean' ? dismissible : current.dismissible,
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'SYSTEM_ANNOUNCEMENT_UPDATE',
+            reason: 'Updated platform broadcast announcement banner',
+            beforeState: current,
+            afterState: updated,
+        });
+        return res.json({
+            success: true,
+            message: 'Platform announcement updated successfully.',
+            announcement: updated,
+        });
+    }
+    catch (err) {
+        console.error('adminUpdateAnnouncement error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update announcement.' });
+    }
+}
+/**
+ * POST /api/admin/users/batch-grant-freeze
+ * Emergency tool to grant +1 (or custom amount) freeze to all active users
+ */
+async function adminBatchGrantFreeze(req, res) {
+    try {
+        const reason = req.body?.reason || 'Platform-wide administrative freeze grant';
+        const amount = Math.min(5, Math.max(1, parseInt(req.body?.amount) || 1));
+        const { loadAllDeletedAccounts } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+        const deletedUserIds = loadAllDeletedAccounts()
+            .filter((a) => a.status === 'DELETED')
+            .map((a) => a.userId);
+        const updateRes = await prisma_1.default.user.updateMany({
+            where: deletedUserIds.length > 0 ? { id: { notIn: deletedUserIds } } : {},
+            data: {
+                overallFreezeBalance: { increment: amount },
+            },
+        });
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'BATCH_GRANT_FREEZE',
+            reason,
+            beforeState: { amount },
+            afterState: { usersAwarded: updateRes.count, amount },
+        });
+        return res.json({
+            success: true,
+            message: `Successfully granted +${amount} freeze(s) to ${updateRes.count} active users.`,
+            usersCount: updateRes.count,
+        });
+    }
+    catch (err) {
+        console.error('adminBatchGrantFreeze error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to batch grant freezes.' });
+    }
+}
+/**
+ * GET /api/admin/system/export/users
+ * Export users data as CSV or JSON
+ */
+async function adminExportUsers(req, res) {
+    try {
+        const format = req.query.format === 'csv' ? 'csv' : 'json';
+        const users = await prisma_1.default.user.findMany({
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                email: true,
+                isEmailVerified: true,
+                currentStreak: true,
+                longestStreak: true,
+                points: true,
+                overallFreezeBalance: true,
+                timezone: true,
+                createdAt: true,
+                _count: {
+                    select: { tasks: true, taskCompletions: true },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        if (format === 'csv') {
+            const header = 'ID,Name,Username,Email,Verified,CurrentStreak,LongestStreak,Points,Freezes,Timezone,Tasks,Completions,CreatedAt\n';
+            const rows = users
+                .map((u) => `"${u.id}","${(u.name || '').replace(/"/g, '""')}","${u.username}","${u.email}",${u.isEmailVerified},${u.currentStreak},${u.longestStreak},${u.points},${u.overallFreezeBalance},"${u.timezone || ''}",${u._count.tasks},${u._count.taskCompletions},"${u.createdAt.toISOString()}"`)
+                .join('\n');
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="streakup_users_${new Date().toISOString().slice(0, 10)}.csv"`);
+            return res.send(header + rows);
+        }
+        return res.json({ success: true, count: users.length, users });
+    }
+    catch (err) {
+        console.error('adminExportUsers error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to export users.' });
+    }
+}
+/**
+ * GET /api/admin/system/export/audit-logs
+ * Export audit logs as CSV or JSON
+ */
+async function adminExportAuditLogs(req, res) {
+    try {
+        const format = req.query.format === 'csv' ? 'csv' : 'json';
+        const logs = await prisma_1.default.adminAuditLog.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 1000,
+        });
+        if (format === 'csv') {
+            const header = 'ID,AdminUsername,Action,TargetUser,Reason,CreatedAt\n';
+            const rows = logs
+                .map((l) => `"${l.id}","${l.adminUsername}","${l.action}","${(l.targetUser || '').replace(/"/g, '""')}","${(l.reason || '').replace(/"/g, '""')}","${l.createdAt.toISOString()}"`)
+                .join('\n');
+            res.setHeader('Content-Type', 'text/csv');
+            res.setHeader('Content-Disposition', `attachment; filename="streakup_audit_logs_${new Date().toISOString().slice(0, 10)}.csv"`);
+            return res.send(header + rows);
+        }
+        return res.json({ success: true, count: logs.length, logs });
+    }
+    catch (err) {
+        console.error('adminExportAuditLogs error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to export audit logs.' });
     }
 }

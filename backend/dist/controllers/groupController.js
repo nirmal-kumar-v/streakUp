@@ -71,6 +71,7 @@ const linkedInGameService_1 = require("../services/linkedInGameService");
 const specialGroupRegistry_1 = require("../services/specialGroupRegistry");
 const specialGroupService_1 = require("../services/specialGroupService");
 const streakService_1 = require("../services/streakService");
+const cacheService_1 = __importDefault(require("../utils/cacheService"));
 const createGroupSchema = zod_1.z.object({
     name: zod_1.z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
     description: zod_1.z.string().trim().max(300).optional().nullable(),
@@ -241,6 +242,7 @@ async function createGroup(req, res) {
             }
             return newGroup;
         });
+        cacheService_1.default.invalidateUser(userId);
         return res.status(201).json({
             success: true,
             message: 'Group and shared task created successfully.',
@@ -622,6 +624,9 @@ async function respondToJoinRequest(req, res) {
         if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
             await (0, specialGroupService_1.ensureSpecialGroupMemberTasks)(group.id, applicantUserId);
         }
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(applicantUserId);
+        cacheService_1.default.invalidateUser(adminUserId);
         return res.json({
             success: true,
             message: `Applicant accepted! The shared group task has been automatically assigned to their checklist.`,
@@ -638,75 +643,83 @@ async function respondToJoinRequest(req, res) {
 async function getUserGroups(req, res) {
     try {
         const userId = req.user.userId;
-        const memberships = await prisma_1.default.groupMember.findMany({
-            where: { userId },
-            include: {
-                group: {
-                    include: {
-                        owner: { select: { id: true, name: true, username: true } },
-                        _count: { select: { members: true } },
+        const cacheKey = `groups:list:${userId}`;
+        const result = await cacheService_1.default.swr(cacheKey, async () => {
+            const memberships = await prisma_1.default.groupMember.findMany({
+                where: { userId },
+                include: {
+                    group: {
+                        include: {
+                            owner: { select: { id: true, name: true, username: true } },
+                            _count: { select: { members: true } },
+                        },
                     },
                 },
-            },
-            orderBy: { joinedAt: 'desc' },
-        });
-        const myGroupIds = memberships.map((m) => m.group.id);
-        const adminGroupIds = memberships
-            .filter((m) => m.role === 'OWNER' || m.role === 'ADMIN')
-            .map((m) => m.group.id);
-        // Concurrently fetch pending requests counts & all user tasks for these groups
-        const [pendingRequests, userGroupTasks] = await Promise.all([
-            adminGroupIds.length > 0
-                ? prisma_1.default.groupJoinRequest.groupBy({
-                    by: ['groupId'],
-                    where: { groupId: { in: adminGroupIds }, status: 'PENDING' },
-                    _count: { id: true },
-                })
-                : [],
-            prisma_1.default.task.findMany({
-                where: { userId, groupId: { in: myGroupIds }, status: 'ACTIVE' },
-                select: { groupId: true, specialActivity: true, currentStreak: true },
-            }),
-        ]);
-        const pendingRequestsMap = new Map();
-        pendingRequests.forEach((p) => {
-            pendingRequestsMap.set(p.groupId, p._count.id);
-        });
-        const tasksByGroupMap = new Map();
-        userGroupTasks.forEach((t) => {
-            if (t.groupId) {
-                const arr = tasksByGroupMap.get(t.groupId) || [];
-                arr.push(t.currentStreak || 0);
-                tasksByGroupMap.set(t.groupId, arr);
-            }
-        });
-        const groups = memberships.map((m) => {
-            const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
-            const streaks = tasksByGroupMap.get(m.group.id) || [];
-            const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+                orderBy: { joinedAt: 'desc' },
+            });
+            const myGroupIds = memberships.map((m) => m.group.id);
+            const adminGroupIds = memberships
+                .filter((m) => m.role === 'OWNER' || m.role === 'ADMIN')
+                .map((m) => m.group.id);
+            // Concurrently fetch pending requests counts & all user tasks for these groups
+            const [pendingRequests, userGroupTasks] = await Promise.all([
+                adminGroupIds.length > 0
+                    ? prisma_1.default.groupJoinRequest.groupBy({
+                        by: ['groupId'],
+                        where: { groupId: { in: adminGroupIds }, status: 'PENDING' },
+                        _count: { id: true },
+                    })
+                    : [],
+                prisma_1.default.task.findMany({
+                    where: { userId, groupId: { in: myGroupIds }, status: 'ACTIVE' },
+                    select: { groupId: true, specialActivity: true, currentStreak: true },
+                }),
+            ]);
+            const pendingRequestsMap = new Map();
+            pendingRequests.forEach((p) => {
+                pendingRequestsMap.set(p.groupId, p._count.id);
+            });
+            const tasksByGroupMap = new Map();
+            userGroupTasks.forEach((t) => {
+                if (t.groupId) {
+                    const arr = tasksByGroupMap.get(t.groupId) || [];
+                    arr.push(t.currentStreak || 0);
+                    tasksByGroupMap.set(t.groupId, arr);
+                }
+            });
+            const groups = memberships.map((m) => {
+                const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
+                const streaks = tasksByGroupMap.get(m.group.id) || [];
+                const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+                return {
+                    id: m.group.id,
+                    name: m.group.name,
+                    description: m.group.description,
+                    joinCode: m.group.joinCode,
+                    scheduledDays: m.group.scheduledDays,
+                    owner: m.group.owner,
+                    role: m.role,
+                    isOwner: m.role === 'OWNER',
+                    isAdmin: m.role === 'OWNER' || m.role === 'ADMIN',
+                    memberCount: m.group._count.members,
+                    pendingRequestsCount,
+                    currentStreak,
+                    isSpecialGroup: m.group.isSpecialGroup,
+                    specialPlatform: m.group.specialPlatform,
+                    isPotdCommitted: m.isPotdCommitted,
+                    joinedAt: m.joinedAt,
+                };
+            });
             return {
-                id: m.group.id,
-                name: m.group.name,
-                description: m.group.description,
-                joinCode: m.group.joinCode,
-                scheduledDays: m.group.scheduledDays,
-                owner: m.group.owner,
-                role: m.role,
-                isOwner: m.role === 'OWNER',
-                isAdmin: m.role === 'OWNER' || m.role === 'ADMIN',
-                memberCount: m.group._count.members,
-                pendingRequestsCount,
-                currentStreak,
-                isSpecialGroup: m.group.isSpecialGroup,
-                specialPlatform: m.group.specialPlatform,
-                isPotdCommitted: m.isPotdCommitted,
-                joinedAt: m.joinedAt,
+                success: true,
+                groups,
             };
+        }, {
+            freshTtlMs: 30 * 1000,
+            staleTtlMs: 3 * 60 * 1000,
+            tags: [`user:${userId}`, 'groups'],
         });
-        return res.json({
-            success: true,
-            groups,
-        });
+        return res.json(result.data);
     }
     catch (err) {
         console.error('getUserGroups error:', err);
@@ -774,155 +787,164 @@ async function getGroupDetails(req, res) {
                 return res.status(404).json({ success: false, error: 'Group not found.' });
             }
         }
-        // Fetch user's assigned group task
-        const userTask = await prisma_1.default.task.findFirst({
-            where: { userId, groupId: id },
-            include: {
-                completions: {
-                    where: { completionDate: todayDateStr },
-                    select: { id: true, completionDate: true, completedAt: true, studyNote: true },
+        // Build group details with SWR caching
+        const cacheKey = `group:details:${id}:${userId}`;
+        const result = await cacheService_1.default.swr(cacheKey, async () => {
+            // Fetch user's assigned group task
+            const userTask = await prisma_1.default.task.findFirst({
+                where: { userId, groupId: id },
+                include: {
+                    completions: {
+                        where: { completionDate: todayDateStr },
+                        select: { id: true, completionDate: true, completedAt: true, studyNote: true },
+                    },
                 },
-            },
-        });
-        const completedToday = (userTask?.completions?.length || 0) > 0;
-        const todayStudyNote = completedToday ? userTask.completions[0].studyNote : null;
-        // Count pending join requests if Owner/Admin
-        let pendingRequestsCount = 0;
-        if (membership.role === 'OWNER' || membership.role === 'ADMIN') {
-            pendingRequestsCount = await prisma_1.default.groupJoinRequest.count({
-                where: { groupId: id, status: 'PENDING' },
             });
-        }
-        // Filter out soft-deleted accounts and members who hid current user
-        const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
-        const activeMembers = group.members.filter((m) => !isAccountDeleted(m.userId).isDeleted);
-        const visibleGroupMembers = activeMembers.filter((m) => {
-            if (m.userId === userId)
-                return true; // always show self
-            const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
-            if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
-                return false;
+            const completedToday = (userTask?.completions?.length || 0) > 0;
+            const todayStudyNote = completedToday ? userTask.completions[0].studyNote : null;
+            // Count pending join requests if Owner/Admin
+            let pendingRequestsCount = 0;
+            if (membership.role === 'OWNER' || membership.role === 'ADMIN') {
+                pendingRequestsCount = await prisma_1.default.groupJoinRequest.count({
+                    where: { groupId: id, status: 'PENDING' },
+                });
             }
-            return true;
-        });
-        // Batch query tasks and friendships for visible members
-        const memberUserIds = visibleGroupMembers.map((m) => m.user.id);
-        const [allTasksForMembers, existingFriendships, sentRequests, receivedRequests] = await Promise.all([
-            prisma_1.default.task.findMany({
-                where: { groupId: id, userId: { in: memberUserIds } },
-                select: { id: true, userId: true, recurrence: true, scheduledDays: true, currentStreak: true, longestStreak: true },
-            }),
-            prisma_1.default.friendship.findMany({
-                where: {
-                    OR: [
-                        { user1Id: userId, user2Id: { in: memberUserIds } },
-                        { user2Id: userId, user1Id: { in: memberUserIds } },
-                    ],
-                },
-                select: { user1Id: true, user2Id: true },
-            }),
-            prisma_1.default.friendRequest.findMany({
-                where: { senderId: userId, receiverId: { in: memberUserIds }, status: 'PENDING' },
-                select: { receiverId: true },
-            }),
-            prisma_1.default.friendRequest.findMany({
-                where: { senderId: { in: memberUserIds }, receiverId: userId, status: 'PENDING' },
-                select: { senderId: true },
-            }),
-        ]);
-        const taskByUserMap = new Map();
-        await Promise.all(allTasksForMembers.map(async (t) => {
-            let currentStreak = t.currentStreak || 0;
-            let longestStreak = t.longestStreak || 0;
-            if (currentStreak > 0) {
-                const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, t);
-                currentStreak = fresh.currentStreak;
-                longestStreak = fresh.longestStreak;
-            }
-            taskByUserMap.set(t.userId, { currentStreak, longestStreak });
-        }));
-        const friendsSet = new Set();
-        existingFriendships.forEach((f) => {
-            friendsSet.add(f.user1Id === userId ? f.user2Id : f.user1Id);
-        });
-        const sentSet = new Set(sentRequests.map((r) => r.receiverId));
-        const receivedSet = new Set(receivedRequests.map((r) => r.senderId));
-        // Build members list with individual task streaks and friendship status
-        const members = visibleGroupMembers.map((m) => {
-            const mTask = taskByUserMap.get(m.user.id);
-            let friendshipStatus = 'NONE';
-            if (m.user.id === userId) {
-                friendshipStatus = 'SELF';
-            }
-            else if (friendsSet.has(m.user.id)) {
-                friendshipStatus = 'FRIENDS';
-            }
-            else if (sentSet.has(m.user.id)) {
-                friendshipStatus = 'REQUEST_SENT';
-            }
-            else if (receivedSet.has(m.user.id)) {
-                friendshipStatus = 'REQUEST_RECEIVED';
+            // Filter out soft-deleted accounts and members who hid current user
+            const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
+            const activeMembers = group.members.filter((m) => !isAccountDeleted(m.userId).isDeleted);
+            const visibleGroupMembers = activeMembers.filter((m) => {
+                if (m.userId === userId)
+                    return true; // always show self
+                const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+                if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
+                    return false;
+                }
+                return true;
+            });
+            // Batch query tasks and friendships for visible members
+            const memberUserIds = visibleGroupMembers.map((m) => m.user.id);
+            const [allTasksForMembers, existingFriendships, sentRequests, receivedRequests] = await Promise.all([
+                prisma_1.default.task.findMany({
+                    where: { groupId: id, userId: { in: memberUserIds } },
+                    select: { id: true, userId: true, recurrence: true, scheduledDays: true, currentStreak: true, longestStreak: true },
+                }),
+                prisma_1.default.friendship.findMany({
+                    where: {
+                        OR: [
+                            { user1Id: userId, user2Id: { in: memberUserIds } },
+                            { user2Id: userId, user1Id: { in: memberUserIds } },
+                        ],
+                    },
+                    select: { user1Id: true, user2Id: true },
+                }),
+                prisma_1.default.friendRequest.findMany({
+                    where: { senderId: userId, receiverId: { in: memberUserIds }, status: 'PENDING' },
+                    select: { receiverId: true },
+                }),
+                prisma_1.default.friendRequest.findMany({
+                    where: { senderId: { in: memberUserIds }, receiverId: userId, status: 'PENDING' },
+                    select: { senderId: true },
+                }),
+            ]);
+            const taskByUserMap = new Map();
+            await Promise.all(allTasksForMembers.map(async (t) => {
+                let currentStreak = t.currentStreak || 0;
+                let longestStreak = t.longestStreak || 0;
+                if (currentStreak > 0) {
+                    const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, t);
+                    currentStreak = fresh.currentStreak;
+                    longestStreak = fresh.longestStreak;
+                }
+                taskByUserMap.set(t.userId, { currentStreak, longestStreak });
+            }));
+            const friendsSet = new Set();
+            existingFriendships.forEach((f) => {
+                friendsSet.add(f.user1Id === userId ? f.user2Id : f.user1Id);
+            });
+            const sentSet = new Set(sentRequests.map((r) => r.receiverId));
+            const receivedSet = new Set(receivedRequests.map((r) => r.senderId));
+            // Build members list with individual task streaks and friendship status
+            const members = visibleGroupMembers.map((m) => {
+                const mTask = taskByUserMap.get(m.user.id);
+                let friendshipStatus = 'NONE';
+                if (m.user.id === userId) {
+                    friendshipStatus = 'SELF';
+                }
+                else if (friendsSet.has(m.user.id)) {
+                    friendshipStatus = 'FRIENDS';
+                }
+                else if (sentSet.has(m.user.id)) {
+                    friendshipStatus = 'REQUEST_SENT';
+                }
+                else if (receivedSet.has(m.user.id)) {
+                    friendshipStatus = 'REQUEST_RECEIVED';
+                }
+                return {
+                    id: m.user.id,
+                    name: m.user.name,
+                    username: m.user.username,
+                    profileImage: m.user.profileImage,
+                    role: m.role,
+                    currentStreak: mTask?.currentStreak || 0,
+                    longestStreak: mTask?.longestStreak || 0,
+                    friendshipStatus,
+                    joinedAt: m.joinedAt,
+                };
+            });
+            // Fetch special group view if applicable
+            let specialGroupView = null;
+            if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+                specialGroupView = await (0, specialGroupService_1.getSpecialGroupActivitiesForMember)(id, userId, timezone);
             }
             return {
-                id: m.user.id,
-                name: m.user.name,
-                username: m.user.username,
-                profileImage: m.user.profileImage,
-                role: m.role,
-                currentStreak: mTask?.currentStreak || 0,
-                longestStreak: mTask?.longestStreak || 0,
-                friendshipStatus,
-                joinedAt: m.joinedAt,
+                success: true,
+                group: {
+                    id: group.id,
+                    name: group.name,
+                    description: group.description,
+                    joinCode: group.joinCode,
+                    scheduledDays: group.scheduledDays,
+                    owner: group.owner,
+                    userRole: membership.role,
+                    isOwner: membership.role === 'OWNER',
+                    isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
+                    memberCount: members.length,
+                    groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
+                    groupVisibleOnlyTo: membership.role === 'OWNER' ? (group.visibleOnlyTo || []) : [],
+                    memberHiddenFrom: membership.hiddenFrom || [],
+                    pendingRequestsCount,
+                    hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
+                    isSpecialGroup: group.isSpecialGroup,
+                    specialPlatform: group.specialPlatform,
+                    isPotdCommitted: membership.isPotdCommitted,
+                    specialGroupView,
+                    createdAt: group.createdAt,
+                    userTask: userTask
+                        ? {
+                            id: userTask.id,
+                            title: userTask.title,
+                            description: userTask.description,
+                            scheduledDays: userTask.scheduledDays,
+                            currentStreak: userTask.currentStreak,
+                            longestStreak: userTask.longestStreak,
+                            freezeBalance: userTask.freezeBalance,
+                            freezeRechargeDays: userTask.freezeRechargeDays,
+                            status: userTask.status,
+                            hiddenFrom: userTask.hiddenFrom || [],
+                            visibleOnlyTo: userTask.visibleOnlyTo || [],
+                            completedToday,
+                            todayStudyNote,
+                        }
+                        : null,
+                    members,
+                },
             };
+        }, {
+            freshTtlMs: 30 * 1000,
+            staleTtlMs: 3 * 60 * 1000,
+            tags: [`group:${id}`, `user:${userId}`],
         });
-        // Fetch special group view if applicable
-        let specialGroupView = null;
-        if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
-            specialGroupView = await (0, specialGroupService_1.getSpecialGroupActivitiesForMember)(id, userId, timezone);
-        }
-        return res.json({
-            success: true,
-            group: {
-                id: group.id,
-                name: group.name,
-                description: group.description,
-                joinCode: group.joinCode,
-                scheduledDays: group.scheduledDays,
-                owner: group.owner,
-                userRole: membership.role,
-                isOwner: membership.role === 'OWNER',
-                isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
-                memberCount: members.length,
-                groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
-                groupVisibleOnlyTo: membership.role === 'OWNER' ? (group.visibleOnlyTo || []) : [],
-                memberHiddenFrom: membership.hiddenFrom || [],
-                pendingRequestsCount,
-                hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
-                isSpecialGroup: group.isSpecialGroup,
-                specialPlatform: group.specialPlatform,
-                isPotdCommitted: membership.isPotdCommitted,
-                specialGroupView,
-                createdAt: group.createdAt,
-                userTask: userTask
-                    ? {
-                        id: userTask.id,
-                        title: userTask.title,
-                        description: userTask.description,
-                        scheduledDays: userTask.scheduledDays,
-                        currentStreak: userTask.currentStreak,
-                        longestStreak: userTask.longestStreak,
-                        freezeBalance: userTask.freezeBalance,
-                        freezeRechargeDays: userTask.freezeRechargeDays,
-                        status: userTask.status,
-                        hiddenFrom: userTask.hiddenFrom || [],
-                        visibleOnlyTo: userTask.visibleOnlyTo || [],
-                        completedToday,
-                        todayStudyNote,
-                    }
-                    : null,
-                members,
-            },
-        });
+        return res.json(result.data);
     }
     catch (err) {
         console.error('getGroupDetails error:', err);
@@ -961,228 +983,236 @@ async function getGroupLeaderboards(req, res) {
         }
         const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN');
         const activityFilter = (req.query.activity || 'overall').toLowerCase(); // 'overall' | 'daily' | 'potd'
-        const members = await prisma_1.default.groupMember.findMany({
-            where: { groupId: id },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        username: true,
-                        profileImage: true,
-                        timezone: true,
+        const cacheKey = `group:lb:${id}:${type}:${activityFilter}:${userId}`;
+        const result = await cacheService_1.default.swr(cacheKey, async () => {
+            const members = await prisma_1.default.groupMember.findMany({
+                where: { groupId: id },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            username: true,
+                            profileImage: true,
+                            timezone: true,
+                        },
                     },
                 },
-            },
-        });
-        const user = await prisma_1.default.user.findUnique({
-            where: { id: userId },
-            select: { username: true, timezone: true },
-        });
-        const timezone = user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
-        const { startDate, endDate } = getLocalWeekRange(timezone);
-        const cUsername = (user?.username || '').toLowerCase().replace(/^@/, '');
-        const cId = userId.toLowerCase();
-        // Filter out members who hid current user
-        const visibleMembers = members.filter((m) => {
-            if (m.userId === userId)
+            });
+            const user = await prisma_1.default.user.findUnique({
+                where: { id: userId },
+                select: { username: true, timezone: true },
+            });
+            const timezone = user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
+            const { startDate, endDate } = getLocalWeekRange(timezone);
+            const cUsername = (user?.username || '').toLowerCase().replace(/^@/, '');
+            const cId = userId.toLowerCase();
+            // Filter out members who hid current user
+            const visibleMembers = members.filter((m) => {
+                if (m.userId === userId)
+                    return true;
+                const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
+                if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
+                    return false;
+                }
                 return true;
-            const mHidden = (m.hiddenFrom || []).map((h) => h.trim().toLowerCase().replace(/^@/, ''));
-            if (mHidden.includes('all') || mHidden.includes(cId) || (cUsername && mHidden.includes(cUsername))) {
-                return false;
-            }
-            return true;
-        });
-        const isLinkedIn = (0, linkedInGameService_1.isLinkedInName)(group.name);
-        // Batch query tasks for this group to eliminate N+1 latency
-        const allGroupTasks = await prisma_1.default.task.findMany({
-            where: { groupId: id },
-            select: {
-                id: true,
-                userId: true,
-                specialActivity: true,
-                currentStreak: true,
-                longestStreak: true,
-            },
-        });
-        const taskMap = new Map();
-        allGroupTasks.forEach((t) => {
-            taskMap.set(`${t.userId}_${t.specialActivity || 'STANDARD'}`, t);
-        });
-        // Batch query friendship status
-        const visibleUserIds = visibleMembers.map((m) => m.user.id);
-        const [existingFriendships, sentRequests, receivedRequests] = await Promise.all([
-            prisma_1.default.friendship.findMany({
-                where: {
-                    OR: [
-                        { user1Id: userId, user2Id: { in: visibleUserIds } },
-                        { user2Id: userId, user1Id: { in: visibleUserIds } },
-                    ],
+            });
+            const isLinkedIn = (0, linkedInGameService_1.isLinkedInName)(group.name);
+            // Batch query tasks for this group to eliminate N+1 latency
+            const allGroupTasks = await prisma_1.default.task.findMany({
+                where: { groupId: id },
+                select: {
+                    id: true,
+                    userId: true,
+                    specialActivity: true,
+                    currentStreak: true,
+                    longestStreak: true,
                 },
-                select: { user1Id: true, user2Id: true },
-            }),
-            prisma_1.default.friendRequest.findMany({
-                where: { senderId: userId, receiverId: { in: visibleUserIds }, status: 'PENDING' },
-                select: { receiverId: true },
-            }),
-            prisma_1.default.friendRequest.findMany({
-                where: { senderId: { in: visibleUserIds }, receiverId: userId, status: 'PENDING' },
-                select: { senderId: true },
-            }),
-        ]);
-        const friendsSet = new Set();
-        existingFriendships.forEach((f) => {
-            friendsSet.add(f.user1Id === userId ? f.user2Id : f.user1Id);
-        });
-        const sentSet = new Set(sentRequests.map((r) => r.receiverId));
-        const receivedSet = new Set(receivedRequests.map((r) => r.senderId));
-        const rankedList = await Promise.all(visibleMembers.map(async (m) => {
-            let currentStreak = 0;
-            let longestStreak = 0;
-            let dailyStreak = 0;
-            let dailyLongestStreak = 0;
-            let potdStreak = 0;
-            let potdLongestStreak = 0;
-            const isPotdCommitted = m.isPotdCommitted !== false;
-            let weeklyCompletions = 0;
-            if (isLinkedIn) {
-                // LinkedIn group: highest current streak of any of the games/tasks
-                const liStats = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(id, m.user.id, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
-                currentStreak = liStats.currentStreak;
-                longestStreak = liStats.longestStreak;
-            }
-            else if (isSpecialGroup) {
-                const dailyTask = taskMap.get(`${m.user.id}_DAILY`);
-                const potdTask = taskMap.get(`${m.user.id}_POTD`);
-                dailyStreak = dailyTask?.currentStreak || 0;
-                dailyLongestStreak = dailyTask?.longestStreak || 0;
-                potdStreak = potdTask?.currentStreak || 0;
-                potdLongestStreak = potdTask?.longestStreak || 0;
-                if (dailyTask && dailyStreak > 0) {
-                    const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, dailyTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
-                    dailyStreak = fresh.currentStreak;
-                    dailyLongestStreak = fresh.longestStreak;
+            });
+            const taskMap = new Map();
+            allGroupTasks.forEach((t) => {
+                taskMap.set(`${t.userId}_${t.specialActivity || 'STANDARD'}`, t);
+            });
+            // Batch query friendship status
+            const visibleUserIds = visibleMembers.map((m) => m.user.id);
+            const [existingFriendships, sentRequests, receivedRequests] = await Promise.all([
+                prisma_1.default.friendship.findMany({
+                    where: {
+                        OR: [
+                            { user1Id: userId, user2Id: { in: visibleUserIds } },
+                            { user2Id: userId, user1Id: { in: visibleUserIds } },
+                        ],
+                    },
+                    select: { user1Id: true, user2Id: true },
+                }),
+                prisma_1.default.friendRequest.findMany({
+                    where: { senderId: userId, receiverId: { in: visibleUserIds }, status: 'PENDING' },
+                    select: { receiverId: true },
+                }),
+                prisma_1.default.friendRequest.findMany({
+                    where: { senderId: { in: visibleUserIds }, receiverId: userId, status: 'PENDING' },
+                    select: { senderId: true },
+                }),
+            ]);
+            const friendsSet = new Set();
+            existingFriendships.forEach((f) => {
+                friendsSet.add(f.user1Id === userId ? f.user2Id : f.user1Id);
+            });
+            const sentSet = new Set(sentRequests.map((r) => r.receiverId));
+            const receivedSet = new Set(receivedRequests.map((r) => r.senderId));
+            const rankedList = await Promise.all(visibleMembers.map(async (m) => {
+                let currentStreak = 0;
+                let longestStreak = 0;
+                let dailyStreak = 0;
+                let dailyLongestStreak = 0;
+                let potdStreak = 0;
+                let potdLongestStreak = 0;
+                const isPotdCommitted = m.isPotdCommitted !== false;
+                let weeklyCompletions = 0;
+                if (isLinkedIn) {
+                    // LinkedIn group: highest current streak of any of the games/tasks
+                    const liStats = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(id, m.user.id, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                    currentStreak = liStats.currentStreak;
+                    longestStreak = liStats.longestStreak;
                 }
-                if (potdTask && potdStreak > 0) {
-                    const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, potdTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
-                    potdStreak = fresh.currentStreak;
-                    potdLongestStreak = fresh.longestStreak;
-                }
-                if (activityFilter === 'daily') {
-                    currentStreak = dailyStreak;
-                    longestStreak = dailyLongestStreak;
-                }
-                else if (activityFilter === 'potd') {
-                    currentStreak = potdStreak;
-                    longestStreak = potdLongestStreak;
-                }
-                else {
-                    // Overall
-                    currentStreak = Math.max(dailyStreak, potdStreak);
-                    longestStreak = Math.max(dailyLongestStreak, potdLongestStreak);
-                }
-            }
-            else {
-                // Individual group task
-                const memberTask = taskMap.get(`${m.user.id}_STANDARD`) || allGroupTasks.find((t) => t.userId === m.user.id);
-                if (memberTask) {
-                    currentStreak = memberTask.currentStreak || 0;
-                    longestStreak = memberTask.longestStreak || 0;
-                    if (currentStreak > 0) {
-                        const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, memberTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
-                        currentStreak = fresh.currentStreak;
-                        longestStreak = fresh.longestStreak;
+                else if (isSpecialGroup) {
+                    const dailyTask = taskMap.get(`${m.user.id}_DAILY`);
+                    const potdTask = taskMap.get(`${m.user.id}_POTD`);
+                    dailyStreak = dailyTask?.currentStreak || 0;
+                    dailyLongestStreak = dailyTask?.longestStreak || 0;
+                    potdStreak = potdTask?.currentStreak || 0;
+                    potdLongestStreak = potdTask?.longestStreak || 0;
+                    if (dailyTask && dailyStreak > 0) {
+                        const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, dailyTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                        dailyStreak = fresh.currentStreak;
+                        dailyLongestStreak = fresh.longestStreak;
+                    }
+                    if (potdTask && potdStreak > 0) {
+                        const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, potdTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                        potdStreak = fresh.currentStreak;
+                        potdLongestStreak = fresh.longestStreak;
+                    }
+                    if (activityFilter === 'daily') {
+                        currentStreak = dailyStreak;
+                        longestStreak = dailyLongestStreak;
+                    }
+                    else if (activityFilter === 'potd') {
+                        currentStreak = potdStreak;
+                        longestStreak = potdLongestStreak;
+                    }
+                    else {
+                        // Overall
+                        currentStreak = Math.max(dailyStreak, potdStreak);
+                        longestStreak = Math.max(dailyLongestStreak, potdLongestStreak);
                     }
                 }
+                else {
+                    // Individual group task
+                    const memberTask = taskMap.get(`${m.user.id}_STANDARD`) || allGroupTasks.find((t) => t.userId === m.user.id);
+                    if (memberTask) {
+                        currentStreak = memberTask.currentStreak || 0;
+                        longestStreak = memberTask.longestStreak || 0;
+                        if (currentStreak > 0) {
+                            const fresh = await (0, streakService_1.ensureTaskStreakCurrent)(prisma_1.default, memberTask, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                            currentStreak = fresh.currentStreak;
+                            longestStreak = fresh.longestStreak;
+                        }
+                    }
+                }
+                let friendshipStatus = 'NONE';
+                if (m.user.id === userId) {
+                    friendshipStatus = 'SELF';
+                }
+                else if (friendsSet.has(m.user.id)) {
+                    friendshipStatus = 'FRIENDS';
+                }
+                else if (sentSet.has(m.user.id)) {
+                    friendshipStatus = 'REQUEST_SENT';
+                }
+                else if (receivedSet.has(m.user.id)) {
+                    friendshipStatus = 'REQUEST_RECEIVED';
+                }
+                return {
+                    userId: m.user.id,
+                    name: m.user.name,
+                    username: m.user.username,
+                    profileImage: m.user.profileImage,
+                    role: m.role,
+                    currentStreak,
+                    longestStreak,
+                    dailyStreak,
+                    dailyLongestStreak,
+                    potdStreak,
+                    potdLongestStreak,
+                    isPotdCommitted,
+                    weeklyCompletions,
+                    isCurrentUser: m.user.id === userId,
+                    friendshipStatus,
+                };
+            }));
+            if (type === 'weekly') {
+                rankedList.sort((a, b) => {
+                    if (b.weeklyCompletions !== a.weeklyCompletions)
+                        return b.weeklyCompletions - a.weeklyCompletions;
+                    if (b.currentStreak !== a.currentStreak)
+                        return b.currentStreak - a.currentStreak;
+                    if (b.longestStreak !== a.longestStreak)
+                        return b.longestStreak - a.longestStreak;
+                    return a.name.localeCompare(b.name);
+                });
             }
-            let friendshipStatus = 'NONE';
-            if (m.user.id === userId) {
-                friendshipStatus = 'SELF';
+            else if (isSpecialGroup && activityFilter === 'daily') {
+                rankedList.sort((a, b) => {
+                    if (b.dailyStreak !== a.dailyStreak)
+                        return b.dailyStreak - a.dailyStreak;
+                    if (b.dailyLongestStreak !== a.dailyLongestStreak)
+                        return b.dailyLongestStreak - a.dailyLongestStreak;
+                    return a.name.localeCompare(b.name);
+                });
             }
-            else if (friendsSet.has(m.user.id)) {
-                friendshipStatus = 'FRIENDS';
+            else if (isSpecialGroup && activityFilter === 'potd') {
+                rankedList.sort((a, b) => {
+                    if (b.potdStreak !== a.potdStreak)
+                        return b.potdStreak - a.potdStreak;
+                    if (b.potdLongestStreak !== a.potdLongestStreak)
+                        return b.potdLongestStreak - a.potdLongestStreak;
+                    return a.name.localeCompare(b.name);
+                });
             }
-            else if (sentSet.has(m.user.id)) {
-                friendshipStatus = 'REQUEST_SENT';
+            else {
+                rankedList.sort((a, b) => {
+                    if (b.currentStreak !== a.currentStreak)
+                        return b.currentStreak - a.currentStreak;
+                    if (b.longestStreak !== a.longestStreak)
+                        return b.longestStreak - a.longestStreak;
+                    if (b.dailyStreak !== a.dailyStreak)
+                        return b.dailyStreak - a.dailyStreak;
+                    if (b.potdStreak !== a.potdStreak)
+                        return b.potdStreak - a.potdStreak;
+                    return a.name.localeCompare(b.name);
+                });
             }
-            else if (receivedSet.has(m.user.id)) {
-                friendshipStatus = 'REQUEST_RECEIVED';
-            }
+            const leaderboardWithRank = rankedList.map((entry, index) => ({
+                rank: index + 1,
+                ...entry,
+            }));
             return {
-                userId: m.user.id,
-                name: m.user.name,
-                username: m.user.username,
-                profileImage: m.user.profileImage,
-                role: m.role,
-                currentStreak,
-                longestStreak,
-                dailyStreak,
-                dailyLongestStreak,
-                potdStreak,
-                potdLongestStreak,
-                isPotdCommitted,
-                weeklyCompletions,
-                isCurrentUser: m.user.id === userId,
-                friendshipStatus,
+                success: true,
+                groupId: group.id,
+                groupName: group.name,
+                isSpecialGroup,
+                specialPlatform: group.specialPlatform,
+                type,
+                activity: activityFilter,
+                weekRange: { startDate, endDate },
+                leaderboard: leaderboardWithRank,
             };
-        }));
-        if (type === 'weekly') {
-            rankedList.sort((a, b) => {
-                if (b.weeklyCompletions !== a.weeklyCompletions)
-                    return b.weeklyCompletions - a.weeklyCompletions;
-                if (b.currentStreak !== a.currentStreak)
-                    return b.currentStreak - a.currentStreak;
-                if (b.longestStreak !== a.longestStreak)
-                    return b.longestStreak - a.longestStreak;
-                return a.name.localeCompare(b.name);
-            });
-        }
-        else if (isSpecialGroup && activityFilter === 'daily') {
-            rankedList.sort((a, b) => {
-                if (b.dailyStreak !== a.dailyStreak)
-                    return b.dailyStreak - a.dailyStreak;
-                if (b.dailyLongestStreak !== a.dailyLongestStreak)
-                    return b.dailyLongestStreak - a.dailyLongestStreak;
-                return a.name.localeCompare(b.name);
-            });
-        }
-        else if (isSpecialGroup && activityFilter === 'potd') {
-            rankedList.sort((a, b) => {
-                if (b.potdStreak !== a.potdStreak)
-                    return b.potdStreak - a.potdStreak;
-                if (b.potdLongestStreak !== a.potdLongestStreak)
-                    return b.potdLongestStreak - a.potdLongestStreak;
-                return a.name.localeCompare(b.name);
-            });
-        }
-        else {
-            rankedList.sort((a, b) => {
-                if (b.currentStreak !== a.currentStreak)
-                    return b.currentStreak - a.currentStreak;
-                if (b.longestStreak !== a.longestStreak)
-                    return b.longestStreak - a.longestStreak;
-                if (b.dailyStreak !== a.dailyStreak)
-                    return b.dailyStreak - a.dailyStreak;
-                if (b.potdStreak !== a.potdStreak)
-                    return b.potdStreak - a.potdStreak;
-                return a.name.localeCompare(b.name);
-            });
-        }
-        const leaderboardWithRank = rankedList.map((entry, index) => ({
-            rank: index + 1,
-            ...entry,
-        }));
-        return res.json({
-            success: true,
-            groupId: group.id,
-            groupName: group.name,
-            isSpecialGroup,
-            specialPlatform: group.specialPlatform,
-            type,
-            activity: activityFilter,
-            weekRange: { startDate, endDate },
-            leaderboard: leaderboardWithRank,
+        }, {
+            freshTtlMs: 30 * 1000,
+            staleTtlMs: 3 * 60 * 1000,
+            tags: [`group:${id}`, `user:${userId}`],
         });
+        return res.json(result.data);
     }
     catch (err) {
         console.error('getGroupLeaderboards error:', err);
@@ -1313,6 +1343,8 @@ async function promoteMemberToAdmin(req, res) {
             where: { id: targetMembership.id },
             data: { role: 'ADMIN' },
         });
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(targetUserId);
         return res.json({
             success: true,
             message: 'Member promoted to Admin successfully.',
@@ -1360,6 +1392,8 @@ async function removeMemberFromGroup(req, res) {
                 data: { status: 'ARCHIVED' },
             });
         });
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(targetUserId);
         return res.json({
             success: true,
             message: 'Member removed from group successfully.',
@@ -1430,6 +1464,8 @@ async function leaveGroup(req, res) {
                         data: { status: 'ARCHIVED' },
                     });
                 });
+                cacheService_1.default.invalidateGroup(id);
+                cacheService_1.default.invalidateUser(userId);
                 return res.json({ success: true, message: 'You left the group. Ownership transferred.' });
             }
         }
@@ -1444,6 +1480,8 @@ async function leaveGroup(req, res) {
                     data: { status: 'ARCHIVED' },
                 });
             });
+            cacheService_1.default.invalidateGroup(id);
+            cacheService_1.default.invalidateUser(userId);
             return res.json({ success: true, message: 'You left the group.' });
         }
     }
@@ -1509,6 +1547,7 @@ async function updateGroup(req, res) {
             }
             return group;
         });
+        cacheService_1.default.invalidateGroup(id);
         return res.json({
             success: true,
             message: 'Group updated successfully.',
@@ -1544,6 +1583,8 @@ async function updateMemberGroupPrivacy(req, res) {
                 hiddenFrom,
             },
         });
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: 'Member privacy updated.',
@@ -1926,6 +1967,8 @@ async function respondToGroupInvitation(req, res) {
         if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
             await (0, specialGroupService_1.ensureSpecialGroupMemberTasks)(group.id, userId);
         }
+        cacheService_1.default.invalidateGroup(group.id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: `You joined "${group.name}"! The shared group task is now active on your dashboard.`,
@@ -1987,6 +2030,8 @@ async function makeGroupTask(req, res) {
                 },
             });
         }
+        cacheService_1.default.invalidateGroup(group.id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: `"${group.name}" has been added to your dashboard tasks.`,
@@ -2015,6 +2060,8 @@ async function removeGroupTask(req, res) {
             where: { id: existingTask.id },
             data: { status: 'ARCHIVED' },
         });
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: 'Group task removed from your dashboard. Your membership and group streak remain preserved.',
@@ -2046,6 +2093,8 @@ async function updateMemberGroupCommitment(req, res) {
             where: { groupId_userId: { groupId: id, userId } },
             data: { isPotdCommitted },
         });
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: isPotdCommitted ? 'POTD commitment enabled.' : 'POTD commitment disabled.',
@@ -2100,6 +2149,8 @@ async function completeGroupSpecialActivity(req, res) {
         });
         const timezone = user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
         const result = await (0, specialGroupService_1.completeSpecialActivity)(id, userId, activityType, timezone, studyNote);
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json(result);
     }
     catch (err) {
@@ -2123,6 +2174,8 @@ async function uncompleteGroupSpecialActivity(req, res) {
         });
         const timezone = user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
         const result = await (0, specialGroupService_1.uncompleteSpecialActivity)(id, userId, activityType, timezone);
+        cacheService_1.default.invalidateGroup(id);
+        cacheService_1.default.invalidateUser(userId);
         return res.json(result);
     }
     catch (err) {

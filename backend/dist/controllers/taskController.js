@@ -25,6 +25,8 @@ const pointsService_1 = require("../services/pointsService");
 const client_1 = require("@prisma/client");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
 const linkedInGameService_1 = require("../services/linkedInGameService");
+const leaderboardController_1 = require("./leaderboardController");
+const cacheService_1 = __importDefault(require("../utils/cacheService"));
 // Task validation schemas
 const createTaskSchema = zod_1.z.object({
     title: zod_1.z.string().min(1, 'Task title is required').max(100),
@@ -204,6 +206,9 @@ async function createTask(req, res) {
                 visibleOnlyTo: data.visibleOnlyTo || [],
             }
         });
+        cacheService_1.default.invalidateUser(userId);
+        if (task.groupId)
+            cacheService_1.default.invalidateGroup(task.groupId);
         return res.status(201).json({
             success: true,
             message: 'Task created successfully.',
@@ -247,6 +252,9 @@ async function updateTask(req, res) {
             where: { id },
             data: parseResult.data
         });
+        cacheService_1.default.invalidateUser(userId);
+        if (updatedTask.groupId)
+            cacheService_1.default.invalidateGroup(updatedTask.groupId);
         return res.json({
             success: true,
             message: 'Task updated successfully.',
@@ -277,6 +285,9 @@ async function toggleArchiveTask(req, res) {
             where: { id },
             data: { status: newStatus }
         });
+        cacheService_1.default.invalidateUser(userId);
+        if (updated.groupId)
+            cacheService_1.default.invalidateGroup(updated.groupId);
         return res.json({
             success: true,
             message: `Task ${newStatus === 'ACTIVE' ? 'restored' : 'archived'} successfully.`,
@@ -342,6 +353,10 @@ async function deleteTask(req, res) {
         }
         // Recalculate streaks in case completed tasks were deleted
         const streakResult = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId);
+        cacheService_1.default.invalidateUser(userId);
+        if (existingTask.groupId)
+            cacheService_1.default.invalidateGroup(existingTask.groupId);
+        (0, leaderboardController_1.clearLeaderboardCache)();
         return res.json({
             success: true,
             message: 'Task deleted successfully.',
@@ -656,6 +671,10 @@ async function completeTask(req, res) {
             actionUrl: `/dashboard`,
             eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
         }).catch((err) => console.error('[completeTask] User completion notification error:', err));
+        (0, leaderboardController_1.clearLeaderboardCache)();
+        cacheService_1.default.invalidateUser(userId);
+        if (task.groupId)
+            cacheService_1.default.invalidateGroup(task.groupId);
         return res.json({
             success: true,
             message: 'Task marked as completed.',
@@ -839,6 +858,10 @@ async function uncompleteTask(req, res) {
             targetCurrentStreak: targetUserStreak,
             targetLongestStreak: task.user?.longestStreak || 0,
         });
+        (0, leaderboardController_1.clearLeaderboardCache)();
+        cacheService_1.default.invalidateUser(userId);
+        if (task.groupId)
+            cacheService_1.default.invalidateGroup(task.groupId);
         return res.json({
             success: true,
             message: 'Task marked as incomplete.',
@@ -897,6 +920,7 @@ async function updateCompletionNote(req, res) {
             where: { id: completion.id },
             data: { studyNote: trimmedNote }
         });
+        cacheService_1.default.invalidateUser(userId);
         return res.json({
             success: true,
             message: 'Study note updated.',
@@ -1216,96 +1240,105 @@ async function getActivityHistory(req, res) {
             rangeEnd = todayStr;
             rangeStart = todayDt.minus({ days: 364 }).toFormat('yyyy-MM-dd');
         }
-        // Fetch completions within date range
-        const [completions, freezeLogs] = await Promise.all([
-            prisma_1.default.taskCompletion.findMany({
-                where: {
-                    userId,
-                    completionDate: {
-                        gte: rangeStart,
-                        lte: rangeEnd
-                    }
-                },
-                include: {
-                    task: {
-                        select: { title: true, category: true }
-                    }
-                },
-                orderBy: { completionDate: 'asc' }
-            }),
-            prisma_1.default.freezeLog.findMany({
-                where: {
-                    userId,
-                    protectedDate: {
-                        gte: rangeStart,
-                        lte: rangeEnd
-                    }
-                },
-                select: { protectedDate: true, scopeKey: true }
-            })
-        ]);
-        // Group completions by date (shield future dates from having completed activity)
-        const dateMap = {};
-        for (const c of completions) {
-            if (c.completionDate > todayStr)
-                continue; // Future dates can never have completions
-            if (!dateMap[c.completionDate]) {
-                dateMap[c.completionDate] = { count: 0, tasks: [] };
+        // Fetch completions and activity with SWR caching
+        const cacheKey = `heatmap:${userId}:${rangeStart}:${rangeEnd}:${targetYear || 'default'}`;
+        const result = await cacheService_1.default.swr(cacheKey, async () => {
+            // Fetch completions within date range
+            const [completions, freezeLogs] = await Promise.all([
+                prisma_1.default.taskCompletion.findMany({
+                    where: {
+                        userId,
+                        completionDate: {
+                            gte: rangeStart,
+                            lte: rangeEnd
+                        }
+                    },
+                    include: {
+                        task: {
+                            select: { title: true, category: true }
+                        }
+                    },
+                    orderBy: { completionDate: 'asc' }
+                }),
+                prisma_1.default.freezeLog.findMany({
+                    where: {
+                        userId,
+                        protectedDate: {
+                            gte: rangeStart,
+                            lte: rangeEnd
+                        }
+                    },
+                    select: { protectedDate: true, scopeKey: true }
+                })
+            ]);
+            // Group completions by date (shield future dates from having completed activity)
+            const dateMap = {};
+            for (const c of completions) {
+                if (c.completionDate > todayStr)
+                    continue; // Future dates can never have completions
+                if (!dateMap[c.completionDate]) {
+                    dateMap[c.completionDate] = { count: 0, tasks: [] };
+                }
+                dateMap[c.completionDate].count += 1;
+                dateMap[c.completionDate].tasks.push({
+                    title: c.task?.title || 'Habit',
+                    note: c.studyNote
+                });
             }
-            dateMap[c.completionDate].count += 1;
-            dateMap[c.completionDate].tasks.push({
-                title: c.task?.title || 'Habit',
-                note: c.studyNote
-            });
-        }
-        const activityList = Object.entries(dateMap).map(([date, data]) => ({
-            date,
-            count: data.count,
-            tasks: data.tasks
-        })).sort((a, b) => a.date.localeCompare(b.date));
-        // Determine available years efficiently using min and max completions
-        const [oldestCompletion, newestCompletion] = await Promise.all([
-            prisma_1.default.taskCompletion.findFirst({
-                where: { userId },
-                orderBy: { completionDate: 'asc' },
-                select: { completionDate: true }
-            }),
-            prisma_1.default.taskCompletion.findFirst({
-                where: { userId },
-                orderBy: { completionDate: 'desc' },
-                select: { completionDate: true }
-            })
-        ]);
-        const yearsSet = new Set([currentYear]);
-        if (oldestCompletion?.completionDate) {
-            const startYr = parseInt(oldestCompletion.completionDate.slice(0, 4), 10);
-            const endYr = newestCompletion?.completionDate
-                ? parseInt(newestCompletion.completionDate.slice(0, 4), 10)
-                : currentYear;
-            if (!isNaN(startYr) && !isNaN(endYr)) {
-                for (let y = Math.min(startYr, currentYear); y <= Math.max(endYr, currentYear); y++) {
-                    yearsSet.add(y);
+            const activityList = Object.entries(dateMap).map(([date, data]) => ({
+                date,
+                count: data.count,
+                tasks: data.tasks
+            })).sort((a, b) => a.date.localeCompare(b.date));
+            // Determine available years efficiently using min and max completions
+            const [oldestCompletion, newestCompletion] = await Promise.all([
+                prisma_1.default.taskCompletion.findFirst({
+                    where: { userId },
+                    orderBy: { completionDate: 'asc' },
+                    select: { completionDate: true }
+                }),
+                prisma_1.default.taskCompletion.findFirst({
+                    where: { userId },
+                    orderBy: { completionDate: 'desc' },
+                    select: { completionDate: true }
+                })
+            ]);
+            const yearsSet = new Set([currentYear]);
+            if (oldestCompletion?.completionDate) {
+                const startYr = parseInt(oldestCompletion.completionDate.slice(0, 4), 10);
+                const endYr = newestCompletion?.completionDate
+                    ? parseInt(newestCompletion.completionDate.slice(0, 4), 10)
+                    : currentYear;
+                if (!isNaN(startYr) && !isNaN(endYr)) {
+                    for (let y = Math.min(startYr, currentYear); y <= Math.max(endYr, currentYear); y++) {
+                        yearsSet.add(y);
+                    }
                 }
             }
-        }
-        const availableYears = Array.from(yearsSet).sort((a, b) => a - b);
-        const freezeDates = freezeLogs.map((f) => ({
-            date: f.protectedDate,
-            scopeKey: f.scopeKey
-        }));
-        return res.json({
-            success: true,
-            year: targetYear,
-            startDate: rangeStart,
-            endDate: rangeEnd,
-            today: todayStr,
-            timezone,
-            availableYears,
-            activity: activityList,
-            freezeDates,
-            totalCompletions: completions.length,
-            activeDaysCount: activityList.filter((a) => a.count > 0).length
+            const availableYears = Array.from(yearsSet).sort((a, b) => a - b);
+            const freezeDates = freezeLogs.map((f) => ({
+                date: f.protectedDate,
+                scopeKey: f.scopeKey
+            }));
+            return {
+                success: true,
+                year: targetYear,
+                startDate: rangeStart,
+                endDate: rangeEnd,
+                today: todayStr,
+                timezone,
+                availableYears,
+                activity: activityList,
+                freezeDates,
+                totalCompletions: completions.length,
+                activeDaysCount: activityList.filter((a) => a.count > 0).length
+            };
+        }, {
+            freshTtlMs: 60 * 1000,
+            staleTtlMs: 5 * 60 * 1000,
+            tags: [`user:${userId}`, 'heatmap']
         });
+        return res.json(result.data);
     }
     catch (err) {
         console.error('getActivityHistory error:', err);

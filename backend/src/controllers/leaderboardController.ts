@@ -5,6 +5,7 @@ import { getLocalDateString } from '../services/timezoneService';
 import { ensureUserStreakCurrent } from '../services/streakService';
 import { isDatabaseConnectionError, DB_CONNECTION_NOTICE } from '../utils/dbError';
 import { getUserLeaderboardLimit } from '../services/adminConfigService';
+import swrCache from '../utils/cacheService';
 
 // In-memory TTL cache for leaderboards
 interface CacheEntry<T> {
@@ -15,6 +16,7 @@ const leaderboardCache = new Map<string, CacheEntry<any>>();
 
 export function clearLeaderboardCache() {
   leaderboardCache.clear();
+  swrCache.invalidateTag('leaderboard');
 }
 
 /**
@@ -32,12 +34,10 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
     const skip = (page - 1) * limit;
 
     const cacheKey = `global_${type}_${page}_${limit}_${search}_${currentUserId || 'anon'}`;
-    const cached = leaderboardCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return res.json(cached.data);
-    }
-
-    const where: any = {};
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        const where: any = {};
     const { loadAllDeletedAccounts } = await import('../services/deletedAccountService');
     const deletedUserIds = loadAllDeletedAccounts()
       .filter((a) => a.status === 'DELETED')
@@ -250,8 +250,16 @@ export async function getGlobalLeaderboard(req: AuthenticatedRequest, res: Respo
       userLeaderboardLimit: userLimit
     };
 
-    leaderboardCache.set(cacheKey, { data: responsePayload, expiresAt: Date.now() + 25000 });
-    return res.json(responsePayload);
+        return responsePayload;
+      },
+      {
+        freshTtlMs: 25 * 1000,
+        staleTtlMs: 2 * 60 * 1000,
+        tags: ['leaderboard', 'global_leaderboard']
+      }
+    );
+
+    return res.json(result.data);
   } catch (err: any) {
     if (isDatabaseConnectionError(err)) {
       console.warn('⚠️ Leaderboard DB query failed: PostgreSQL not connected yet.');
@@ -284,13 +292,11 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
     const type = req.query.type === 'points' ? 'points' : 'streak';
 
     const cacheKey = `friends_${type}_${userId}`;
-    const cached = leaderboardCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return res.json(cached.data);
-    }
-
-    // Get all accepted friends
-    const friendships = await prisma.friendship.findMany({
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        // Get all accepted friends
+        const friendships = await prisma.friendship.findMany({
       where: {
         OR: [{ user1Id: userId }, { user2Id: userId }]
       },
@@ -421,8 +427,16 @@ export async function getFriendsLeaderboard(req: AuthenticatedRequest, res: Resp
       totalParticipants: friendsLeaderboard.length,
       currentUserEntry
     };
-    leaderboardCache.set(cacheKey, { data: friendsPayload, expiresAt: Date.now() + 20000 });
-    return res.json(friendsPayload);
+        return friendsPayload;
+      },
+      {
+        freshTtlMs: 20 * 1000,
+        staleTtlMs: 2 * 60 * 1000,
+        tags: ['leaderboard', `user:${userId}`]
+      }
+    );
+
+    return res.json(result.data);
   } catch (err: any) {
     if (isDatabaseConnectionError(err)) {
       return res.status(503).json({ success: false, error: DB_CONNECTION_NOTICE });

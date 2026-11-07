@@ -9,6 +9,7 @@ exports.createNotification = createNotification;
 exports.checkAndTriggerMilestones = checkAndTriggerMilestones;
 exports.checkAndTriggerFriendActivityAlerts = checkAndTriggerFriendActivityAlerts;
 const prisma_1 = __importDefault(require("../config/prisma"));
+const cacheService_1 = __importDefault(require("../utils/cacheService"));
 const client_1 = require("@prisma/client");
 const timezoneService_1 = require("./timezoneService");
 const fuzzyMatchService_1 = require("./fuzzyMatchService");
@@ -114,6 +115,7 @@ async function createNotification(params) {
                 eventKey,
             },
         });
+        cacheService_1.default.invalidateTag(`notif:${userId}`);
     }
     // 4. Check if Email delivery is enabled for this category
     const isEmailCategoryEnabled = () => {

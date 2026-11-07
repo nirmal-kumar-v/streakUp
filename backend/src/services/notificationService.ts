@@ -1,4 +1,5 @@
 import prisma from '../config/prisma';
+import swrCache from '../utils/cacheService';
 import {
   NotificationCategory,
   FreezeScope,
@@ -152,6 +153,7 @@ export async function createNotification(params: CreateNotificationParams) {
         eventKey,
       },
     });
+    swrCache.invalidateTag(`notif:${userId}`);
   }
 
   // 4. Check if Email delivery is enabled for this category

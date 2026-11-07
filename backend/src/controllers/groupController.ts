@@ -15,6 +15,7 @@ import {
   uncompleteSpecialActivity,
 } from '../services/specialGroupService';
 import { ensureTaskStreakCurrent } from '../services/streakService';
+import swrCache from '../utils/cacheService';
 
 const createGroupSchema = z.object({
   name: z.string().trim().min(3, 'Group name must be at least 3 characters').max(50),
@@ -202,6 +203,8 @@ export async function createGroup(req: AuthenticatedRequest, res: Response) {
 
       return newGroup;
     });
+
+    swrCache.invalidateUser(userId);
 
     return res.status(201).json({
       success: true,
@@ -626,6 +629,10 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
       await ensureSpecialGroupMemberTasks(group.id, applicantUserId);
     }
 
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(applicantUserId);
+    swrCache.invalidateUser(adminUserId);
+
     return res.json({
       success: true,
       message: `Applicant accepted! The shared group task has been automatically assigned to their checklist.`,
@@ -642,83 +649,96 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
 export async function getUserGroups(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
+    const cacheKey = `groups:list:${userId}`;
 
-    const memberships = await prisma.groupMember.findMany({
-      where: { userId },
-      include: {
-        group: {
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        const memberships = await prisma.groupMember.findMany({
+          where: { userId },
           include: {
-            owner: { select: { id: true, name: true, username: true } },
-            _count: { select: { members: true } },
+            group: {
+              include: {
+                owner: { select: { id: true, name: true, username: true } },
+                _count: { select: { members: true } },
+              },
+            },
           },
-        },
+          orderBy: { joinedAt: 'desc' },
+        });
+
+        const myGroupIds = memberships.map((m) => m.group.id);
+        const adminGroupIds = memberships
+          .filter((m) => m.role === 'OWNER' || m.role === 'ADMIN')
+          .map((m) => m.group.id);
+
+        // Concurrently fetch pending requests counts & all user tasks for these groups
+        const [pendingRequests, userGroupTasks] = await Promise.all([
+          adminGroupIds.length > 0
+            ? prisma.groupJoinRequest.groupBy({
+                by: ['groupId'],
+                where: { groupId: { in: adminGroupIds }, status: 'PENDING' },
+                _count: { id: true },
+              })
+            : [],
+          prisma.task.findMany({
+            where: { userId, groupId: { in: myGroupIds }, status: 'ACTIVE' },
+            select: { groupId: true, specialActivity: true, currentStreak: true },
+          }),
+        ]);
+
+        const pendingRequestsMap = new Map<string, number>();
+        pendingRequests.forEach((p) => {
+          pendingRequestsMap.set(p.groupId, p._count.id);
+        });
+
+        const tasksByGroupMap = new Map<string, number[]>();
+        userGroupTasks.forEach((t) => {
+          if (t.groupId) {
+            const arr = tasksByGroupMap.get(t.groupId) || [];
+            arr.push(t.currentStreak || 0);
+            tasksByGroupMap.set(t.groupId, arr);
+          }
+        });
+
+        const groups = memberships.map((m) => {
+          const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
+          const streaks = tasksByGroupMap.get(m.group.id) || [];
+          const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+
+          return {
+            id: m.group.id,
+            name: m.group.name,
+            description: m.group.description,
+            joinCode: m.group.joinCode,
+            scheduledDays: m.group.scheduledDays,
+            owner: m.group.owner,
+            role: m.role,
+            isOwner: m.role === 'OWNER',
+            isAdmin: m.role === 'OWNER' || m.role === 'ADMIN',
+            memberCount: m.group._count.members,
+            pendingRequestsCount,
+            currentStreak,
+            isSpecialGroup: m.group.isSpecialGroup,
+            specialPlatform: m.group.specialPlatform,
+            isPotdCommitted: m.isPotdCommitted,
+            joinedAt: m.joinedAt,
+          };
+        });
+
+        return {
+          success: true,
+          groups,
+        };
       },
-      orderBy: { joinedAt: 'desc' },
-    });
-
-    const myGroupIds = memberships.map((m) => m.group.id);
-    const adminGroupIds = memberships
-      .filter((m) => m.role === 'OWNER' || m.role === 'ADMIN')
-      .map((m) => m.group.id);
-
-    // Concurrently fetch pending requests counts & all user tasks for these groups
-    const [pendingRequests, userGroupTasks] = await Promise.all([
-      adminGroupIds.length > 0
-        ? prisma.groupJoinRequest.groupBy({
-            by: ['groupId'],
-            where: { groupId: { in: adminGroupIds }, status: 'PENDING' },
-            _count: { id: true },
-          })
-        : [],
-      prisma.task.findMany({
-        where: { userId, groupId: { in: myGroupIds }, status: 'ACTIVE' },
-        select: { groupId: true, specialActivity: true, currentStreak: true },
-      }),
-    ]);
-
-    const pendingRequestsMap = new Map<string, number>();
-    pendingRequests.forEach((p) => {
-      pendingRequestsMap.set(p.groupId, p._count.id);
-    });
-
-    const tasksByGroupMap = new Map<string, number[]>();
-    userGroupTasks.forEach((t) => {
-      if (t.groupId) {
-        const arr = tasksByGroupMap.get(t.groupId) || [];
-        arr.push(t.currentStreak || 0);
-        tasksByGroupMap.set(t.groupId, arr);
+      {
+        freshTtlMs: 30 * 1000,
+        staleTtlMs: 3 * 60 * 1000,
+        tags: [`user:${userId}`, 'groups'],
       }
-    });
+    );
 
-    const groups = memberships.map((m) => {
-      const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
-      const streaks = tasksByGroupMap.get(m.group.id) || [];
-      const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
-
-      return {
-        id: m.group.id,
-        name: m.group.name,
-        description: m.group.description,
-        joinCode: m.group.joinCode,
-        scheduledDays: m.group.scheduledDays,
-        owner: m.group.owner,
-        role: m.role,
-        isOwner: m.role === 'OWNER',
-        isAdmin: m.role === 'OWNER' || m.role === 'ADMIN',
-        memberCount: m.group._count.members,
-        pendingRequestsCount,
-        currentStreak,
-        isSpecialGroup: m.group.isSpecialGroup,
-        specialPlatform: m.group.specialPlatform,
-        isPotdCommitted: m.isPotdCommitted,
-        joinedAt: m.joinedAt,
-      };
-    });
-
-    return res.json({
-      success: true,
-      groups,
-    });
+    return res.json(result.data);
   } catch (err: any) {
     console.error('getUserGroups error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve groups.' });
@@ -794,8 +814,13 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       }
     }
 
-    // Fetch user's assigned group task
-    const userTask = await prisma.task.findFirst({
+    // Build group details with SWR caching
+    const cacheKey = `group:details:${id}:${userId}`;
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        // Fetch user's assigned group task
+        const userTask = await prisma.task.findFirst({
       where: { userId, groupId: id },
       include: {
         completions: {
@@ -908,49 +933,58 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
       specialGroupView = await getSpecialGroupActivitiesForMember(id, userId, timezone);
     }
 
-    return res.json({
-      success: true,
-      group: {
-        id: group.id,
-        name: group.name,
-        description: group.description,
-        joinCode: group.joinCode,
-        scheduledDays: group.scheduledDays,
-        owner: group.owner,
-        userRole: membership.role,
-        isOwner: membership.role === 'OWNER',
-        isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
-        memberCount: members.length,
-        groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
-        groupVisibleOnlyTo: membership.role === 'OWNER' ? (group.visibleOnlyTo || []) : [],
-        memberHiddenFrom: membership.hiddenFrom || [],
-        pendingRequestsCount,
-        hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
-        isSpecialGroup: group.isSpecialGroup,
-        specialPlatform: group.specialPlatform,
-        isPotdCommitted: membership.isPotdCommitted,
-        specialGroupView,
-        createdAt: group.createdAt,
-        userTask: userTask
-          ? {
-              id: userTask.id,
-              title: userTask.title,
-              description: userTask.description,
-              scheduledDays: userTask.scheduledDays,
-              currentStreak: userTask.currentStreak,
-              longestStreak: userTask.longestStreak,
-              freezeBalance: userTask.freezeBalance,
-              freezeRechargeDays: userTask.freezeRechargeDays,
-              status: userTask.status,
-              hiddenFrom: userTask.hiddenFrom || [],
-              visibleOnlyTo: userTask.visibleOnlyTo || [],
-              completedToday,
-              todayStudyNote,
-            }
-          : null,
-        members,
+        return {
+          success: true,
+          group: {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            joinCode: group.joinCode,
+            scheduledDays: group.scheduledDays,
+            owner: group.owner,
+            userRole: membership.role,
+            isOwner: membership.role === 'OWNER',
+            isAdmin: membership.role === 'OWNER' || membership.role === 'ADMIN',
+            memberCount: members.length,
+            groupHiddenFrom: membership.role === 'OWNER' ? (group.hiddenFrom || []) : [],
+            groupVisibleOnlyTo: membership.role === 'OWNER' ? (group.visibleOnlyTo || []) : [],
+            memberHiddenFrom: membership.hiddenFrom || [],
+            pendingRequestsCount,
+            hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
+            isSpecialGroup: group.isSpecialGroup,
+            specialPlatform: group.specialPlatform,
+            isPotdCommitted: membership.isPotdCommitted,
+            specialGroupView,
+            createdAt: group.createdAt,
+            userTask: userTask
+              ? {
+                  id: userTask.id,
+                  title: userTask.title,
+                  description: userTask.description,
+                  scheduledDays: userTask.scheduledDays,
+                  currentStreak: userTask.currentStreak,
+                  longestStreak: userTask.longestStreak,
+                  freezeBalance: userTask.freezeBalance,
+                  freezeRechargeDays: userTask.freezeRechargeDays,
+                  status: userTask.status,
+                  hiddenFrom: userTask.hiddenFrom || [],
+                  visibleOnlyTo: userTask.visibleOnlyTo || [],
+                  completedToday,
+                  todayStudyNote,
+                }
+              : null,
+            members,
+          },
+        };
       },
-    });
+      {
+        freshTtlMs: 30 * 1000,
+        staleTtlMs: 3 * 60 * 1000,
+        tags: [`group:${id}`, `user:${userId}`],
+      }
+    );
+
+    return res.json(result.data);
   } catch (err: any) {
     console.error('getGroupDetails error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve group details.' });
@@ -995,7 +1029,11 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
     const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN');
     const activityFilter = ((req.query.activity as string) || 'overall').toLowerCase(); // 'overall' | 'daily' | 'potd'
 
-    const members = await prisma.groupMember.findMany({
+    const cacheKey = `group:lb:${id}:${type}:${activityFilter}:${userId}`;
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        const members = await prisma.groupMember.findMany({
       where: { groupId: id },
       include: {
         user: {
@@ -1204,17 +1242,26 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
       ...entry,
     }));
 
-    return res.json({
-      success: true,
-      groupId: group.id,
-      groupName: group.name,
-      isSpecialGroup,
-      specialPlatform: group.specialPlatform,
-      type,
-      activity: activityFilter,
-      weekRange: { startDate, endDate },
-      leaderboard: leaderboardWithRank,
-    });
+        return {
+          success: true,
+          groupId: group.id,
+          groupName: group.name,
+          isSpecialGroup,
+          specialPlatform: group.specialPlatform,
+          type,
+          activity: activityFilter,
+          weekRange: { startDate, endDate },
+          leaderboard: leaderboardWithRank,
+        };
+      },
+      {
+        freshTtlMs: 30 * 1000,
+        staleTtlMs: 3 * 60 * 1000,
+        tags: [`group:${id}`, `user:${userId}`],
+      }
+    );
+
+    return res.json(result.data);
   } catch (err: any) {
     console.error('getGroupLeaderboards error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve group leaderboard.' });
@@ -1358,6 +1405,9 @@ export async function promoteMemberToAdmin(req: AuthenticatedRequest, res: Respo
       data: { role: 'ADMIN' },
     });
 
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(targetUserId);
+
     return res.json({
       success: true,
       message: 'Member promoted to Admin successfully.',
@@ -1412,6 +1462,9 @@ export async function removeMemberFromGroup(req: AuthenticatedRequest, res: Resp
         data: { status: 'ARCHIVED' },
       });
     });
+
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(targetUserId);
 
     return res.json({
       success: true,
@@ -1489,6 +1542,9 @@ export async function leaveGroup(req: AuthenticatedRequest, res: Response) {
           });
         });
 
+        swrCache.invalidateGroup(id);
+        swrCache.invalidateUser(userId);
+
         return res.json({ success: true, message: 'You left the group. Ownership transferred.' });
       }
     } else {
@@ -1502,6 +1558,9 @@ export async function leaveGroup(req: AuthenticatedRequest, res: Response) {
           data: { status: 'ARCHIVED' },
         });
       });
+
+      swrCache.invalidateGroup(id);
+      swrCache.invalidateUser(userId);
 
       return res.json({ success: true, message: 'You left the group.' });
     }
@@ -1570,6 +1629,8 @@ export async function updateGroup(req: AuthenticatedRequest, res: Response) {
       return group;
     });
 
+    swrCache.invalidateGroup(id);
+
     return res.json({
       success: true,
       message: 'Group updated successfully.',
@@ -1609,6 +1670,9 @@ export async function updateMemberGroupPrivacy(req: AuthenticatedRequest, res: R
         hiddenFrom,
       },
     });
+
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(userId);
 
     return res.json({
       success: true,
@@ -2034,6 +2098,9 @@ export async function respondToGroupInvitation(req: AuthenticatedRequest, res: R
       await ensureSpecialGroupMemberTasks(group.id, userId);
     }
 
+    swrCache.invalidateGroup(group.id);
+    swrCache.invalidateUser(userId);
+
     return res.json({
       success: true,
       message: `You joined "${group.name}"! The shared group task is now active on your dashboard.`,
@@ -2100,6 +2167,9 @@ export async function makeGroupTask(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    swrCache.invalidateGroup(group.id);
+    swrCache.invalidateUser(userId);
+
     return res.json({
       success: true,
       message: `"${group.name}" has been added to your dashboard tasks.`,
@@ -2131,6 +2201,9 @@ export async function removeGroupTask(req: AuthenticatedRequest, res: Response) 
       where: { id: existingTask.id },
       data: { status: 'ARCHIVED' },
     });
+
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(userId);
 
     return res.json({
       success: true,
@@ -2167,6 +2240,9 @@ export async function updateMemberGroupCommitment(req: AuthenticatedRequest, res
       where: { groupId_userId: { groupId: id, userId } },
       data: { isPotdCommitted },
     });
+
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(userId);
 
     return res.json({
       success: true,
@@ -2235,6 +2311,9 @@ export async function completeGroupSpecialActivity(req: AuthenticatedRequest, re
       studyNote
     );
 
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(userId);
+
     return res.json(result);
   } catch (err: any) {
     console.error('completeGroupSpecialActivity error:', err);
@@ -2266,6 +2345,9 @@ export async function uncompleteGroupSpecialActivity(req: AuthenticatedRequest, 
       activityType as 'daily' | 'potd',
       timezone
     );
+
+    swrCache.invalidateGroup(id);
+    swrCache.invalidateUser(userId);
 
     return res.json(result);
   } catch (err: any) {

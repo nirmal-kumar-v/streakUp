@@ -80,4 +80,42 @@ router.patch('/managers/:userId/email', adminController_1.updateManagerEmailAdmi
 // Admin Direct Messaging to Users
 router.post('/send-message', adminController_1.sendAdminMessage);
 router.get('/messages', adminController_1.getAdminMessageLogsController);
+// Platform System Stats
+router.get('/stats', adminController_1.adminGetPlatformStats);
+// Friendship & Friend Request Management
+router.get('/users/:userId/friend-requests', adminController_1.adminGetUserFriendRequests);
+router.post('/friend-requests/:requestId/accept', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminForceAcceptFriendRequest);
+router.post('/friend-requests/:requestId/reject', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminForceRejectFriendRequest);
+router.post('/friendships/create', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminForceCreateFriendship);
+router.delete('/friendships', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminForceRemoveFriendship);
+// Group Join Requests, Invitations & Direct Membership
+router.get('/groups/:groupId/join-requests', adminController_1.adminGetGroupJoinRequests);
+router.post('/groups/:groupId/join-requests/:requestId/respond', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminRespondToGroupJoinRequest);
+router.get('/groups/:groupId/invitations', adminController_1.adminGetGroupInvitations);
+router.delete('/invitations/:invitationId', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCancelGroupInvitation);
+router.post('/groups/:groupId/force-add-member', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminForceAddMemberToGroup);
+router.post('/groups/:groupId/members/:userId/visibility', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminSetGroupMemberVisibility);
+// User Notifications Administration
+router.get('/users/:userId/notifications', adminController_1.adminGetUserNotifications);
+router.delete('/notifications/:notificationId', adminController_1.adminDeleteNotification);
+router.delete('/users/:userId/notifications', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminClearUserNotifications);
+router.post('/users/:userId/notifications/mark-all-read', adminController_1.adminMarkAllNotificationsRead);
+// User Points Ledger & Milestones
+router.get('/users/:userId/point-ledger', adminController_1.adminGetUserPointLedger);
+router.delete('/users/:userId/milestones', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminResetUserMilestones);
+// Task & Completion Administration
+router.post('/users/:userId/tasks', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCreateTaskForUser);
+router.delete('/completions/:completionId', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminDeleteTaskCompletion);
+router.post('/users/:userId/tasks/:taskId/uncomplete', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminUncompleteTask);
+// Reminder Scheduling
+router.post('/users/:userId/reminders/create', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCreateReminderSchedule);
+// System Health, Diagnostics & Platform Controls
+router.get('/system/health', adminController_1.adminGetSystemHealth);
+router.post('/system/cache/flush', adminController_1.adminFlushCaches);
+router.post('/system/reconcile-streaks', adminController_1.adminReconcileStreaks);
+router.get('/system/announcement', adminController_1.adminGetAnnouncement);
+router.post('/system/announcement', adminController_1.adminUpdateAnnouncement);
+router.post('/users/batch-grant-freeze', adminController_1.adminBatchGrantFreeze);
+router.get('/system/export/users', adminController_1.adminExportUsers);
+router.get('/system/export/audit-logs', adminController_1.adminExportAuditLogs);
 exports.default = router;

@@ -5,6 +5,7 @@ import { getLocalDateString } from '../services/timezoneService';
 import { compareTaskTitles } from '../services/fuzzyMatchService';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 import { ensureUserStreakCurrent, ensureTaskStreakCurrent } from '../services/streakService';
+import swrCache from '../utils/cacheService';
 
 /**
  * Helper to get all accepted friend IDs for a user
@@ -354,8 +355,12 @@ export async function getTaskFriendsLeaderboard(req: AuthenticatedRequest, res: 
       });
     }
 
-    // Cohort for comparison: task owner + their accepted friends
-    const targetUserId = baseTask.userId;
+    const cacheKey = `task:friends_lb:${id}:${userId}`;
+    const result = await swrCache.swr(
+      cacheKey,
+      async () => {
+        // Cohort for comparison: task owner + their accepted friends
+        const targetUserId = baseTask.userId;
     const friendIds = await getAcceptedFriendUserIds(targetUserId);
     const cohortUserIds = Array.from(new Set([targetUserId, ...friendIds]));
 
@@ -500,12 +505,21 @@ export async function getTaskFriendsLeaderboard(req: AuthenticatedRequest, res: 
       ...entry
     }));
 
-    return res.json({
-      success: true,
-      taskTitle: baseTask.title,
-      leaderboard: rankedLeaderboard,
-      suggestedMatches: isOwner ? suggestedMatches : [] // only owner sees suggestions to confirm
-    });
+        return {
+          success: true,
+          taskTitle: baseTask.title,
+          leaderboard: rankedLeaderboard,
+          suggestedMatches: isOwner ? suggestedMatches : [] // only owner sees suggestions to confirm
+        };
+      },
+      {
+        freshTtlMs: 30 * 1000,
+        staleTtlMs: 3 * 60 * 1000,
+        tags: [`task:${id}`, `user:${userId}`]
+      }
+    );
+
+    return res.json(result.data);
   } catch (err: any) {
     console.error('getTaskFriendsLeaderboard error:', err);
     return res.status(500).json({ success: false, error: 'Failed to retrieve task friends leaderboard.' });
@@ -570,6 +584,9 @@ export async function confirmTaskEquivalence(req: AuthenticatedRequest, res: Res
       }
     });
 
+    swrCache.invalidateTag(`task:${userTaskId}`);
+    swrCache.invalidateTag(`task:${friendTaskId}`);
+
     return res.json({
       success: true,
       message: 'Task equivalence confirmed successfully.'
@@ -625,6 +642,9 @@ export async function rejectTaskEquivalence(req: AuthenticatedRequest, res: Resp
         confirmedByUserId: userId
       }
     });
+
+    swrCache.invalidateTag(`task:${userTaskId}`);
+    swrCache.invalidateTag(`task:${friendTaskId}`);
 
     return res.json({
       success: true,

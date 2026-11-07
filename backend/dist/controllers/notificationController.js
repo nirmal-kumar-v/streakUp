@@ -26,6 +26,9 @@ const emailService_1 = require("../services/emailService");
 const reminderSchedulerService_1 = require("../services/reminderSchedulerService");
 const adminConfigService_1 = require("../services/adminConfigService");
 const otpService_1 = require("../services/otpService");
+const cacheService_1 = __importDefault(require("../utils/cacheService"));
+const lastCleanupByUser = new Map();
+const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours throttle for auto-clean
 /**
  * GET /api/notifications
  * Lists notifications with pagination, read/unread filters, and unread badge count
@@ -34,90 +37,103 @@ async function getNotifications(req, res) {
     try {
         const userId = req.user.userId;
         const { category, status = 'all', page = '1', limit = '20' } = req.query;
-        // Auto-clean read, non-starred notifications older than 15 days
-        const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
-        await prisma_1.default.notification.deleteMany({
-            where: {
-                userId,
-                isRead: true,
-                isStarred: false,
-                createdAt: { lt: fifteenDaysAgo },
-            },
-        });
+        // Non-blocking auto-clean read, non-starred notifications older than 15 days (throttled to once every 6h)
+        const now = Date.now();
+        const lastCleanup = lastCleanupByUser.get(userId) || 0;
+        if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
+            lastCleanupByUser.set(userId, now);
+            const fifteenDaysAgo = new Date(now - 15 * 24 * 60 * 60 * 1000);
+            prisma_1.default.notification.deleteMany({
+                where: {
+                    userId,
+                    isRead: true,
+                    isStarred: false,
+                    createdAt: { lt: fifteenDaysAgo },
+                },
+            }).catch((err) => console.warn('[notifications] Auto-clean error:', err));
+        }
         const pageNum = Math.max(1, parseInt(page, 10) || 1);
         const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
         const skip = (pageNum - 1) * limitNum;
-        const where = {
-            userId,
-            isDismissed: false,
-        };
-        if (category && Object.values(client_1.NotificationCategory).includes(category)) {
-            where.category = category;
-        }
-        if (status === 'unread') {
-            where.isRead = false;
-        }
-        else if (status === 'read') {
-            where.isRead = true;
-        }
-        else if (status === 'starred') {
-            where.isStarred = true;
-        }
-        const [notifications, totalCount, unreadCount, allCount, starredCount] = await Promise.all([
-            prisma_1.default.notification.findMany({
-                where,
-                orderBy: { createdAt: 'desc' },
-                skip,
-                take: limitNum,
-                include: {
-                    friend: {
-                        select: {
-                            id: true,
-                            name: true,
-                            username: true,
-                            profileImage: true,
+        const cacheKey = `notifications:${userId}:${category || 'all'}:${status}:${pageNum}:${limitNum}`;
+        const result = await cacheService_1.default.swr(cacheKey, async () => {
+            const where = {
+                userId,
+                isDismissed: false,
+            };
+            if (category && Object.values(client_1.NotificationCategory).includes(category)) {
+                where.category = category;
+            }
+            if (status === 'unread') {
+                where.isRead = false;
+            }
+            else if (status === 'read') {
+                where.isRead = true;
+            }
+            else if (status === 'starred') {
+                where.isStarred = true;
+            }
+            const [notifications, totalCount, unreadCount, allCount, starredCount] = await Promise.all([
+                prisma_1.default.notification.findMany({
+                    where,
+                    orderBy: { createdAt: 'desc' },
+                    skip,
+                    take: limitNum,
+                    include: {
+                        friend: {
+                            select: {
+                                id: true,
+                                name: true,
+                                username: true,
+                                profileImage: true,
+                            },
+                        },
+                        task: {
+                            select: {
+                                id: true,
+                                title: true,
+                            },
                         },
                     },
-                    task: {
-                        select: {
-                            id: true,
-                            title: true,
-                        },
+                }),
+                prisma_1.default.notification.count({ where }),
+                prisma_1.default.notification.count({
+                    where: {
+                        userId,
+                        isDismissed: false,
+                        isRead: false,
                     },
-                },
-            }),
-            prisma_1.default.notification.count({ where }),
-            prisma_1.default.notification.count({
-                where: {
-                    userId,
-                    isDismissed: false,
-                    isRead: false,
-                },
-            }),
-            prisma_1.default.notification.count({
-                where: {
-                    userId,
-                    isDismissed: false,
-                },
-            }),
-            prisma_1.default.notification.count({
-                where: {
-                    userId,
-                    isDismissed: false,
-                    isStarred: true,
-                },
-            }),
-        ]);
-        return res.json({
-            success: true,
-            notifications,
-            unreadCount,
-            totalCount,
-            allCount,
-            starredCount,
-            page: pageNum,
-            totalPages: Math.ceil(totalCount / limitNum) || 1,
+                }),
+                prisma_1.default.notification.count({
+                    where: {
+                        userId,
+                        isDismissed: false,
+                    },
+                }),
+                prisma_1.default.notification.count({
+                    where: {
+                        userId,
+                        isDismissed: false,
+                        isStarred: true,
+                    },
+                }),
+            ]);
+            return {
+                success: true,
+                notifications,
+                unreadCount,
+                totalCount,
+                allCount,
+                starredCount,
+                page: pageNum,
+                totalPages: Math.ceil(totalCount / limitNum) || 1,
+            };
+        }, {
+            freshTtlMs: 15 * 1000,
+            staleTtlMs: 60 * 1000,
+            tags: [`notif:${userId}`, `user:${userId}`],
         });
+        return res.json(result.data);
     }
     catch (err) {
         console.error('getNotifications error:', err);
@@ -162,6 +178,7 @@ async function toggleStarNotification(req, res) {
                 starredAt: !notif.isStarred ? new Date() : null,
             },
         });
+        cacheService_1.default.invalidateTag(`notif:${userId}`);
         return res.json({ success: true, notification: updated });
     }
     catch (err) {
@@ -191,6 +208,7 @@ async function markNotificationAsRead(req, res) {
                 readAt: new Date(),
             },
         });
+        cacheService_1.default.invalidateTag(`notif:${userId}`);
         return res.json({ success: true, notification: updated });
     }
     catch (err) {
@@ -216,6 +234,7 @@ async function markAllNotificationsAsRead(req, res) {
                 readAt: new Date(),
             },
         });
+        cacheService_1.default.invalidateTag(`notif:${userId}`);
         return res.json({
             success: true,
             message: 'All notifications marked as read.',
@@ -248,6 +267,7 @@ async function dismissNotification(req, res) {
                 dismissedAt: new Date(),
             },
         });
+        cacheService_1.default.invalidateTag(`notif:${userId}`);
         return res.json({
             success: true,
             message: 'Notification dismissed.',

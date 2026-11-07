@@ -22,6 +22,7 @@ import {
   loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
+import swrCache from '../utils/cacheService';
 import { getPlatformAnnouncement, updatePlatformAnnouncement } from '../services/announcementService';
 import { calculateNextOccurrence, runReminderCheck } from '../services/reminderSchedulerService';
 import { validateImageBuffer } from '../utils/imageValidator';
@@ -5810,6 +5811,7 @@ export async function adminFlushCaches(req: AdminAuthenticatedRequest, res: Resp
   try {
     clearLeaderboardCache();
     cachedPlatformStats = null;
+    swrCache.clearAll();
     await loadUserAdminConfigsFromDb().catch(() => {});
 
     await recordAuditLog({
@@ -5837,6 +5839,8 @@ export async function adminFlushCaches(req: AdminAuthenticatedRequest, res: Resp
 export async function adminReconcileStreaks(req: AdminAuthenticatedRequest, res: Response) {
   try {
     const result = await reconcileStaleStreaks(prisma);
+    swrCache.clearAll();
+    clearLeaderboardCache();
 
     await recordAuditLog({
       adminUsername: req.admin!.username,

@@ -62,6 +62,15 @@ const handleHealth = (_req, res) => {
         hasJwtSecret: Boolean(process.env.JWT_SECRET)
     });
 };
+const announcementService_1 = require("./services/announcementService");
+app.get('/api/announcement', (_req, res) => {
+    const announcement = (0, announcementService_1.getPlatformAnnouncement)();
+    res.json({ success: true, announcement });
+});
+app.get('/announcement', (_req, res) => {
+    const announcement = (0, announcementService_1.getPlatformAnnouncement)();
+    res.json({ success: true, announcement });
+});
 app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
 app.get('/api', handleHealth);
