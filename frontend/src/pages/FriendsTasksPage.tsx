@@ -21,28 +21,16 @@ import {
   ChevronRight,
   Calendar,
 } from 'lucide-react';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const FRIENDS_TASKS_CACHE_KEY = 'streakup_friends_tasks_cache';
 
 function getCachedFriendsTasks(): { tasks: FriendTaskGroup[]; activity: StudyActivityItem[] } | null {
-  try {
-    const raw = sessionStorage.getItem(FRIENDS_TASKS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
-      return parsed.data;
-    }
-  } catch (e) {}
-  return null;
+  return getPersistentData<{ tasks: FriendTaskGroup[]; activity: StudyActivityItem[] }>(FRIENDS_TASKS_CACHE_KEY);
 }
 
 function setCachedFriendsTasks(data: { tasks: FriendTaskGroup[]; activity: StudyActivityItem[] }) {
-  try {
-    sessionStorage.setItem(
-      FRIENDS_TASKS_CACHE_KEY,
-      JSON.stringify({ timestamp: Date.now(), data })
-    );
-  } catch (e) {}
+  setPersistentData(FRIENDS_TASKS_CACHE_KEY, data);
 }
 
 export const FriendsTasksPage: React.FC = () => {

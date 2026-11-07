@@ -40,37 +40,16 @@ import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
 import { calculateOptimisticUserStreak } from '../utils/streak';
 import { syncStatsToWidget } from '../utils/nativeWidgetBridge';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const DASHBOARD_CACHE_KEY = 'streakup_dashboard_summary_cache';
 
-interface CachedDashboardData {
-  timestamp: number;
-  data: any;
-}
-
 function getCachedDashboard(): any | null {
-  try {
-    const raw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
-    if (!raw) return null;
-    const parsed: CachedDashboardData = JSON.parse(raw);
-    if (Date.now() - parsed.timestamp < 180000) {
-      return parsed.data;
-    }
-  } catch (e) {
-    // ignore
-  }
-  return null;
+  return getPersistentData<any>(DASHBOARD_CACHE_KEY);
 }
 
 function setCachedDashboard(data: any) {
-  try {
-    sessionStorage.setItem(
-      DASHBOARD_CACHE_KEY,
-      JSON.stringify({ timestamp: Date.now(), data })
-    );
-  } catch (e) {
-    // ignore
-  }
+  setPersistentData(DASHBOARD_CACHE_KEY, data);
 }
 
 export const DashboardPage: React.FC = () => {

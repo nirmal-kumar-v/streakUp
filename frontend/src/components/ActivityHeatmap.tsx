@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { DateTime } from 'luxon';
 import {
   Calendar,
@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { ActivityTaskInfo, fetchActivityHistory, ActivityHistoryResponse } from '../api/tasks';
 import { useBodyScrollLock } from '../utils/scrollLock';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 interface ActivityHeatmapProps {
   timezone?: string;
@@ -35,14 +36,33 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   const startDate = useMemo(() => todayDt.minus({ days: 364 }), [todayDt]);
   const endDate = todayDt;
 
-  const [activityMap, setActivityMap] = useState<Map<string, { count: number; tasks: ActivityTaskInfo[] }>>(new Map());
-  const [freezeMap, setFreezeMap] = useState<Map<string, string>>(new Map());
-  const [activeDaysCount, setActiveDaysCount] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const cacheKey = useMemo(
+    () => `heatmap_${startDate.toFormat('yyyy-MM-dd')}_${endDate.toFormat('yyyy-MM-dd')}`,
+    [startDate, endDate]
+  );
+  const initialCache = useMemo(() => getPersistentData<ActivityHistoryResponse>(cacheKey), [cacheKey]);
 
-  // Client-side in-memory cache
-  const cacheRef = useRef<Map<string, ActivityHistoryResponse>>(new Map());
+  const [activityMap, setActivityMap] = useState<Map<string, { count: number; tasks: ActivityTaskInfo[] }>>(() => {
+    const map = new Map<string, { count: number; tasks: ActivityTaskInfo[] }>();
+    if (initialCache?.activity) {
+      initialCache.activity.forEach((item) => {
+        map.set(item.date, { count: item.count, tasks: item.tasks || [] });
+      });
+    }
+    return map;
+  });
+
+  const [freezeMap, setFreezeMap] = useState<Map<string, string>>(() => {
+    const fMap = new Map<string, string>();
+    if (initialCache?.freezeDates) {
+      initialCache.freezeDates.forEach((f) => fMap.set(f.date, f.scopeKey || 'OVERALL'));
+    }
+    return fMap;
+  });
+
+  const [activeDaysCount, setActiveDaysCount] = useState<number>(() => initialCache?.activeDaysCount || 0);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !initialCache);
+  const [error, setError] = useState('');
 
   // Selected date details modal
   const [selectedDateDetail, setSelectedDateDetail] = useState<{
@@ -88,15 +108,12 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
 
   // Fetch 365-day rolling activity data
   const loadActivityData = useCallback(async () => {
-    const cacheKey = `rolling_${startDate.toFormat('yyyy-MM-dd')}_${endDate.toFormat('yyyy-MM-dd')}`;
+    const cKey = `heatmap_${startDate.toFormat('yyyy-MM-dd')}_${endDate.toFormat('yyyy-MM-dd')}`;
+    const cached = getPersistentData<ActivityHistoryResponse>(cKey);
 
-    if (cacheRef.current.has(cacheKey)) {
-      const cached = cacheRef.current.get(cacheKey)!;
-      applyResponse(cached);
-      return;
+    if (!cached) {
+      setIsLoading(true);
     }
-
-    setIsLoading(true);
     setError('');
     try {
       const res = await fetchActivityHistory({
@@ -105,13 +122,15 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       });
 
       if (res && res.success) {
-        cacheRef.current.set(cacheKey, res);
+        setPersistentData(cKey, res);
         applyResponse(res);
-      } else {
+      } else if (!cached) {
         setError('Failed to load activity history.');
       }
     } catch (err: any) {
-      setError('Unable to load heatmap. Please check your network connection.');
+      if (!cached) {
+        setError('Unable to load heatmap. Please check your network connection.');
+      }
     } finally {
       setIsLoading(false);
     }

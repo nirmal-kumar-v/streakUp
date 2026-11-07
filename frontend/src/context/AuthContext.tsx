@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, getMe, logoutUser } from '../api/auth';
 import { syncTokenToWidget, clearTokenFromWidget } from '../utils/nativeWidgetBridge';
+import { clearAllPersistentData } from '../utils/persistentCache';
 
 export interface AuthContextType {
   user: User | null;
@@ -68,6 +69,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('streakup_token');
         localStorage.removeItem('streakup_user');
         clearTokenFromWidget();
+        clearAllPersistentData();
         setUser(null);
         setToken(null);
       }
@@ -100,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('streakup_token');
       localStorage.removeItem('streakup_user');
       clearTokenFromWidget();
+      clearAllPersistentData();
       setUser(null);
       setToken(null);
     }

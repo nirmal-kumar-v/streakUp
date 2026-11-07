@@ -37,28 +37,14 @@ import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
 import { isLinkedInName } from '../utils/linkedin';
 import { calculateOptimisticUserStreak } from '../utils/streak';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
-const TASKS_CACHE_KEY = 'streakup_tasks_page_cache';
-
-function getCachedTasksData(): { tasks: Task[]; counts: { active: number; archived: number } } | null {
-  try {
-    const raw = sessionStorage.getItem(TASKS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
-      return parsed.data;
-    }
-  } catch (e) {}
-  return null;
+function getCachedTasksData(status: 'ACTIVE' | 'ARCHIVED'): { tasks: Task[]; counts: { active: number; archived: number } } | null {
+  return getPersistentData<{ tasks: Task[]; counts: { active: number; archived: number } }>(`tasks_page_${status}`);
 }
 
-function setCachedTasksData(data: { tasks: Task[]; counts: { active: number; archived: number } }) {
-  try {
-    sessionStorage.setItem(
-      TASKS_CACHE_KEY,
-      JSON.stringify({ timestamp: Date.now(), data })
-    );
-  } catch (e) {}
+function setCachedTasksData(status: 'ACTIVE' | 'ARCHIVED', data: { tasks: Task[]; counts: { active: number; archived: number } }) {
+  setPersistentData(`tasks_page_${status}`, data);
 }
 
 export const TasksPage: React.FC = () => {
@@ -74,10 +60,10 @@ export const TasksPage: React.FC = () => {
   const initialStatus: 'ACTIVE' | 'ARCHIVED' =
     urlStatus?.toUpperCase() === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE';
 
-  const [cachedInitial] = useState(() => getCachedTasksData());
-  const [tasks, setTasks] = useState<Task[]>(() => (initialStatus === 'ACTIVE' && cachedInitial ? cachedInitial.tasks : []));
+  const [cachedInitial] = useState(() => getCachedTasksData(initialStatus));
+  const [tasks, setTasks] = useState<Task[]>(() => cachedInitial ? cachedInitial.tasks : []);
   const [counts, setCounts] = useState<{ active: number; archived: number }>(() => cachedInitial ? cachedInitial.counts : { active: 0, archived: 0 });
-  const [isLoading, setIsLoading] = useState<boolean>(() => initialStatus === 'ACTIVE' ? !cachedInitial : true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !cachedInitial);
 
   // Filters & Sorting state
   const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED'>(initialStatus);
@@ -93,28 +79,52 @@ export const TasksPage: React.FC = () => {
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
 
-  const hasLoadedRef = React.useRef<boolean>(Boolean(initialStatus === 'ACTIVE' && cachedInitial));
+  const hasLoadedRef = React.useRef<boolean>(Boolean(cachedInitial));
 
   // Sync state if URL query param changes
   useEffect(() => {
     const currentParam = searchParams.get('status') || searchParams.get('tab');
     if (currentParam?.toUpperCase() === 'ARCHIVED' && statusFilter !== 'ARCHIVED') {
       setStatusFilter('ARCHIVED');
-      hasLoadedRef.current = false;
+      const tabCache = getCachedTasksData('ARCHIVED');
+      if (tabCache) {
+        setTasks(tabCache.tasks);
+        setCounts(tabCache.counts);
+        hasLoadedRef.current = true;
+      } else {
+        hasLoadedRef.current = false;
+      }
     } else if (currentParam?.toUpperCase() === 'ACTIVE' && statusFilter !== 'ACTIVE') {
       setStatusFilter('ACTIVE');
-      hasLoadedRef.current = false;
+      const tabCache = getCachedTasksData('ACTIVE');
+      if (tabCache) {
+        setTasks(tabCache.tasks);
+        setCounts(tabCache.counts);
+        hasLoadedRef.current = true;
+      } else {
+        hasLoadedRef.current = false;
+      }
     }
   }, [searchParams]);
 
   const handleStatusChange = (newStatus: 'ACTIVE' | 'ARCHIVED') => {
     setStatusFilter(newStatus);
-    hasLoadedRef.current = false;
+    const tabCache = getCachedTasksData(newStatus);
+    if (tabCache) {
+      setTasks(tabCache.tasks);
+      setCounts(tabCache.counts);
+      setIsLoading(false);
+      hasLoadedRef.current = true;
+    } else {
+      hasLoadedRef.current = false;
+      setIsLoading(true);
+    }
     setSearchParams(newStatus === 'ARCHIVED' ? { status: 'ARCHIVED' } : {});
   };
 
   const loadTasks = useCallback(async () => {
-    if (!hasLoadedRef.current) {
+    const currentCached = getCachedTasksData(statusFilter);
+    if (!currentCached && !hasLoadedRef.current) {
       setIsLoading(true);
     }
     try {
@@ -131,8 +141,8 @@ export const TasksPage: React.FC = () => {
         if (typeof res.activeCount === 'number' && typeof res.archivedCount === 'number') {
           const freshCounts = { active: res.activeCount, archived: res.archivedCount };
           setCounts(freshCounts);
-          if (statusFilter === 'ACTIVE' && priorityFilter === 'ALL' && categoryFilter === 'ALL') {
-            setCachedTasksData({ tasks: res.tasks || [], counts: freshCounts });
+          if (priorityFilter === 'ALL' && categoryFilter === 'ALL') {
+            setCachedTasksData(statusFilter, { tasks: res.tasks || [], counts: freshCounts });
           }
         }
         hasLoadedRef.current = true;

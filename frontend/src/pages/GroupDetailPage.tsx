@@ -65,26 +65,19 @@ import {
   Gamepad2,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const GROUP_DETAIL_CACHE_PREFIX = 'streakup_group_detail_cache_';
+const GROUP_DETAIL_CACHE_PREFIX = 'group_detail_';
 
 function getCachedGroupDetail(gId?: string): GroupDetail | null {
   if (!gId) return null;
-  try {
-    const raw = sessionStorage.getItem(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`);
-    if (!raw) return null;
-    const { timestamp, data } = JSON.parse(raw);
-    if (Date.now() - timestamp < 3 * 60 * 1000) return data;
-  } catch (e) {}
-  return null;
+  return getPersistentData<GroupDetail>(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`);
 }
 
 function setCachedGroupDetail(gId: string, data: GroupDetail) {
-  try {
-    sessionStorage.setItem(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`, JSON.stringify({ timestamp: Date.now(), data }));
-  } catch (e) {}
+  setPersistentData(`${GROUP_DETAIL_CACHE_PREFIX}${gId}`, data);
 }
 
 export const GroupDetailPage: React.FC = () => {

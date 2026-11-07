@@ -41,26 +41,18 @@ import { useBodyScrollLock } from '../utils/scrollLock';
 import { InitialsAvatar } from '../components/InitialsAvatar';
 import { detectSpecialPlatform } from '../utils/specialGroups';
 import { extractErrorMessage } from '../utils/error';
-
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const GROUPS_CACHE_KEY = 'streakup_user_groups_cache';
 
 function getCachedGroups(): GroupItem[] | null {
-  try {
-    const raw = sessionStorage.getItem(GROUPS_CACHE_KEY);
-    if (!raw) return null;
-    const { timestamp, data } = JSON.parse(raw);
-    if (Date.now() - timestamp < 3 * 60 * 1000) return data;
-  } catch (e) {}
-  return null;
+  return getPersistentData<GroupItem[]>(GROUPS_CACHE_KEY);
 }
 
 function setCachedGroups(data: GroupItem[]) {
-  try {
-    sessionStorage.setItem(GROUPS_CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data }));
-  } catch (e) {}
+  setPersistentData(GROUPS_CACHE_KEY, data);
 }
 
 export const GroupsPage: React.FC = () => {
@@ -124,7 +116,9 @@ export const GroupsPage: React.FC = () => {
         setCachedGroups(res.groups);
       }
     } catch (err: any) {
-      showFeedback(extractErrorMessage(err, 'Failed to load your groups.'), 'error');
+      if (!cachedGroups && groups.length === 0) {
+        showFeedback(extractErrorMessage(err, 'Failed to load your groups.'), 'error');
+      }
     } finally {
       setIsLoadingGroups(false);
     }

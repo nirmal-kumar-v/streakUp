@@ -28,35 +28,22 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { useBadges } from '../context/BadgeContext';
 import { useToast } from '../context/ToastContext';
 import { extractErrorMessage } from '../utils/error';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const FRIENDS_CACHE_KEY = 'streakup_friends_data_cache';
 
 interface CachedFriendsData {
-  timestamp: number;
   friends: FriendUser[];
   received: FriendRequestItem[];
   sent: FriendRequestItem[];
 }
 
 function getCachedFriendsData(): CachedFriendsData | null {
-  try {
-    const raw = sessionStorage.getItem(FRIENDS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Date.now() - parsed.timestamp < 3 * 60 * 1000) {
-      return parsed;
-    }
-  } catch (e) {}
-  return null;
+  return getPersistentData<CachedFriendsData>(FRIENDS_CACHE_KEY);
 }
 
-function setCachedFriendsData(data: Omit<CachedFriendsData, 'timestamp'>) {
-  try {
-    sessionStorage.setItem(
-      FRIENDS_CACHE_KEY,
-      JSON.stringify({ timestamp: Date.now(), ...data })
-    );
-  } catch (e) {}
+function setCachedFriendsData(data: CachedFriendsData) {
+  setPersistentData(FRIENDS_CACHE_KEY, data);
 }
 
 export const FriendsPage: React.FC = () => {

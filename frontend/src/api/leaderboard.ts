@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 export interface LeaderboardEntry {
   rank: number;
@@ -37,49 +38,12 @@ export interface FriendsLeaderboardResponse {
   currentUserEntry: LeaderboardEntry | null;
 }
 
-interface CacheItem<T> {
-  data: T;
-  timestamp: number;
-}
-
-const memoryCache = new Map<string, CacheItem<any>>();
-
 export function getCachedGlobalLeaderboard(type: 'streak' | 'points' = 'streak'): GlobalLeaderboardResponse | null {
-  const key = `global_${type}`;
-  const item = memoryCache.get(key);
-  if (item && Date.now() - item.timestamp < 180000) {
-    return item.data;
-  }
-  try {
-    const raw = sessionStorage.getItem(`streakup_global_lb_${type}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Date.now() - parsed.timestamp < 180000) {
-        memoryCache.set(key, parsed);
-        return parsed.data;
-      }
-    }
-  } catch (e) {}
-  return null;
+  return getPersistentData<GlobalLeaderboardResponse>(`global_lb_${type}`);
 }
 
 export function getCachedFriendsLeaderboard(type: 'streak' | 'points' = 'streak'): FriendsLeaderboardResponse | null {
-  const key = `friends_${type}`;
-  const item = memoryCache.get(key);
-  if (item && Date.now() - item.timestamp < 180000) {
-    return item.data;
-  }
-  try {
-    const raw = sessionStorage.getItem(`streakup_friends_lb_${type}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Date.now() - parsed.timestamp < 180000) {
-        memoryCache.set(key, parsed);
-        return parsed.data;
-      }
-    }
-  } catch (e) {}
-  return null;
+  return getPersistentData<FriendsLeaderboardResponse>(`friends_lb_${type}`);
 }
 
 export async function fetchGlobalLeaderboard(params?: {
@@ -88,16 +52,10 @@ export async function fetchGlobalLeaderboard(params?: {
   search?: string;
   type?: 'streak' | 'points';
 }) {
-  const key = `global_${params?.type || 'streak'}_${params?.page || 1}_${params?.search || ''}`;
   const res = await apiClient.get<GlobalLeaderboardResponse>('/leaderboard/global', { params });
   if (res.data?.success) {
-    memoryCache.set(key, { data: res.data, timestamp: Date.now() });
     if (!params?.page || params.page === 1) {
-      const baseKey = `global_${params?.type || 'streak'}`;
-      memoryCache.set(baseKey, { data: res.data, timestamp: Date.now() });
-      try {
-        sessionStorage.setItem(`streakup_global_lb_${params?.type || 'streak'}`, JSON.stringify({ data: res.data, timestamp: Date.now() }));
-      } catch (e) {}
+      setPersistentData(`global_lb_${params?.type || 'streak'}`, res.data);
     }
   }
   return res.data;
@@ -105,13 +63,9 @@ export async function fetchGlobalLeaderboard(params?: {
 
 export async function fetchFriendsLeaderboard(params?: { type?: 'streak' | 'points' }) {
   const typeKey = params?.type || 'streak';
-  const key = `friends_${typeKey}`;
   const res = await apiClient.get<FriendsLeaderboardResponse>('/leaderboard/friends', { params });
   if (res.data?.success) {
-    memoryCache.set(key, { data: res.data, timestamp: Date.now() });
-    try {
-      sessionStorage.setItem(`streakup_friends_lb_${typeKey}`, JSON.stringify({ data: res.data, timestamp: Date.now() }));
-    } catch (e) {}
+    setPersistentData(`friends_lb_${typeKey}`, res.data);
   }
   return res.data;
 }

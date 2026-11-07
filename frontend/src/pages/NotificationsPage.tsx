@@ -29,20 +29,40 @@ import {
 import { extractErrorMessage } from '../utils/error';
 import { toggleStarNotification } from '../api/notifications';
 import { checkIfCurrentUserIsManager, replyToUserRequestAsManager } from '../api/userRequests';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
+
+interface CachedNotificationsData {
+  notifications: NotificationItem[];
+  unreadCount: number;
+  allCount: number;
+  starredCount: number;
+  totalPages: number;
+}
+
+const NOTIFICATIONS_CACHE_KEY = 'user_notifications_cache';
+
+function getCachedNotifications(): CachedNotificationsData | null {
+  return getPersistentData<CachedNotificationsData>(NOTIFICATIONS_CACHE_KEY);
+}
+
+function setCachedNotifications(data: CachedNotificationsData) {
+  setPersistentData(NOTIFICATIONS_CACHE_KEY, data);
+}
 
 export const NotificationsPage: React.FC = () => {
   const { decrementNotifications, clearNotifications, setUnreadNotificationsCount, markNotificationsAsSeen } = useBadges();
   const toast = useToast();
 
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [allCount, setAllCount] = useState<number>(0);
-  const [starredCount, setStarredCount] = useState<number>(0);
+  const [cachedInitial] = useState(() => getCachedNotifications());
+  const [notifications, setNotifications] = useState<NotificationItem[]>(() => cachedInitial?.notifications || []);
+  const [unreadCount, setUnreadCount] = useState<number>(() => cachedInitial?.unreadCount || 0);
+  const [allCount, setAllCount] = useState<number>(() => cachedInitial?.allCount || 0);
+  const [starredCount, setStarredCount] = useState<number>(() => cachedInitial?.starredCount || 0);
   const [page, setPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(() => cachedInitial?.totalPages || 1);
 
   const [activeFilter, setActiveFilter] = useState<'all' | 'unread' | 'starred' | 'reminders' | 'friends' | 'milestones'>('all');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !cachedInitial);
 
   // Auto-mark notification indicator as seen when viewing the notifications page
   useEffect(() => {
@@ -91,7 +111,7 @@ export const NotificationsPage: React.FC = () => {
     }
   };
 
-  const hasLoadedRef = useRef(false);
+  const hasLoadedRef = useRef(Boolean(cachedInitial));
 
   const loadNotifications = useCallback(async (targetPage = 1, filter = activeFilter) => {
     // Only set loading if we don't have notifications yet to avoid screen flash
@@ -148,6 +168,16 @@ export const NotificationsPage: React.FC = () => {
         setTotalPages(res.totalPages);
         setUnreadNotificationsCount(res.unreadCount);
         hasLoadedRef.current = true;
+
+        if (targetPage === 1 && filter === 'all') {
+          setCachedNotifications({
+            notifications: filteredList,
+            unreadCount: res.unreadCount,
+            allCount: typeof res.allCount === 'number' ? res.allCount : res.totalCount,
+            starredCount: typeof res.starredCount === 'number' ? res.starredCount : 0,
+            totalPages: res.totalPages,
+          });
+        }
       }
     } catch (err) {
       console.error('Failed to load notifications:', err);
