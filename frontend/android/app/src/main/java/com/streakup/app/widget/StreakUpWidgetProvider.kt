@@ -72,24 +72,17 @@ class StreakUpWidgetProvider : AppWidgetProvider() {
                     } else {
                         "0 / 0"
                     }
-                    views.setTextViewText(R.id.widget_tasks_count, tasksText)
 
-                    // Subtle background highlight when all tasks completed
+                    // Subtle background highlight when all tasks completed using safe setViewVisibility
                     val allCompleted = stats.totalTasks > 0 && stats.completedToday >= stats.totalTasks
                     if (allCompleted) {
-                        views.setInt(
-                            R.id.widget_tasks_container,
-                            "setBackgroundResource",
-                            R.drawable.widget_tasks_completed_background
-                        )
-                        views.setTextColor(R.id.widget_tasks_count, Color.parseColor("#34d399"))
+                        views.setViewVisibility(R.id.widget_tasks_container, View.GONE)
+                        views.setViewVisibility(R.id.widget_tasks_completed_container, View.VISIBLE)
+                        views.setTextViewText(R.id.widget_tasks_completed_count, tasksText)
                     } else {
-                        views.setInt(
-                            R.id.widget_tasks_container,
-                            "setBackgroundResource",
-                            R.drawable.widget_tasks_background
-                        )
-                        views.setTextColor(R.id.widget_tasks_count, Color.parseColor("#f4f4f5"))
+                        views.setViewVisibility(R.id.widget_tasks_container, View.VISIBLE)
+                        views.setViewVisibility(R.id.widget_tasks_completed_container, View.GONE)
+                        views.setTextViewText(R.id.widget_tasks_count, tasksText)
                     }
 
                     // 3. User name header
