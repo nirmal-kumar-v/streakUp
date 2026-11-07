@@ -12,6 +12,8 @@ interface StreakUpBridgePlugin {
     statusMessage?: string;
   }): Promise<void>;
   triggerWidgetUpdate(): Promise<void>;
+  downloadImage(options: { base64Data: string; fileName: string }): Promise<{ success: boolean; uri?: string; path?: string }>;
+  shareImage(options: { base64Data: string; title: string; text: string }): Promise<{ success: boolean }>;
 }
 
 const StreakUpBridge = registerPlugin<StreakUpBridgePlugin>('StreakUpBridge');
@@ -69,3 +71,30 @@ export async function syncStatsToWidget(stats: {
   }
 }
 
+/**
+ * Downloads a canvas image directly into the Android device's Gallery / Pictures.
+ */
+export async function nativeDownloadImage(base64Data: string, fileName: string): Promise<boolean> {
+  if (!isNativeApp()) return false;
+  try {
+    const res = await StreakUpBridge.downloadImage({ base64Data, fileName });
+    return Boolean(res?.success);
+  } catch (err) {
+    console.error('[NativeBridge] nativeDownloadImage error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Opens native Android Share sheet with the generated card image file.
+ */
+export async function nativeShareImage(base64Data: string, title: string, text: string): Promise<boolean> {
+  if (!isNativeApp()) return false;
+  try {
+    const res = await StreakUpBridge.shareImage({ base64Data, title, text });
+    return Boolean(res?.success);
+  } catch (err) {
+    console.error('[NativeBridge] nativeShareImage error:', err);
+    throw err;
+  }
+}

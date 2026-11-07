@@ -5,9 +5,9 @@ const config: CapacitorConfig = {
   appName: 'StreakUp',
   webDir: 'dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    clearCache: true
   }
 };
 
 export default config;
-

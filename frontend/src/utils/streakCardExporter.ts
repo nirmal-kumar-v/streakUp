@@ -1,4 +1,5 @@
 import { StreakMilestone } from './streakMilestones';
+import { isNativeApp, nativeDownloadImage, nativeShareImage } from './nativeWidgetBridge';
 
 export interface StreakCardExportParams {
   milestone?: StreakMilestone | null;
@@ -271,15 +272,22 @@ export async function renderStreakCardCanvas(params: StreakCardExportParams): Pr
 
 /**
  * Download the generated badge / streak card image as a PNG file.
+ * Automatically uses Android native gallery saving on mobile app or browser download on web.
  */
 export async function downloadStreakCardImage(params: StreakCardExportParams): Promise<void> {
   const canvas = await renderStreakCardCanvas(params);
   const dataUrl = canvas.toDataURL('image/png');
-  const a = document.createElement('a');
-  a.href = dataUrl;
   const fileName = params.milestone
     ? `StreakUp_${params.milestone.days}_Day_Streak_Badge.png`
     : `StreakUp_${params.currentStreak}_Day_Streak_Card.png`;
+
+  if (isNativeApp()) {
+    await nativeDownloadImage(dataUrl, fileName);
+    return;
+  }
+
+  const a = document.createElement('a');
+  a.href = dataUrl;
   a.download = fileName;
   document.body.appendChild(a);
   a.click();
@@ -287,7 +295,8 @@ export async function downloadStreakCardImage(params: StreakCardExportParams): P
 }
 
 /**
- * Share the streak card or milestone badge via Web Share API or fall back to copying share text.
+ * Share the streak card or milestone badge.
+ * Uses native Android Share sheet on mobile app or Web Share API on web.
  */
 export async function shareStreakBadge(params: StreakCardExportParams): Promise<{
   shared: boolean;
@@ -298,16 +307,30 @@ export async function shareStreakBadge(params: StreakCardExportParams): Promise<
   const shareText = params.milestone
     ? `🔥 I just earned the ${params.milestone.title} on StreakUp for maintaining an unbroken ${params.milestone.days}-day streak! Keep the flame burning!`
     : `🔥 I'm currently on an unbroken ${params.currentStreak}-day streak on StreakUp! Keep the flame burning!`;
+  const shareTitle = params.milestone
+    ? `StreakUp ${params.milestone.title}`
+    : `StreakUp ${params.currentStreak}-Day Streak`;
   const shareUrl = window.location.origin;
 
-  // Try Web Share API with image file attachment
+  // Native Android App Share Sheet
+  if (isNativeApp()) {
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      await nativeShareImage(dataUrl, shareTitle, `${shareText}\n${shareUrl}`);
+      return { shared: true, copied: false, message: 'Card shared successfully!' };
+    } catch {
+      // Continue to fallback
+    }
+  }
+
+  // Web Browser Share API with image file attachment
   if (navigator.share) {
     try {
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (blob && navigator.canShare && navigator.canShare({ files: [new File([blob], 'streak_badge.png', { type: 'image/png' })] })) {
         const file = new File([blob], params.milestone ? `StreakUp_${params.milestone.days}d_badge.png` : `StreakUp_${params.currentStreak}d_streak.png`, { type: 'image/png' });
         await navigator.share({
-          title: params.milestone ? `StreakUp ${params.milestone.title}` : `StreakUp ${params.currentStreak}-Day Streak`,
+          title: shareTitle,
           text: shareText,
           files: [file],
         });
@@ -316,7 +339,7 @@ export async function shareStreakBadge(params: StreakCardExportParams): Promise<
 
       // Fallback: share text & URL
       await navigator.share({
-        title: params.milestone ? `StreakUp ${params.milestone.title}` : `StreakUp ${params.currentStreak}-Day Streak`,
+        title: shareTitle,
         text: shareText,
         url: shareUrl,
       });

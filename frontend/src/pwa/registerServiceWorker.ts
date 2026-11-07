@@ -1,7 +1,18 @@
 // PWA Service Worker Registration & Lifecycle Management
+import { isNativeApp } from '../utils/nativeWidgetBridge';
 
 export function registerServiceWorker() {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return;
+  }
+
+  // Inside native Android app, prevent ServiceWorker from caching stale web bundles
+  if (isNativeApp()) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        reg.unregister();
+      }
+    }).catch(() => {});
     return;
   }
 
@@ -28,7 +39,6 @@ export function registerServiceWorker() {
         });
       })
       .catch((err) => {
-        // Non-fatal service worker error (e.g. self-signed dev certificates or privacy extensions)
         console.warn('[StreakUp PWA] Service worker registration notice:', err);
       });
   });
