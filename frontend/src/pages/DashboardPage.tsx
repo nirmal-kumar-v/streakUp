@@ -969,7 +969,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {checklistTab === 'today' ? (
-          isLoading ? (
+          isLoading && todaysTasks.length === 0 ? (
             <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
           ) : todaysTasks.length === 0 ? (
             <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">
@@ -1028,7 +1028,7 @@ export const DashboardPage: React.FC = () => {
             </div>
           )
         ) : (
-          isLoading ? (
+          isLoading && archivedTasks.length === 0 ? (
             <div className="py-12 text-center text-xs text-dark-muted">Loading your tasks...</div>
           ) : archivedTasks.length === 0 ? (
             <div className="py-12 text-center bg-dark-surface/40 rounded-2xl border border-dashed border-dark-border p-6">

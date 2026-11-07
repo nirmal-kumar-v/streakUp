@@ -24,7 +24,7 @@ export const GlobalLeaderboardPage: React.FC = () => {
       setEntries((currentCached.leaderboard || []).slice(0, limit));
       setCurrentUserRankInfo(currentCached.currentUserRankInfo);
       setIsLoading(false);
-    } else {
+    } else if (entries.length === 0) {
       setIsLoading(true);
     }
 

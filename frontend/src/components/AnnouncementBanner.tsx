@@ -14,8 +14,8 @@ export const AnnouncementBanner: React.FC = () => {
       try {
         const res = await fetchPublicAnnouncement();
         if (!isCancelled && res.success && res.announcement && res.announcement.active) {
-          const dismissKey = `streakup_dismissed_announcement_${res.announcement.id || res.announcement.updatedAt}`;
-          const isLocallyDismissed = sessionStorage.getItem(dismissKey) === 'true';
+          const dismissKey = `streakup_announcement_seen_${res.announcement.id || res.announcement.updatedAt}`;
+          const isLocallyDismissed = localStorage.getItem(dismissKey) === 'true';
 
           if (!isLocallyDismissed && res.announcement.message.trim().length > 0) {
             setAnnouncement(res.announcement);

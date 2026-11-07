@@ -31,6 +31,7 @@ import {
   Layers,
   Clock,
   Lock,
+  Eye,
 } from 'lucide-react';
 
 export const AdminSystemTab: React.FC = () => {
@@ -125,8 +126,15 @@ export const AdminSystemTab: React.FC = () => {
     try {
       const res = await updateAdminAnnouncement(announcement);
       if (res.success) {
-        toast.success(res.message || 'Announcement broadcast published successfully!');
+        toast.success(res.message || 'Announcement broadcast published! All users will receive the pop-up modal.');
         setAnnouncement(res.announcement);
+        if (res.announcement.active) {
+          window.dispatchEvent(
+            new CustomEvent('streakup_announcement_triggered', {
+              detail: res.announcement,
+            })
+          );
+        }
       }
     } catch (err: any) {
       toast.error(extractErrorMessage(err, 'Failed to save announcement.'));
@@ -342,30 +350,51 @@ export const AdminSystemTab: React.FC = () => {
 
       {/* 3. Platform Broadcast Announcement Manager */}
       <div className="p-6 bg-dark-surface/80 border border-dark-border rounded-2xl space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-flame-500/10 border border-flame-500/20 rounded-xl text-flame-400">
               <Bell className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-zinc-100">Global Announcement Broadcast Banner</h3>
+              <h3 className="text-base font-bold text-zinc-100">Global Announcement Pop-up Broadcast</h3>
               <p className="text-xs text-dark-muted">
-                Push instant announcements or maintenance alerts displayed to all users across the platform
+                Push instant animated pop-up announcements or alerts displayed directly on screen to all users
               </p>
             </div>
           </div>
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <span className="text-xs font-semibold text-zinc-300">
-              {announcement.active ? 'Active & Visible' : 'Inactive (Hidden)'}
-            </span>
-            <input
-              type="checkbox"
-              checked={announcement.active}
-              onChange={(e) => setAnnouncement((prev) => ({ ...prev, active: e.target.checked }))}
-              className="w-5 h-5 accent-flame-500 rounded cursor-pointer"
-            />
-          </label>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (!announcement.message.trim()) {
+                  toast.error('Type a broadcast message first to preview the pop-up.');
+                  return;
+                }
+                window.dispatchEvent(
+                  new CustomEvent('streakup_announcement_triggered', {
+                    detail: { ...announcement, active: true },
+                  })
+                );
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-dark-bg hover:bg-dark-hover border border-dark-border hover:border-flame-500/50 text-xs text-zinc-300 hover:text-white rounded-xl transition"
+            >
+              <Eye className="w-3.5 h-3.5 text-flame-400" />
+              <span>Preview Pop-up</span>
+            </button>
+
+            <label className="flex items-center gap-2 cursor-pointer">
+              <span className="text-xs font-semibold text-zinc-300">
+                {announcement.active ? 'Active & Broadcasting' : 'Inactive (Hidden)'}
+              </span>
+              <input
+                type="checkbox"
+                checked={announcement.active}
+                onChange={(e) => setAnnouncement((prev) => ({ ...prev, active: e.target.checked }))}
+                className="w-5 h-5 accent-flame-500 rounded cursor-pointer"
+              />
+            </label>
+          </div>
         </div>
 
         {/* Live Preview Box */}

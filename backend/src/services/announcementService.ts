@@ -61,10 +61,12 @@ export function updatePlatformAnnouncement(
 ): PlatformAnnouncement {
   ensureDataDir();
   const current = getPlatformAnnouncement();
+  // Always issue a fresh unique announcement ID on publication/update so all client devices recognize it as a new unread announcement!
+  const newId = `announcement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const updated: PlatformAnnouncement = {
     ...current,
     ...data,
-    id: data.id || `announcement_${Date.now()}`,
+    id: data.active ? newId : (data.id || current.id),
     updatedAt: new Date().toISOString(),
   };
 

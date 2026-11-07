@@ -44,6 +44,7 @@ import {
 } from '../services/managerService';
 import {
   sendAdminMessageToUser,
+  sendAdminMessageToMultipleUsers,
   getAdminMessageLogs,
   DeliveryChannel,
 } from '../services/adminMessageService';
@@ -4117,12 +4118,22 @@ export async function updateManagerEmailAdmin(req: AdminAuthenticatedRequest, re
  */
 export async function sendAdminMessage(req: AdminAuthenticatedRequest, res: Response) {
   try {
-    const { recipientUserId, title, message, channel } = req.body;
+    const { recipientUserId, recipientUserIds, sendToAll, title, message, channel } = req.body;
 
-    if (!recipientUserId || !title || !message || !channel) {
+    const isBroadcast = sendToAll === true || recipientUserId === 'ALL';
+    const isMultiple = Array.isArray(recipientUserIds) && recipientUserIds.length > 0;
+
+    if (!isBroadcast && !isMultiple && !recipientUserId) {
       return res.status(400).json({
         success: false,
-        error: 'recipientUserId, title, message, and channel are required.',
+        error: 'Recipient user(s) must be specified (recipientUserId, recipientUserIds, or sendToAll).',
+      });
+    }
+
+    if (!title || !message || !channel) {
+      return res.status(400).json({
+        success: false,
+        error: 'title, message, and channel are required.',
       });
     }
 
@@ -4131,6 +4142,38 @@ export async function sendAdminMessage(req: AdminAuthenticatedRequest, res: Resp
       return res.status(400).json({
         success: false,
         error: 'Invalid delivery channel. Must be IN_APP, EMAIL, or BOTH.',
+      });
+    }
+
+    if (isBroadcast || isMultiple) {
+      const result = await sendAdminMessageToMultipleUsers({
+        adminUsername: req.admin!.username,
+        recipientUserIds: isMultiple ? recipientUserIds : undefined,
+        sendToAll: isBroadcast,
+        title,
+        message,
+        channel,
+      });
+
+      await recordAuditLog({
+        adminUsername: req.admin!.username,
+        action: 'ADMIN_SEND_MESSAGE',
+        targetUserId: isBroadcast ? 'ALL' : recipientUserIds.join(','),
+        targetUser: isBroadcast ? 'ALL_USERS' : `MULTIPLE_USERS (${result.count})`,
+        reason: `Admin broadcast sent via ${channel} to ${result.count} users`,
+        afterState: {
+          channel,
+          count: result.count,
+          inAppStatus: result.delivery.inAppStatus,
+          emailStatus: result.delivery.emailStatus,
+        },
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: `Administrative message sent to ${result.count} user(s).`,
+        count: result.count,
+        delivery: result.delivery,
       });
     }
 
@@ -4159,6 +4202,7 @@ export async function sendAdminMessage(req: AdminAuthenticatedRequest, res: Resp
       success: true,
       message: 'Administrative message processed.',
       delivery: logRecord,
+      count: 1,
     });
   } catch (err: any) {
     return res.status(400).json({ success: false, error: err.message || 'Failed to send message.' });

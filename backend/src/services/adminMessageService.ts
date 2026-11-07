@@ -5,6 +5,7 @@ import prisma from '../config/prisma';
 import { createNotification } from './notificationService';
 import { sendEmail, isSmtpConfigured } from './emailService';
 import { NotificationCategory } from '@prisma/client';
+import { swrCache } from '../utils/cacheService';
 
 export type DeliveryChannel = 'IN_APP' | 'EMAIL' | 'BOTH';
 
@@ -226,6 +227,138 @@ export async function sendAdminMessageToUser(params: {
   } catch {}
 
   return logRecord;
+}
+
+/**
+ * Send an administrative message to multiple users or ALL registered platform users
+ */
+export async function sendAdminMessageToMultipleUsers(params: {
+  adminUsername: string;
+  recipientUserIds?: string[];
+  sendToAll?: boolean;
+  title: string;
+  message: string;
+  channel: DeliveryChannel;
+}): Promise<{ count: number; delivery: AdminMessageLog; errors: string[] }> {
+  const { adminUsername, recipientUserIds, sendToAll, title, message, channel } = params;
+
+  if (!title || !title.trim()) {
+    throw new Error('Message title is required.');
+  }
+
+  if (!message || !message.trim()) {
+    throw new Error('Message content is required.');
+  }
+
+  let recipients: { id: string; username: string; name: string; email: string }[] = [];
+
+  if (sendToAll) {
+    recipients = await prisma.user.findMany({
+      select: { id: true, username: true, name: true, email: true },
+    });
+  } else if (Array.isArray(recipientUserIds) && recipientUserIds.length > 0) {
+    recipients = await prisma.user.findMany({
+      where: { id: { in: recipientUserIds } },
+      select: { id: true, username: true, name: true, email: true },
+    });
+  } else {
+    throw new Error('No recipient users specified.');
+  }
+
+  if (recipients.length === 0) {
+    throw new Error('No recipient users found.');
+  }
+
+  await initAdminMessagesTable();
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const errors: string[] = [];
+  let successfulDeliveries = 0;
+
+  for (const recipient of recipients) {
+    try {
+      const idempotencyKey = `ADMIN_MSG:${id}:${recipient.id}`;
+
+      // 1. In-App delivery
+      if (channel === 'IN_APP' || channel === 'BOTH') {
+        await createNotification({
+          userId: recipient.id,
+          category: NotificationCategory.SYSTEM,
+          title: title.trim(),
+          message: message.trim(),
+          eventKey: idempotencyKey,
+          actionUrl: '/notifications',
+        });
+      }
+
+      // 2. Email delivery (if SMTP available)
+      if ((channel === 'EMAIL' || channel === 'BOTH') && isSmtpConfigured()) {
+        try {
+          await sendEmail({
+            userId: recipient.id,
+            recipientEmail: recipient.email,
+            category: NotificationCategory.SYSTEM,
+            subject: `[StreakUp Admin] ${title.trim()}`,
+            text: `Hello ${recipient.name},\n\nYou have received a message from the StreakUp Administrator:\n\n${title.trim()}\n----------------------------------------\n${message.trim()}\n\nBest regards,\nStreakUp Team`,
+            idempotencyKey: `EMAIL:${idempotencyKey}`,
+          });
+        } catch {
+          // ignore single user email errors
+        }
+      }
+
+      swrCache.invalidateUser(recipient.id);
+      successfulDeliveries++;
+    } catch (err: any) {
+      errors.push(`@${recipient.username}: ${err.message}`);
+    }
+  }
+
+  const summaryRecipientUsername = sendToAll
+    ? `ALL USERS (${successfulDeliveries})`
+    : recipients.map((r) => `@${r.username}`).slice(0, 3).join(', ') + (recipients.length > 3 ? ` (+${recipients.length - 3})` : '');
+
+  const summaryLog: AdminMessageLog = {
+    id,
+    adminUsername,
+    recipientUserId: sendToAll ? 'ALL' : recipients.map((r) => r.id).slice(0, 5).join(','),
+    recipientUsername: summaryRecipientUsername,
+    recipientEmail: sendToAll ? 'broadcast@streakup.app' : recipients[0].email,
+    title: title.trim(),
+    message: message.trim(),
+    channel,
+    inAppStatus: 'SENT',
+    emailStatus: isSmtpConfigured() && (channel === 'EMAIL' || channel === 'BOTH') ? 'SENT' : 'SKIPPED',
+    deliveryNote: `Broadcast to ${successfulDeliveries} user(s).${errors.length > 0 ? ` Errors: ${errors.length}` : ''}`,
+    createdAt: now,
+  };
+
+  const all = loadAllAdminMessages();
+  all.unshift(summaryLog);
+  saveAllAdminMessages(all);
+
+  try {
+    await prisma.$executeRawUnsafe(
+      `
+      INSERT INTO "admin_message_logs" ("id", "admin_username", "recipient_user_id", "recipient_username", "recipient_email", "title", "message", "channel", "in_app_status", "email_status", "delivery_note", "created_at")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      `,
+      id,
+      adminUsername,
+      summaryLog.recipientUserId,
+      summaryLog.recipientUsername,
+      summaryLog.recipientEmail,
+      title.trim(),
+      message.trim(),
+      channel,
+      summaryLog.inAppStatus,
+      summaryLog.emailStatus,
+      summaryLog.deliveryNote || null
+    );
+  } catch {}
+
+  return { count: successfulDeliveries, delivery: summaryLog, errors };
 }
 
 /**

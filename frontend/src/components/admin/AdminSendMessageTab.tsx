@@ -15,19 +15,32 @@ import {
   Bell,
   RefreshCw,
   User,
+  Users,
+  Globe,
   CheckCircle2,
   Eye,
   Clock,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 
 export const AdminSendMessageTab: React.FC = () => {
   const toast = useToast();
 
-  // User search & selection
+  // Recipient Target Mode: single | multiple | all
+  const [recipientMode, setRecipientMode] = useState<'single' | 'multiple' | 'all'>('single');
+
+  // Single user selection
   const [userQuery, setUserQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<AdminUser[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+
+  // Multiple users selection
+  const [selectedUsers, setSelectedUsers] = useState<AdminUser[]>([]);
+
+  // All users broadcast confirmation
+  const [confirmAllBroadcast, setConfirmAllBroadcast] = useState(false);
 
   // Message form
   const [title, setTitle] = useState('');
@@ -76,16 +89,39 @@ export const AdminSendMessageTab: React.FC = () => {
   };
 
   const handleSelectUser = (u: AdminUser) => {
-    setSelectedUser(u);
-    setUserSearchResults([]);
+    if (recipientMode === 'single') {
+      setSelectedUser(u);
+      setUserSearchResults([]);
+      setUserQuery('');
+    } else if (recipientMode === 'multiple') {
+      if (!selectedUsers.some((x) => x.id === u.id)) {
+        setSelectedUsers((prev) => [...prev, u]);
+      }
+      setUserSearchResults([]);
+      setUserQuery('');
+    }
+  };
+
+  const handleRemoveUserFromMultiple = (userId: string) => {
+    setSelectedUsers((prev) => prev.filter((u) => u.id !== userId));
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUser) {
+
+    if (recipientMode === 'single' && !selectedUser) {
       toast.error('Please select a recipient user first.');
       return;
     }
+    if (recipientMode === 'multiple' && selectedUsers.length === 0) {
+      toast.error('Please select at least one recipient user.');
+      return;
+    }
+    if (recipientMode === 'all' && !confirmAllBroadcast) {
+      toast.error('Please check the confirmation box to broadcast to all users.');
+      return;
+    }
+
     if (!title.trim() || !message.trim()) {
       toast.error('Both title and message are required.');
       return;
@@ -95,18 +131,39 @@ export const AdminSendMessageTab: React.FC = () => {
     setLastDeliveryResult(null);
 
     try {
-      const res = await sendAdminMessage({
-        recipientUserId: selectedUser.id,
+      const payload: any = {
         title: title.trim(),
         message: message.trim(),
         channel,
-      });
+      };
 
-      if (res.success && res.delivery) {
-        setLastDeliveryResult(res.delivery);
-        toast.success('Message sent to user successfully.');
+      if (recipientMode === 'single') {
+        payload.recipientUserId = selectedUser!.id;
+      } else if (recipientMode === 'multiple') {
+        payload.recipientUserIds = selectedUsers.map((u) => u.id);
+      } else if (recipientMode === 'all') {
+        payload.sendToAll = true;
+        payload.recipientUserId = 'ALL';
+      }
+
+      const res = await sendAdminMessage(payload);
+
+      if (res.success) {
+        if (res.delivery) {
+          setLastDeliveryResult(res.delivery);
+        }
+        const recipientText =
+          recipientMode === 'all'
+            ? `all registered users (${res.count || 'all'})`
+            : recipientMode === 'multiple'
+            ? `${selectedUsers.length} users`
+            : `@${selectedUser?.username}`;
+        toast.success(`Message sent to ${recipientText} successfully!`);
         setTitle('');
         setMessage('');
+        if (recipientMode === 'single') setSelectedUser(null);
+        if (recipientMode === 'multiple') setSelectedUsers([]);
+        setConfirmAllBroadcast(false);
         loadLogs();
       }
     } catch (err: any) {
@@ -116,16 +173,25 @@ export const AdminSendMessageTab: React.FC = () => {
     }
   };
 
+  const isFormValid =
+    title.trim().length > 0 &&
+    message.trim().length > 0 &&
+    (recipientMode === 'single'
+      ? selectedUser !== null
+      : recipientMode === 'multiple'
+      ? selectedUsers.length > 0
+      : confirmAllBroadcast);
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel">
         <h2 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
           <Mail className="w-4 h-4 text-flame-500" />
-          <span>Admin Direct Messaging</span>
+          <span>Admin Direct & Broadcast Messaging</span>
         </h2>
         <p className="text-xs text-dark-muted mt-0.5">
-          Send direct in-app notifications and official emails to specific users on StreakUp.
+          Send in-app notifications and official emails to a single user, multiple chosen users, or ALL users across StreakUp.
         </p>
       </div>
 
@@ -134,30 +200,128 @@ export const AdminSendMessageTab: React.FC = () => {
         <div className="lg:col-span-7 space-y-5">
           {/* Recipient Selection */}
           <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
-            <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-flame-400" />
-              <span>1. Select Recipient</span>
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-flame-400" />
+                <span>1. Select Recipient Target</span>
+              </h3>
+              <span className="text-[11px] text-zinc-400">
+                {recipientMode === 'single'
+                  ? selectedUser ? '1 user selected' : 'No user chosen'
+                  : recipientMode === 'multiple'
+                  ? `${selectedUsers.length} user(s) selected`
+                  : 'Platform-wide broadcast'}
+              </span>
+            </div>
 
-            {selectedUser ? (
-              <div className="flex items-center justify-between p-3.5 bg-dark-surface border border-flame-500/30 rounded-xl">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-xs text-zinc-100">{selectedUser.name}</span>
-                    <span className="text-flame-400 text-xs font-mono">@{selectedUser.username}</span>
+            {/* Recipient Mode Tabs */}
+            <div className="grid grid-cols-3 gap-2 p-1 bg-dark-surface border border-dark-border rounded-xl">
+              <button
+                type="button"
+                onClick={() => setRecipientMode('single')}
+                className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  recipientMode === 'single'
+                    ? 'bg-flame-500 text-zinc-950 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Single User</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecipientMode('multiple')}
+                className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  recipientMode === 'multiple'
+                    ? 'bg-flame-500 text-zinc-950 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Multiple Users</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecipientMode('all')}
+                className={`py-2 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                  recipientMode === 'all'
+                    ? 'bg-flame-500 text-zinc-950 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>All Users</span>
+              </button>
+            </div>
+
+            {/* Mode 1: Single User Search & Selection */}
+            {recipientMode === 'single' && (
+              <>
+                {selectedUser ? (
+                  <div className="flex items-center justify-between p-3.5 bg-dark-surface border border-flame-500/30 rounded-xl">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-zinc-100">{selectedUser.name}</span>
+                        <span className="text-flame-400 text-xs font-mono">@{selectedUser.username}</span>
+                      </div>
+                      <span className="text-[11px] text-zinc-400 font-mono">{selectedUser.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedUser(null)}
+                      className="px-2.5 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-dark-card border border-dark-border rounded-lg"
+                    >
+                      Change User
+                    </button>
                   </div>
-                  <span className="text-[11px] text-zinc-400 font-mono">{selectedUser.email}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedUser(null)}
-                  className="px-2.5 py-1 text-xs text-zinc-400 hover:text-zinc-200 bg-dark-card border border-dark-border rounded-lg"
-                >
-                  Change User
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
+                ) : (
+                  <div className="space-y-2">
+                    <form onSubmit={handleSearchUsers} className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="text"
+                          value={userQuery}
+                          onChange={(e) => setUserQuery(e.target.value)}
+                          placeholder="Search recipient by name, @username, or email..."
+                          className="w-full pl-9 pr-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-flame-500"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={isSearchingUsers || !userQuery.trim()}
+                        className="px-4 py-2 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-colors"
+                      >
+                        {isSearchingUsers ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Search'}
+                      </button>
+                    </form>
+
+                    {userSearchResults.length > 0 && (
+                      <div className="max-h-48 overflow-y-auto divide-y divide-dark-border/40 rounded-xl border border-dark-border bg-dark-surface/60">
+                        {userSearchResults.map((u) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onClick={() => handleSelectUser(u)}
+                            className="w-full text-left p-2.5 hover:bg-dark-hover flex items-center justify-between transition-colors text-xs"
+                          >
+                            <div>
+                              <span className="font-bold text-zinc-200 mr-2">{u.name}</span>
+                              <span className="text-flame-400 font-mono">@{u.username}</span>
+                            </div>
+                            <span className="text-[11px] text-zinc-500">{u.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Mode 2: Multiple Users Multi-Select */}
+            {recipientMode === 'multiple' && (
+              <div className="space-y-3">
                 <form onSubmit={handleSearchUsers} className="flex gap-2">
                   <div className="relative flex-1">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -165,7 +329,7 @@ export const AdminSendMessageTab: React.FC = () => {
                       type="text"
                       value={userQuery}
                       onChange={(e) => setUserQuery(e.target.value)}
-                      placeholder="Search recipient by name, @username, or email..."
+                      placeholder="Type name, username or email to add users..."
                       className="w-full pl-9 pr-3 py-2 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-flame-500"
                     />
                   </div>
@@ -179,23 +343,103 @@ export const AdminSendMessageTab: React.FC = () => {
                 </form>
 
                 {userSearchResults.length > 0 && (
-                  <div className="max-h-48 overflow-y-auto divide-y divide-dark-border/40 rounded-xl border border-dark-border bg-dark-surface/60">
-                    {userSearchResults.map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => handleSelectUser(u)}
-                        className="w-full text-left p-2.5 hover:bg-dark-hover flex items-center justify-between transition-colors text-xs"
-                      >
-                        <div>
-                          <span className="font-bold text-zinc-200 mr-2">{u.name}</span>
-                          <span className="text-flame-400 font-mono">@{u.username}</span>
-                        </div>
-                        <span className="text-[11px] text-zinc-500">{u.email}</span>
-                      </button>
-                    ))}
+                  <div className="max-h-40 overflow-y-auto divide-y divide-dark-border/40 rounded-xl border border-dark-border bg-dark-surface/60">
+                    {userSearchResults.map((u) => {
+                      const isAlreadySelected = selectedUsers.some((x) => x.id === u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => handleSelectUser(u)}
+                          disabled={isAlreadySelected}
+                          className={`w-full text-left p-2.5 flex items-center justify-between transition-colors text-xs ${
+                            isAlreadySelected
+                              ? 'opacity-40 cursor-not-allowed bg-dark-card/50'
+                              : 'hover:bg-dark-hover'
+                          }`}
+                        >
+                          <div>
+                            <span className="font-bold text-zinc-200 mr-2">{u.name}</span>
+                            <span className="text-flame-400 font-mono">@{u.username}</span>
+                          </div>
+                          <span className="text-[11px] text-zinc-400">
+                            {isAlreadySelected ? 'Added' : '+ Click to Add'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
+
+                {/* Selected Users Chips Container */}
+                <div className="p-3 bg-dark-surface/60 border border-dark-border rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-400">
+                    <span className="font-semibold">Selected Recipients ({selectedUsers.length}):</span>
+                    {selectedUsers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUsers([])}
+                        className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  {selectedUsers.length === 0 ? (
+                    <p className="text-xs text-zinc-500 italic py-2">
+                      Search above and click to add recipient users.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pt-1">
+                      {selectedUsers.map((u) => (
+                        <span
+                          key={u.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 bg-flame-500/15 border border-flame-500/30 text-flame-300 rounded-lg text-xs"
+                        >
+                          <span className="font-mono">@{u.username}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveUserFromMultiple(u.id)}
+                            className="p-0.5 hover:text-white rounded"
+                            title="Remove"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Mode 3: Broadcast to ALL Users */}
+            {recipientMode === 'all' && (
+              <div className="p-4 bg-flame-500/10 border border-flame-500/30 rounded-2xl space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-flame-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-xs font-bold text-flame-300 uppercase tracking-wider">
+                      Broadcast to Every Registered User
+                    </h4>
+                    <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
+                      Sending in this mode will dispatch an official notification directly to the inboxes of <strong>ALL registered users</strong> on the platform.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2.5 p-2.5 bg-dark-bg/60 rounded-xl border border-flame-500/20 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={confirmAllBroadcast}
+                    onChange={(e) => setConfirmAllBroadcast(e.target.checked)}
+                    className="w-4 h-4 accent-flame-500 rounded"
+                  />
+                  <span className="text-xs text-zinc-200 font-semibold">
+                    I confirm sending this notification message to ALL users
+                  </span>
+                </label>
               </div>
             )}
           </div>
@@ -251,7 +495,7 @@ export const AdminSendMessageTab: React.FC = () => {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g., Notice Regarding Your Streak Pause..."
+                placeholder="e.g., Notice Regarding System Maintenance..."
                 required
                 maxLength={200}
                 className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors placeholder:text-zinc-600"
@@ -270,7 +514,7 @@ export const AdminSendMessageTab: React.FC = () => {
                 rows={5}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Write your clear, respectful message to the user..."
+                placeholder="Write your clear, respectful message to the users..."
                 required
                 maxLength={2000}
                 className="w-full px-3.5 py-2.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500 transition-colors placeholder:text-zinc-600 resize-y"
@@ -280,7 +524,7 @@ export const AdminSendMessageTab: React.FC = () => {
             <div className="flex justify-end pt-2">
               <button
                 type="submit"
-                disabled={isSending || !selectedUser || !title.trim() || !message.trim()}
+                disabled={isSending || !isFormValid}
                 className="px-5 py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 active:scale-95"
               >
                 {isSending ? (
@@ -288,7 +532,15 @@ export const AdminSendMessageTab: React.FC = () => {
                 ) : (
                   <Send className="w-4 h-4" />
                 )}
-                <span>{isSending ? 'Sending Message...' : 'Send Message'}</span>
+                <span>
+                  {isSending
+                    ? 'Sending Message...'
+                    : recipientMode === 'all'
+                    ? 'Broadcast to ALL Users'
+                    : recipientMode === 'multiple'
+                    ? `Send to ${selectedUsers.length} User(s)`
+                    : 'Send Message'}
+                </span>
               </button>
             </div>
           </form>
@@ -308,7 +560,15 @@ export const AdminSendMessageTab: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="text-zinc-500">To:</span>
                   <span className="font-bold text-zinc-200">
-                    {selectedUser ? `${selectedUser.name} (@${selectedUser.username})` : '(No user selected)'}
+                    {recipientMode === 'all'
+                      ? 'ALL REGISTERED USERS'
+                      : recipientMode === 'multiple'
+                      ? selectedUsers.length > 0
+                        ? `${selectedUsers.length} user(s) selected`
+                        : '(No users selected)'
+                      : selectedUser
+                      ? `${selectedUser.name} (@${selectedUser.username})`
+                      : '(No user selected)'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -326,7 +586,7 @@ export const AdminSendMessageTab: React.FC = () => {
               <div>
                 <span className="text-[11px] text-zinc-500 block mb-1">Message Body:</span>
                 <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap min-h-[60px] italic">
-                  {message || 'Type message in the editor to preview how it will appear to the user...'}
+                  {message || 'Type message in the editor to preview how it will appear to recipients...'}
                 </p>
               </div>
             </div>
@@ -418,7 +678,7 @@ export const AdminSendMessageTab: React.FC = () => {
               <div key={log.id} className="p-3.5 space-y-1.5 text-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px]">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-zinc-200">To: @{log.recipientUsername}</span>
+                    <span className="font-bold text-zinc-200">To: {log.recipientUsername}</span>
                     <span className="text-zinc-600">•</span>
                     <span className="text-zinc-400 font-mono">{log.channel}</span>
                   </div>
@@ -440,3 +700,4 @@ export const AdminSendMessageTab: React.FC = () => {
     </div>
   );
 };
+

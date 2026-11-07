@@ -459,7 +459,7 @@ export const NotificationsPage: React.FC = () => {
 
       {/* Notifications List */}
       <div className="space-y-3">
-        {isLoading ? (
+        {isLoading && notifications.length === 0 ? (
           <div className="py-24 text-center text-xs text-dark-muted">
             <div className="inline-flex items-center gap-2">
               <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />

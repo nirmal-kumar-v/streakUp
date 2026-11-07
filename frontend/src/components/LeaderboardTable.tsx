@@ -258,7 +258,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-border/60 text-sm">
-              {isLoading ? (
+              {isLoading && filteredEntries.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-dark-muted">
                     <div className="inline-flex items-center gap-2">

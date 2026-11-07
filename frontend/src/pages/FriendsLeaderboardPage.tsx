@@ -23,7 +23,7 @@ export const FriendsLeaderboardPage: React.FC = () => {
       setEntries(currentCached.leaderboard);
       setCurrentUserEntry(currentCached.currentUserEntry);
       setIsLoading(false);
-    } else {
+    } else if (entries.length === 0) {
       setIsLoading(true);
     }
 

@@ -40,7 +40,16 @@ import { calculateOptimisticUserStreak } from '../utils/streak';
 import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 function getCachedTasksData(status: 'ACTIVE' | 'ARCHIVED'): { tasks: Task[]; counts: { active: number; archived: number } } | null {
-  return getPersistentData<{ tasks: Task[]; counts: { active: number; archived: number } }>(`tasks_page_${status}`);
+  const direct = getPersistentData<{ tasks: Task[]; counts: { active: number; archived: number } }>(`tasks_page_${status}`);
+  if (direct) return direct;
+  // Fallback for ACTIVE: if user already loaded dashboard, reuse dashboard todayTasks so there is 0 buffering
+  if (status === 'ACTIVE') {
+    const dash = getPersistentData<any>('streakup_dashboard_summary_cache');
+    if (dash?.todayTasks && dash.todayTasks.length > 0) {
+      return { tasks: dash.todayTasks, counts: { active: dash.todayTasks.length, archived: 0 } };
+    }
+  }
+  return null;
 }
 
 function setCachedTasksData(status: 'ACTIVE' | 'ARCHIVED', data: { tasks: Task[]; counts: { active: number; archived: number } }) {
@@ -691,7 +700,7 @@ export const TasksPage: React.FC = () => {
       </div>
 
       {/* Task Content */}
-      {isLoading ? (
+      {isLoading && tasks.length === 0 ? (
         <div className="py-20 text-center text-xs text-dark-muted">
           <div className="inline-flex items-center gap-2">
             <div className="w-4 h-4 border-2 border-flame-500 border-t-transparent rounded-full animate-spin" />

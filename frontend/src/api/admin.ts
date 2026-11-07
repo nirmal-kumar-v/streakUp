@@ -979,7 +979,9 @@ export interface AdminMessageLog {
 }
 
 export async function sendAdminMessage(data: {
-  recipientUserId: string;
+  recipientUserId?: string;
+  recipientUserIds?: string[];
+  sendToAll?: boolean;
   title: string;
   message: string;
   channel: 'IN_APP' | 'EMAIL' | 'BOTH';
@@ -987,7 +989,8 @@ export async function sendAdminMessage(data: {
   const res = await adminApiClient.post<{
     success: boolean;
     message: string;
-    delivery: AdminMessageLog;
+    delivery?: AdminMessageLog;
+    count?: number;
   }>('/admin/send-message', data);
   return res.data;
 }
