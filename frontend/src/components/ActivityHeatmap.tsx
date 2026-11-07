@@ -17,6 +17,26 @@ interface ActivityHeatmapProps {
   todayTasks?: Array<{ title: string; completedToday?: boolean; todayStudyNote?: string | null }>;
 }
 
+interface CalendarGridCell {
+  dateStr: string;
+  isInRange: boolean;
+  isFuture: boolean;
+  dayOfWeek: number;
+  formattedDate: string;
+}
+
+// Module-level in-memory RAM cache:
+// Survives component unmount/remount when navigating between Dashboard, Leaderboard, Tasks, etc.
+// Guarantees strictly 0.000 ms zero-latency rendering upon page returns!
+interface GlobalHeatmapMemory {
+  cacheKey: string;
+  activityMap: Map<string, { count: number; tasks: ActivityTaskInfo[] }>;
+  freezeMap: Map<string, string>;
+  activeDaysCount: number;
+}
+
+let globalMemoryHeatmap: GlobalHeatmapMemory | null = null;
+
 export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   timezone = 'Asia/Kolkata',
   currentStreak,
@@ -40,9 +60,19 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     () => `heatmap_${startDate.toFormat('yyyy-MM-dd')}_${endDate.toFormat('yyyy-MM-dd')}`,
     [startDate, endDate]
   );
-  const initialCache = useMemo(() => getPersistentData<ActivityHistoryResponse>(cacheKey), [cacheKey]);
+
+  // Initialize state directly from fast RAM cache first, fallback to persistentCache
+  const initialCache = useMemo(() => {
+    if (globalMemoryHeatmap && globalMemoryHeatmap.cacheKey === cacheKey) {
+      return null; // RAM cache has priority
+    }
+    return getPersistentData<ActivityHistoryResponse>(cacheKey);
+  }, [cacheKey]);
 
   const [activityMap, setActivityMap] = useState<Map<string, { count: number; tasks: ActivityTaskInfo[] }>>(() => {
+    if (globalMemoryHeatmap && globalMemoryHeatmap.cacheKey === cacheKey) {
+      return globalMemoryHeatmap.activityMap;
+    }
     const map = new Map<string, { count: number; tasks: ActivityTaskInfo[] }>();
     if (initialCache?.activity) {
       initialCache.activity.forEach((item) => {
@@ -53,6 +83,9 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   });
 
   const [freezeMap, setFreezeMap] = useState<Map<string, string>>(() => {
+    if (globalMemoryHeatmap && globalMemoryHeatmap.cacheKey === cacheKey) {
+      return globalMemoryHeatmap.freezeMap;
+    }
     const fMap = new Map<string, string>();
     if (initialCache?.freezeDates) {
       initialCache.freezeDates.forEach((f) => fMap.set(f.date, f.scopeKey || 'OVERALL'));
@@ -60,8 +93,17 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     return fMap;
   });
 
-  const [activeDaysCount, setActiveDaysCount] = useState<number>(() => initialCache?.activeDaysCount || 0);
-  const [isLoading, setIsLoading] = useState<boolean>(() => !initialCache);
+  const [activeDaysCount, setActiveDaysCount] = useState<number>(() => {
+    if (globalMemoryHeatmap && globalMemoryHeatmap.cacheKey === cacheKey) {
+      return globalMemoryHeatmap.activeDaysCount;
+    }
+    return initialCache?.activeDaysCount || 0;
+  });
+
+  const [hasLoadedOnce, setHasLoadedOnce] = useState<boolean>(() => {
+    return Boolean((globalMemoryHeatmap && globalMemoryHeatmap.cacheKey === cacheKey) || initialCache);
+  });
+  const [isLoading, setIsLoading] = useState<boolean>(() => !hasLoadedOnce);
   const [error, setError] = useState('');
 
   // Selected date details modal
@@ -87,7 +129,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedDateDetail]);
 
-  const applyResponse = (res: ActivityHistoryResponse) => {
+  const applyResponse = useCallback((res: ActivityHistoryResponse, cKey: string) => {
     const map = new Map<string, { count: number; tasks: ActivityTaskInfo[] }>();
     res.activity.forEach((item) => {
       map.set(item.date, {
@@ -103,13 +145,23 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     }
     setFreezeMap(fMap);
 
-    setActiveDaysCount(res.activeDaysCount || 0);
-  };
+    const activeDays = res.activeDaysCount || 0;
+    setActiveDaysCount(activeDays);
+    setHasLoadedOnce(true);
+
+    // Save to global RAM cache for instant tab switching
+    globalMemoryHeatmap = {
+      cacheKey: cKey,
+      activityMap: map,
+      freezeMap: fMap,
+      activeDaysCount: activeDays,
+    };
+  }, []);
 
   // Fetch 365-day rolling activity data
   const loadActivityData = useCallback(async () => {
     const cKey = `heatmap_${startDate.toFormat('yyyy-MM-dd')}_${endDate.toFormat('yyyy-MM-dd')}`;
-    const cached = getPersistentData<ActivityHistoryResponse>(cKey);
+    const cached = globalMemoryHeatmap?.cacheKey === cKey ? true : getPersistentData<ActivityHistoryResponse>(cKey);
 
     if (!cached) {
       setIsLoading(true);
@@ -123,7 +175,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
 
       if (res && res.success) {
         setPersistentData(cKey, res);
-        applyResponse(res);
+        applyResponse(res, cKey);
       } else if (!cached) {
         setError('Failed to load activity history.');
       }
@@ -134,7 +186,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, applyResponse]);
 
   useEffect(() => {
     loadActivityData();
@@ -154,65 +206,76 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   }, [todayTasks]);
 
   // Construct calendar grid: columns = weeks (Sun..Sat), aligned to first Sunday
-  const firstGridSunday = startDate.minus({ days: startDate.weekday % 7 });
-  const daysDiff = Math.ceil(endDate.diff(firstGridSunday, 'days').days) + 1;
-  const totalWeeks = Math.ceil(daysDiff / 7);
+  // Memoized strictly by millisecond boundaries to avoid recalculating 742 Luxon string formatters per render!
+  const startMs = startDate.toMillis();
+  const endMs = endDate.toMillis();
+  const todayMs = todayDt.toMillis();
 
-  const weeks: Array<Array<{
-    dateStr: string;
-    isInRange: boolean;
-    isFuture: boolean;
-    dayOfWeek: number;
-    count: number;
-    isFrozen: boolean;
-    freezeScope?: string;
-    tasks: ActivityTaskInfo[];
-    formattedDate: string;
-  }>> = [];
+  const { gridWeeks, monthLabels } = useMemo(() => {
+    const firstGridSunday = startDate.minus({ days: startDate.weekday % 7 });
+    const daysDiff = Math.ceil(endDate.diff(firstGridSunday, 'days').days) + 1;
+    const totalWeeks = Math.ceil(daysDiff / 7);
 
-  // Month labels mapped to exact week column index
-  const monthLabels: Array<{ monthName: string; weekIndex: number }> = [];
-  let lastMonth = -1;
+    const weeksList: CalendarGridCell[][] = [];
+    const labelsList: Array<{ monthName: string; weekIndex: number }> = [];
+    let lastMonth = -1;
 
-  for (let w = 0; w < totalWeeks; w++) {
-    const weekDays = [];
-    for (let d = 0; d < 7; d++) {
-      const curDt = firstGridSunday.plus({ days: w * 7 + d });
-      const dateStr = curDt.toFormat('yyyy-MM-dd');
-      const isInRange = curDt >= startDate && curDt <= endDate;
-      const isFuture = curDt > todayDt;
+    for (let w = 0; w < totalWeeks; w++) {
+      const weekDays: CalendarGridCell[] = [];
+      for (let d = 0; d < 7; d++) {
+        const curDt = firstGridSunday.plus({ days: w * 7 + d });
+        const dateStr = curDt.toFormat('yyyy-MM-dd');
+        const isInRange = curDt >= startDate && curDt <= endDate;
+        const isFuture = curDt > todayDt;
 
-      let data = !isFuture && isInRange ? (activityMap.get(dateStr) || { count: 0, tasks: [] }) : { count: 0, tasks: [] };
-      if (dateStr === todayStr && liveTodayData !== null) {
-        data = liveTodayData;
-      }
+        // Track month transitions for accurate column alignment
+        if (isInRange && curDt.month !== lastMonth && d === 0) {
+          labelsList.push({
+            monthName: curDt.toFormat('LLL'),
+            weekIndex: w,
+          });
+          lastMonth = curDt.month;
+        }
 
-      const isFrozen = !isFuture && isInRange && freezeMap.has(dateStr);
-      const freezeScope = freezeMap.get(dateStr);
-
-      // Track month transitions for accurate column alignment
-      if (isInRange && curDt.month !== lastMonth && d === 0) {
-        monthLabels.push({
-          monthName: curDt.toFormat('LLL'),
-          weekIndex: w,
+        weekDays.push({
+          dateStr,
+          isInRange,
+          isFuture,
+          dayOfWeek: curDt.weekday % 7,
+          formattedDate: curDt.toFormat('cccc, MMMM d, yyyy'),
         });
-        lastMonth = curDt.month;
       }
-
-      weekDays.push({
-        dateStr,
-        isInRange,
-        isFuture,
-        dayOfWeek: curDt.weekday % 7,
-        count: isFuture ? 0 : data.count,
-        isFrozen,
-        freezeScope,
-        tasks: isFuture ? [] : data.tasks,
-        formattedDate: curDt.toFormat('cccc, MMMM d, yyyy'),
-      });
+      weeksList.push(weekDays);
     }
-    weeks.push(weekDays);
-  }
+
+    return { gridWeeks: weeksList, monthLabels: labelsList };
+  }, [startMs, endMs, todayMs]);
+
+  // Fast O(1) data resolver for grid cells
+  const getCellData = useCallback(
+    (cell: CalendarGridCell) => {
+      if (!cell.isInRange || cell.isFuture) {
+        return { count: 0, tasks: [] as ActivityTaskInfo[], isFrozen: false, freezeScope: undefined };
+      }
+      if (cell.dateStr === todayStr && liveTodayData !== null) {
+        return {
+          count: liveTodayData.count,
+          tasks: liveTodayData.tasks,
+          isFrozen: freezeMap.has(cell.dateStr),
+          freezeScope: freezeMap.get(cell.dateStr),
+        };
+      }
+      const data = activityMap.get(cell.dateStr);
+      const isFrozen = freezeMap.has(cell.dateStr);
+      return {
+        count: data ? data.count : 0,
+        tasks: data ? data.tasks : [],
+        isFrozen,
+        freezeScope: freezeMap.get(cell.dateStr),
+      };
+    },
+    [activityMap, freezeMap, todayStr, liveTodayData]
+  );
 
   // Intensity color function (GitHub emerald aesthetic tailored for StreakUp dark theme + Ice Blue freeze shield)
   const getCellColor = (count: number, isInRange: boolean, isFuture: boolean, isFrozen: boolean) => {
@@ -228,24 +291,16 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
     return 'bg-emerald-400 border-emerald-300 text-zinc-950 font-bold hover:scale-125 shadow-md shadow-emerald-400/40 ring-1 ring-emerald-400/50 cursor-pointer';
   };
 
-  const handleCellClick = (day: {
-    dateStr: string;
-    isInRange: boolean;
-    isFuture: boolean;
-    count: number;
-    isFrozen: boolean;
-    freezeScope?: string;
-    tasks: ActivityTaskInfo[];
-    formattedDate: string;
-  }) => {
-    if (!day.isInRange || day.isFuture) return;
+  const handleCellClick = (cell: CalendarGridCell) => {
+    if (!cell.isInRange || cell.isFuture) return;
+    const { count, tasks, isFrozen, freezeScope } = getCellData(cell);
     setSelectedDateDetail({
-      dateStr: day.dateStr,
-      formattedDate: day.formattedDate,
-      count: day.count,
-      isFrozen: day.isFrozen,
-      freezeScope: day.freezeScope,
-      tasks: day.tasks,
+      dateStr: cell.dateStr,
+      formattedDate: cell.formattedDate,
+      count,
+      isFrozen,
+      freezeScope,
+      tasks,
     });
   };
 
@@ -294,7 +349,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       )}
 
       {/* Heatmap Grid Area */}
-      {isLoading && activityMap.size === 0 ? (
+      {isLoading && !hasLoadedOnce && activityMap.size === 0 ? (
         <div className="py-16 text-center text-xs text-dark-muted flex items-center justify-center gap-2">
           <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           <span>Loading activity history...</span>
@@ -306,7 +361,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
             <div className="flex items-center gap-1.5 mb-1.5 select-none">
               <div className="w-6 shrink-0" />
               <div className="grid grid-flow-col auto-cols-fr gap-1 flex-1 text-[10px] font-mono text-zinc-400">
-                {weeks.map((_, wIdx) => {
+                {gridWeeks.map((_, wIdx) => {
                   const label = monthLabels.find((m) => m.weekIndex === wIdx);
                   return (
                     <div
@@ -335,26 +390,29 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
 
               {/* 52-53 Columns of 7 Days */}
               <div className="grid grid-rows-7 grid-flow-col auto-cols-fr gap-1 flex-1">
-                {weeks.map((week) =>
-                  week.map((day) => (
-                    <div
-                      key={day.dateStr}
-                      onClick={() => handleCellClick(day)}
-                      title={
-                        day.isFuture
-                          ? `${day.formattedDate}: Future date`
-                          : day.isFrozen && day.count === 0
-                          ? `${day.formattedDate}: ❄️ Streak Shield Active (Protected)`
-                          : `${day.formattedDate}: ${day.count} habit${day.count === 1 ? '' : 's'} completed`
-                      }
-                      className={`aspect-square w-full rounded-sm border transition-all duration-100 ${getCellColor(
-                        day.count,
-                        day.isInRange,
-                        day.isFuture,
-                        day.isFrozen
-                      )}`}
-                    />
-                  ))
+                {gridWeeks.map((week) =>
+                  week.map((cell) => {
+                    const data = getCellData(cell);
+                    return (
+                      <div
+                        key={cell.dateStr}
+                        onClick={() => handleCellClick(cell)}
+                        title={
+                          cell.isFuture
+                            ? `${cell.formattedDate}: Future date`
+                            : data.isFrozen && data.count === 0
+                            ? `${cell.formattedDate}: ❄️ Streak Shield Active (Protected)`
+                            : `${cell.formattedDate}: ${data.count} habit${data.count === 1 ? '' : 's'} completed`
+                        }
+                        className={`aspect-square w-full rounded-sm border transition-all duration-100 ${getCellColor(
+                          data.count,
+                          cell.isInRange,
+                          cell.isFuture,
+                          data.isFrozen
+                        )}`}
+                      />
+                    );
+                  })
                 )}
               </div>
             </div>

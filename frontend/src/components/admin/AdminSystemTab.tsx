@@ -107,9 +107,6 @@ export const AdminSystemTab: React.FC = () => {
     try {
       const res = await fetchAdminAnnouncement();
       if (res.success) {
-        if (res.announcement) {
-          setAnnouncement(res.announcement);
-        }
         if (res.announcements && Array.isArray(res.announcements)) {
           setAnnouncementLogs(res.announcements);
         }
@@ -146,13 +143,26 @@ export const AdminSystemTab: React.FC = () => {
     }
     setIsSavingAnnouncement(true);
     try {
-      const res = await updateAdminAnnouncement(announcement);
+      const res = await updateAdminAnnouncement({
+        message: announcement.message.trim(),
+        type: announcement.type,
+        link: announcement.link?.trim() || undefined,
+        linkText: announcement.linkText?.trim() || undefined,
+        dismissible: announcement.dismissible,
+        active: true,
+      });
       if (res.success) {
         toast.success(res.message || 'Announcement broadcast published! All users will receive the pop-up modal.');
-        if (res.announcement) {
-          setAnnouncement(res.announcement);
-        }
-        if (res.announcements) {
+        // Clear message fields so the composer is immediately ready for next broadcast
+        setAnnouncement((prev) => ({
+          ...prev,
+          id: 'default',
+          active: true,
+          message: '',
+          link: '',
+          linkText: '',
+        }));
+        if (res.announcements && Array.isArray(res.announcements)) {
           setAnnouncementLogs(res.announcements);
         }
         window.dispatchEvent(
@@ -470,10 +480,10 @@ export const AdminSystemTab: React.FC = () => {
         </div>
 
         {/* Live Preview Box */}
-        {announcement.active && (
+        {announcement.message.trim().length > 0 && (
           <div className="space-y-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-dark-muted">
-              Live Preview for Users:
+              Live Preview:
             </span>
             <div
               className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium transition-all ${
@@ -491,7 +501,7 @@ export const AdminSystemTab: React.FC = () => {
                 {announcement.type === 'warning' && <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
                 {announcement.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
                 {announcement.type === 'info' && <Info className="w-4 h-4 text-cyan-400 shrink-0" />}
-                <span>{announcement.message || 'Announcement message preview will appear here...'}</span>
+                <span>{announcement.message}</span>
                 {announcement.link && (
                   <span className="underline font-semibold ml-1 cursor-pointer">
                     {announcement.linkText || 'Learn more'}

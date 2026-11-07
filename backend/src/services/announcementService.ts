@@ -163,7 +163,10 @@ export async function createPlatformAnnouncement(
   await initAnnouncementTable();
 
   const now = new Date().toISOString();
-  const id = `announcement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const id =
+    data.id && data.id !== 'default' && data.id !== 'default-announcement'
+      ? data.id
+      : `announcement_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
   const created: PlatformAnnouncement = {
     id,
@@ -177,12 +180,20 @@ export async function createPlatformAnnouncement(
     updatedAt: now,
   };
 
-  // 1. Persist to PostgreSQL
+  // 1. Persist to PostgreSQL (Upsert to prevent duplicate key or missing rows)
   try {
     await prisma.$executeRawUnsafe(
       `
       INSERT INTO "platform_announcements" ("id", "active", "message", "type", "link", "link_text", "dismissible", "created_at", "updated_at")
       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      ON CONFLICT ("id") DO UPDATE
+      SET "active" = EXCLUDED."active",
+          "message" = EXCLUDED."message",
+          "type" = EXCLUDED."type",
+          "link" = EXCLUDED."link",
+          "link_text" = EXCLUDED."link_text",
+          "dismissible" = EXCLUDED."dismissible",
+          "updated_at" = NOW()
       `,
       created.id,
       created.active,
@@ -202,12 +213,8 @@ export async function createPlatformAnnouncement(
     fs.writeFileSync(ANNOUNCEMENT_FILE, JSON.stringify(created, null, 2), 'utf-8');
   } catch {}
 
-  // Update in-memory cache
-  if (cachedAnnouncements) {
-    cachedAnnouncements = [created, ...cachedAnnouncements];
-  } else {
-    cachedAnnouncements = [created];
-  }
+  // Invalidate in-memory cache so subsequent queries fetch fresh data
+  cachedAnnouncements = null;
 
   return created;
 }
@@ -220,7 +227,7 @@ export async function updatePlatformAnnouncement(
 ): Promise<PlatformAnnouncement> {
   await initAnnouncementTable();
 
-  if (!data.id) {
+  if (!data.id || data.id === 'default' || data.id === 'default-announcement') {
     return createPlatformAnnouncement(data);
   }
 
@@ -238,10 +245,16 @@ export async function updatePlatformAnnouncement(
   try {
     await prisma.$executeRawUnsafe(
       `
-      UPDATE "platform_announcements"
-      SET "active" = $2, "message" = $3, "type" = $4, "link" = $5,
-          "link_text" = $6, "dismissible" = $7, "updated_at" = NOW()
-      WHERE "id" = $1
+      INSERT INTO "platform_announcements" ("id", "active", "message", "type", "link", "link_text", "dismissible", "created_at", "updated_at")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      ON CONFLICT ("id") DO UPDATE
+      SET "active" = EXCLUDED."active",
+          "message" = EXCLUDED."message",
+          "type" = EXCLUDED."type",
+          "link" = EXCLUDED."link",
+          "link_text" = EXCLUDED."link_text",
+          "dismissible" = EXCLUDED."dismissible",
+          "updated_at" = NOW()
       `,
       updated.id,
       updated.active,
@@ -255,9 +268,7 @@ export async function updatePlatformAnnouncement(
     console.error('[AnnouncementService] Failed to update announcement in database:', err.message);
   }
 
-  if (cachedAnnouncements) {
-    cachedAnnouncements = cachedAnnouncements.map((a) => (a.id === updated.id ? updated : a));
-  }
+  cachedAnnouncements = null;
 
   return updated;
 }

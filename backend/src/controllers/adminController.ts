@@ -5942,10 +5942,10 @@ export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, re
       return res.status(400).json({ success: false, error: 'Announcement message is required.' });
     }
 
+    const isNew = !id || id === 'default' || id === 'default-announcement';
     let updated;
-    if (id) {
-      updated = await updatePlatformAnnouncement({
-        id,
+    if (isNew) {
+      updated = await createPlatformAnnouncement({
         active: typeof active === 'boolean' ? active : true,
         message: message.trim(),
         type: type || 'info',
@@ -5954,7 +5954,8 @@ export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, re
         dismissible: typeof dismissible === 'boolean' ? dismissible : true,
       });
     } else {
-      updated = await createPlatformAnnouncement({
+      updated = await updatePlatformAnnouncement({
+        id,
         active: typeof active === 'boolean' ? active : true,
         message: message.trim(),
         type: type || 'info',
@@ -5966,8 +5967,8 @@ export async function adminUpdateAnnouncement(req: AdminAuthenticatedRequest, re
 
     await recordAuditLog({
       adminUsername: req.admin!.username,
-      action: 'SYSTEM_ANNOUNCEMENT_UPDATE',
-      reason: 'Published platform broadcast announcement',
+      action: isNew ? 'SYSTEM_ANNOUNCEMENT_CREATE' : 'SYSTEM_ANNOUNCEMENT_UPDATE',
+      reason: `Published platform broadcast announcement: ${updated.id}`,
       afterState: updated,
     });
 

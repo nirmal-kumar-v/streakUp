@@ -44,7 +44,7 @@ function getCachedTasksData(status: 'ACTIVE' | 'ARCHIVED'): { tasks: Task[]; cou
   if (direct) return direct;
   // Fallback for ACTIVE: if user already loaded dashboard, reuse dashboard todayTasks so there is 0 buffering
   if (status === 'ACTIVE') {
-    const dash = getPersistentData<any>('streakup_dashboard_summary_cache');
+    const dash = getPersistentData<any>('dashboard_summary_v1') || getPersistentData<any>('streakup_dashboard_summary_cache');
     if (dash?.todayTasks && dash.todayTasks.length > 0) {
       return { tasks: dash.todayTasks, counts: { active: dash.todayTasks.length, archived: 0 } };
     }
