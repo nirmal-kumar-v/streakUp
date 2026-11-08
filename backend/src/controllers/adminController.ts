@@ -2,9 +2,10 @@ import { Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
+import { DateTime } from 'luxon';
 import prisma from '../config/prisma';
 import { AdminAuthenticatedRequest } from '../middleware/adminAuthMiddleware';
-import { getTodayInTimezone } from '../services/timezoneService';
+import { getTodayInTimezone, getLocalDateString, getYesterdayDateString, DEFAULT_TIMEZONE } from '../services/timezoneService';
 import { NotificationCategory } from '@prisma/client';
 import { sendEmail } from '../services/emailService';
 import { recalculateUserStreaks, recalculateTaskStreaks, reconcileStaleStreaks } from '../services/streakService';
@@ -830,6 +831,10 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
       return res.status(404).json({ success: false, error: 'User not found.' });
     }
 
+    const tz = user.timezone || DEFAULT_TIMEZONE;
+    const todayStr = getLocalDateString(tz);
+    const yesterdayStr = getYesterdayDateString(tz);
+
     if (type === 'TASK') {
       if (!taskId) {
         return res.status(400).json({ success: false, error: 'Task ID is required for task streak correction.' });
@@ -841,6 +846,45 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
 
       const beforeState = { currentStreak: task.currentStreak, longestStreak: task.longestStreak };
       const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(task.longestStreak, currentStreak);
+
+      if (currentStreak > 0) {
+        // Check if task was already completed on today's local date
+        const isAlreadyCompletedToday = await prisma.taskCompletion.findFirst({
+          where: { taskId, completionDate: todayStr },
+          select: { id: true },
+        });
+        const startOffset = isAlreadyCompletedToday ? 0 : 1;
+
+        // Upsert completions for the last `currentStreak` consecutive days so
+        // recalculateTaskStreaks and ensureTaskStreakCurrent recognize the active streak
+        for (let i = 0; i < currentStreak; i++) {
+          const dt = DateTime.now().setZone(tz).minus({ days: i + startOffset });
+          const dateStr = dt.toFormat('yyyy-MM-dd');
+          await prisma.taskCompletion.upsert({
+            where: {
+              taskId_completionDate: {
+                taskId,
+                completionDate: dateStr,
+              },
+            },
+            create: {
+              userId,
+              taskId,
+              completionDate: dateStr,
+              completedAt: dt.toJSDate(),
+            },
+            update: {},
+          });
+        }
+      } else {
+        // If explicitly setting current streak to 0, clear today's and yesterday's completion for this task
+        await prisma.taskCompletion.deleteMany({
+          where: {
+            taskId,
+            completionDate: { in: [todayStr, yesterdayStr] },
+          },
+        });
+      }
 
       const updatedTask = await prisma.task.update({
         where: { id: taskId },
@@ -874,6 +918,10 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
           },
         });
       }
+
+      clearLeaderboardCache();
+      swrCache.invalidateTag(`task:${taskId}`);
+      swrCache.invalidateTag(`user:${userId}`);
 
       const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
 
@@ -909,6 +957,57 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
       const beforeState = { currentStreak: user.currentStreak, longestStreak: user.longestStreak };
       const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(user.longestStreak, currentStreak);
 
+      if (currentStreak > 0) {
+        let anchorTask = await prisma.task.findFirst({
+          where: { userId, status: 'ACTIVE' },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (!anchorTask) {
+          anchorTask = await prisma.task.create({
+            data: {
+              userId,
+              title: 'Daily Productivity',
+              recurrence: 'DAILY',
+              scheduledDays: [0, 1, 2, 3, 4, 5, 6],
+              status: 'ACTIVE',
+            },
+          });
+        }
+
+        const isUserCompletedToday = await prisma.taskCompletion.findFirst({
+          where: { userId, completionDate: todayStr },
+          select: { id: true },
+        });
+        const startOffset = isUserCompletedToday ? 0 : 1;
+
+        for (let i = 0; i < currentStreak; i++) {
+          const dt = DateTime.now().setZone(tz).minus({ days: i + startOffset });
+          const dateStr = dt.toFormat('yyyy-MM-dd');
+          await prisma.taskCompletion.upsert({
+            where: {
+              taskId_completionDate: {
+                taskId: anchorTask.id,
+                completionDate: dateStr,
+              },
+            },
+            create: {
+              userId,
+              taskId: anchorTask.id,
+              completionDate: dateStr,
+              completedAt: dt.toJSDate(),
+            },
+            update: {},
+          });
+        }
+      } else {
+        await prisma.taskCompletion.deleteMany({
+          where: {
+            userId,
+            completionDate: { in: [todayStr, yesterdayStr] },
+          },
+        });
+      }
+
       const updatedUser = await prisma.user.update({
         where: { id: userId },
         data: {
@@ -917,6 +1016,9 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         },
         select: { id: true, username: true, currentStreak: true, longestStreak: true },
       });
+
+      clearLeaderboardCache();
+      swrCache.invalidateTag(`user:${userId}`);
 
       const changesSummary = `Overall streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
 

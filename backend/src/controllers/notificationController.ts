@@ -303,7 +303,7 @@ export async function dismissNotification(req: AuthenticatedRequest, res: Respon
 export async function getPreferences(req: AuthenticatedRequest, res: Response) {
   try {
     const userId = req.user!.userId;
-    const preferences = await getOrCreateNotificationPreferences(userId);
+    let preferences = await getOrCreateNotificationPreferences(userId);
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { email: true, timezone: true, isEmailVerified: true },
@@ -312,6 +312,35 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
     const reminderLimit = getUserReminderLimit(userId);
     const taskReminderLimit = getUserTaskReminderLimit(userId);
     const emailTriggerLimit = getUserEmailTriggerLimit(userId);
+
+    // If pre-existing user has more than emailTriggerLimit active (due to legacy DB defaults where all 8 were true),
+    // normalize them to the 4 standard triggers so they aren't trapped with 8 active
+    const emailKeys: (keyof typeof preferences)[] = [
+      'overallStreakRemindersEmail',
+      'taskRemindersEmail',
+      'friendOverallActivityAlerts',
+      'friendTaskActivityAlerts',
+      'friendOverallMilestones',
+      'friendTaskMilestones',
+      'myMilestonesEmail',
+      'freezeStatusNotifications',
+    ];
+    const activeEmails = emailKeys.filter((k) => Boolean(preferences[k])).length;
+    if (activeEmails > emailTriggerLimit) {
+      preferences = await prisma.notificationPreference.update({
+        where: { userId },
+        data: {
+          overallStreakRemindersEmail: true,
+          taskRemindersEmail: false,
+          friendOverallActivityAlerts: true,
+          friendTaskActivityAlerts: true,
+          friendOverallMilestones: false,
+          friendTaskMilestones: false,
+          myMilestonesEmail: false,
+          freezeStatusNotifications: true,
+        },
+      });
+    }
 
     return res.json({
       success: true,
@@ -435,6 +464,17 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
       ? Boolean(reqFreezeStatus)
       : (existingPref?.freezeStatusNotifications ?? true);
 
+    const currentActiveEmails = [
+      existingPref?.overallStreakRemindersEmail,
+      existingPref?.taskRemindersEmail,
+      existingPref?.friendOverallActivityAlerts,
+      existingPref?.friendTaskActivityAlerts,
+      existingPref?.friendOverallMilestones,
+      existingPref?.friendTaskMilestones,
+      existingPref?.myMilestonesEmail,
+      existingPref?.freezeStatusNotifications,
+    ].filter(Boolean).length;
+
     const activeEmailCount = [
       targetOverallStreakEmail,
       targetTaskRemindersEmail,
@@ -447,7 +487,10 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
     ].filter(Boolean).length;
 
     const maxEmailTriggers = getUserEmailTriggerLimit(userId);
-    if (activeEmailCount > maxEmailTriggers) {
+
+    // Only block if target activeEmailCount exceeds maxEmailTriggers AND user is increasing or adding beyond max
+    // Disabling / turning off an alert (activeEmailCount < currentActiveEmails) is ALWAYS allowed so users can reduce down to 3, 2, 1, 0!
+    if (activeEmailCount > maxEmailTriggers && activeEmailCount >= currentActiveEmails) {
       return res.status(400).json({
         success: false,
         error: `You can enable email notifications for at most ${maxEmailTriggers} triggers (currently ${activeEmailCount}/${maxEmailTriggers} selected). Please turn off another email alert before enabling this one.`,
