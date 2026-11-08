@@ -11,22 +11,23 @@ import {
   logout,
 } from '../controllers/authController';
 import { requireAuth } from '../middleware/authMiddleware';
+import { authRateLimiter, sensitiveActionLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
-// Registration & OTP verification
-router.post('/register', register);
-router.post('/verify-signup', verifySignup);
-router.post('/resend-signup-otp', resendSignupOtp);
+// Registration & OTP verification (rate-limited against bot spam)
+router.post('/register', authRateLimiter, register);
+router.post('/verify-signup', sensitiveActionLimiter, verifySignup);
+router.post('/resend-signup-otp', sensitiveActionLimiter, resendSignupOtp);
 
-// Login & Session
-router.post('/login', login);
+// Login & Session (rate-limited against brute-force password guessing)
+router.post('/login', authRateLimiter, login);
 router.get('/me', requireAuth, getMe);
 router.post('/logout', logout);
 
-// Password recovery via OTP
-router.post('/forgot-password', forgotPassword);
-router.post('/resend-reset-otp', resendPasswordResetOtp);
-router.post('/reset-password', resetPassword);
+// Password recovery via OTP (rate-limited against token exhaustion)
+router.post('/forgot-password', sensitiveActionLimiter, forgotPassword);
+router.post('/resend-reset-otp', sensitiveActionLimiter, resendPasswordResetOtp);
+router.post('/reset-password', sensitiveActionLimiter, resetPassword);
 
 export default router;

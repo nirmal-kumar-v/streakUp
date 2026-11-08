@@ -17,6 +17,17 @@ export function hashToken(value: string): string {
 }
 
 /**
+ * Constant-time hash comparison preventing timing side-channel attacks.
+ */
+export function safeCompareHash(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
  * Generates a cryptographically secure 6-digit numeric OTP.
  */
 export function generateNumericOtp(): string {
@@ -167,9 +178,9 @@ export async function verifyEmailOtp(params: {
     data: { attempts: { increment: 1 } },
   });
 
-  // Verify hash
+  // Verify hash safely in constant time
   const inputHash = hashToken(trimmedOtp);
-  if (inputHash !== otpRecord.otpHash) {
+  if (!safeCompareHash(inputHash, otpRecord.otpHash)) {
     const remaining = MAX_OTP_ATTEMPTS - updatedRecord.attempts;
     return {
       success: false,

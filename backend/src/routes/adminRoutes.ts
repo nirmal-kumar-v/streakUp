@@ -93,11 +93,12 @@ import {
 } from '../controllers/adminController';
 import { getAdminRequests, updateRequestStatus } from '../controllers/userRequestController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
+import { authRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
-// Public Admin Auth
-router.post('/login', adminLogin);
+// Public Admin Auth (rate-limited against brute-force attacks)
+router.post('/login', authRateLimiter, adminLogin);
 
 // Protected Super Admin Endpoints
 router.use(requireAdminAuth);

@@ -18,6 +18,17 @@ dotenv.config();
 
 const app = express();
 
+app.disable('x-powered-by');
+
+// Defensive HTTP Security Headers (OWASP compliant)
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
 app.use(cors({
@@ -158,9 +169,15 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   }
   console.error('Unhandled server error:', err);
   const status = err.status || 500;
+  const isProduction = process.env.NODE_ENV === 'production';
+  const errorMessage =
+    status >= 500 && isProduction
+      ? 'An internal server error occurred. Please try again later.'
+      : err.message || 'Internal server error occurred.';
+
   res.status(status).json({
     success: false,
-    error: err.message || 'Internal server error occurred.'
+    error: errorMessage
   });
 });
 
