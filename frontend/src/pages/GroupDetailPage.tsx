@@ -34,6 +34,7 @@ import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import { useBodyScrollLock } from '../utils/scrollLock';
 import { isLinkedInName } from '../utils/linkedin';
 import { LinkedInGamesHub } from '../components/LinkedInGamesHub';
+import { DuolingoHub } from '../components/DuolingoHub';
 import {
   Users,
   Flame,
@@ -88,6 +89,10 @@ export const GroupDetailPage: React.FC = () => {
   const [group, setGroup] = useState<GroupDetail | null>(() => cachedInitialGroup);
   const [activeMainTab, setActiveMainTab] = useState<'games' | 'task' | 'leaderboard' | 'notes' | 'admin'>('task');
   const isLinkedIn = useMemo(() => isLinkedInName(group?.name), [group?.name]);
+  const isDuolingo = useMemo(
+    () => Boolean(group?.specialPlatform === 'DUOLINGO' || (group?.name && group.name.toLowerCase().includes('duolingo'))),
+    [group?.specialPlatform, group?.name]
+  );
 
   const [leaderboard, setLeaderboard] = useState<GroupLeaderboardEntry[]>([]);
   const [notes, setNotes] = useState<GroupNoteItem[]>([]);
@@ -98,7 +103,7 @@ export const GroupDetailPage: React.FC = () => {
   const [isPotdCommitted, setIsPotdCommitted] = useState<boolean>(true);
   const [specialLeaderboardMode, setSpecialLeaderboardMode] = useState<'overall' | 'daily' | 'potd'>('overall');
   const isSpecialPlatformGroup = useMemo(() => {
-    return Boolean(group?.isSpecialGroup && group?.specialPlatform && group?.specialPlatform !== 'LINKEDIN');
+    return Boolean(group?.isSpecialGroup && group?.specialPlatform && group?.specialPlatform !== 'LINKEDIN' && group?.specialPlatform !== 'DUOLINGO');
   }, [group?.isSpecialGroup, group?.specialPlatform]);
 
   // Loading States
@@ -679,7 +684,7 @@ export const GroupDetailPage: React.FC = () => {
   }, [loadGroupDetails]);
 
   useEffect(() => {
-    if (group?.isSpecialGroup && group?.specialPlatform !== 'LINKEDIN') {
+    if (group?.isSpecialGroup && group?.specialPlatform !== 'LINKEDIN' && group?.specialPlatform !== 'DUOLINGO') {
       loadSpecialActivities();
     }
   }, [group?.isSpecialGroup, group?.specialPlatform, loadSpecialActivities]);
@@ -1130,7 +1135,22 @@ export const GroupDetailPage: React.FC = () => {
           </button>
         )}
 
-        {!isLinkedIn && (
+        {isDuolingo ? (
+          <button
+            onClick={() => setActiveMainTab('task')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeMainTab === 'task'
+                ? 'bg-[#58CC02]/20 text-[#58CC02] border border-[#58CC02]/40 shadow-sm'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-dark-hover'
+            }`}
+          >
+            <span className="text-sm">🦉</span>
+            <span>Duolingo Courses</span>
+            <span className="px-1.5 py-0.2 rounded-full bg-[#58CC02]/20 text-[#58CC02] text-[10px] font-mono font-bold">
+              45
+            </span>
+          </button>
+        ) : !isLinkedIn ? (
           <button
             onClick={() => setActiveMainTab('task')}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
@@ -1142,7 +1162,7 @@ export const GroupDetailPage: React.FC = () => {
             <CheckSquare className="w-3.5 h-3.5" />
             <span>Habit</span>
           </button>
-        )}
+        ) : null}
 
         <button
           onClick={() => setActiveMainTab('leaderboard')}
@@ -1217,8 +1237,17 @@ export const GroupDetailPage: React.FC = () => {
         />
       )}
 
+      {/* DUOLINGO COURSES VIEW */}
+      {activeMainTab === 'task' && isDuolingo && groupId && (
+        <DuolingoHub
+          groupId={groupId}
+          groupName={group.name}
+          onRefreshGroup={loadGroupDetails}
+        />
+      )}
+
       {/* TAB 1: SHARED TASK VIEW */}
-      {activeMainTab === 'task' && !isLinkedIn && (
+      {activeMainTab === 'task' && !isLinkedIn && !isDuolingo && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Shared Task Card */}
           <div className="lg:col-span-2 space-y-4">
@@ -1630,6 +1659,23 @@ export const GroupDetailPage: React.FC = () => {
                 className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-zinc-950 font-bold text-xs shrink-0 transition-colors shadow-sm"
               >
                 View 8 Game Leaderboards →
+              </button>
+            </div>
+          )}
+
+          {/* Duolingo Course Leaderboards Banner */}
+          {isDuolingo && (
+            <div className="mb-4 p-3.5 rounded-2xl bg-[#58CC02]/10 border border-[#58CC02]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-zinc-200">
+                <span className="text-base shrink-0">🦉</span>
+                <span>Looking for course-specific leaderboards? View separate rankings for each of your committed Duolingo courses in the Courses Hub.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('task')}
+                className="px-3.5 py-1.5 rounded-xl bg-[#58CC02] hover:bg-[#46A302] active:scale-95 text-zinc-950 font-bold text-xs shrink-0 transition-colors shadow-sm"
+              >
+                Open Course Leaderboards →
               </button>
             </div>
           )}

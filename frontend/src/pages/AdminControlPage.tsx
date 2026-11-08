@@ -81,6 +81,9 @@ import {
   overrideArchivedTaskLimit,
   overrideFriendLimit,
   overrideEmailTriggerLimit,
+  overrideDuolingoCourseLimit,
+  adminForceDuolingoCommit,
+  adminMigrateDuolingoGroups,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -354,6 +357,9 @@ export const AdminControlPage: React.FC = () => {
   const [newEmailTriggerLimit, setNewEmailTriggerLimit] = useState<number>(4);
   const [emailTriggerLimitReason, setEmailTriggerLimitReason] = useState('');
 
+  const [newDuolingoCourseLimit, setNewDuolingoCourseLimit] = useState<number>(5);
+  const [duolingoCourseLimitReason, setDuolingoCourseLimitReason] = useState('');
+
   // Submission Statuses linked to isSavingAllApplied
   const isSubmittingStreak = isSavingAllApplied;
   const isSubmittingFreezeControl = isSavingAllApplied;
@@ -368,6 +374,7 @@ export const AdminControlPage: React.FC = () => {
   const isSubmittingArchivedTaskLimit = isSavingAllApplied;
   const isSubmittingFriendLimit = isSavingAllApplied;
   const isSubmittingEmailTriggerLimit = isSavingAllApplied;
+  const isSubmittingDuolingoCourseLimit = isSavingAllApplied;
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -614,6 +621,7 @@ export const AdminControlPage: React.FC = () => {
         setNewArchivedTaskLimit(u.archivedTaskLimit || 5);
         setNewFriendLimit(u.friendLimit || 15);
         setNewEmailTriggerLimit(u.emailTriggerLimit || 4);
+        setNewDuolingoCourseLimit(u.duolingoCourseLimit || 5);
         if (u.notificationPreference) {
           setAdminNotificationPreferences(u.notificationPreference);
         } else {
@@ -1016,6 +1024,79 @@ export const AdminControlPage: React.FC = () => {
     )?.group;
     return fromTasks || null;
   }, [selectedUserDetails]);
+
+  const duolingoGroup = useMemo(() => {
+    if (!selectedUserDetails) return null;
+    const isDuo = (name?: string) => Boolean(name && name.toLowerCase().includes('duolingo'));
+    const fromMembership = selectedUserDetails.groupMemberships?.find((m: any) =>
+      m.group?.specialPlatform === 'DUOLINGO' || isDuo(m.group?.name)
+    )?.group;
+    if (fromMembership) return fromMembership;
+    const fromOwned = selectedUserDetails.ownedGroups?.find((g: any) =>
+      g.specialPlatform === 'DUOLINGO' || isDuo(g.name)
+    );
+    if (fromOwned) return fromOwned;
+    const fromTasks = selectedUserDetails.tasks?.find((t: any) =>
+      t.isGroupTask && (t.specialPlatform === 'DUOLINGO' || isDuo(t.title) || isDuo(t.groupName))
+    );
+    if (fromTasks && fromTasks.groupId) {
+      return { id: fromTasks.groupId, name: fromTasks.groupName || fromTasks.title };
+    }
+    return null;
+  }, [selectedUserDetails]);
+
+  const [selectedAdminDuolingoCourseId, setSelectedAdminDuolingoCourseId] = useState('spanish');
+  const [isForceCommittingDuolingo, setIsForceCommittingDuolingo] = useState(false);
+  const [isMigratingDuolingo, setIsMigratingDuolingo] = useState(false);
+
+  const handleAdminForceCommitDuolingo = () => {
+    if (!selectedUserId || !duolingoGroup?.id) {
+      toast.error('No Duolingo group associated with this user.');
+      return;
+    }
+    openPinPrompt(
+      'Force Commit User to Duolingo Course',
+      `Enter Super Admin Sensitive Password to force commit @${selectedUserDetails?.username} to ${selectedAdminDuolingoCourseId}.`,
+      async (pin) => {
+        setIsForceCommittingDuolingo(true);
+        try {
+          const res = await adminForceDuolingoCommit(selectedUserId, {
+            groupId: duolingoGroup.id,
+            courseId: selectedAdminDuolingoCourseId,
+            sensitivePin: pin,
+          });
+          if (res.success) {
+            toast.success(`User successfully force-committed to course!`);
+            refreshCurrentUser();
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to force-commit user to course.'));
+        } finally {
+          setIsForceCommittingDuolingo(false);
+        }
+      }
+    );
+  };
+
+  const handleAdminMigrateDuolingo = () => {
+    openPinPrompt(
+      'Migrate Duolingo Groups',
+      'Enter Super Admin Sensitive Password to convert all existing groups containing "duolingo" to special platform DUOLINGO.',
+      async (pin) => {
+        setIsMigratingDuolingo(true);
+        try {
+          const res = await adminMigrateDuolingoGroups(pin);
+          if (res.success) {
+            toast.success(`Duolingo migration complete! Migrated: ${res.migrated}, Already configured: ${res.already}`);
+          }
+        } catch (err: any) {
+          toast.error(extractErrorMessage(err, 'Failed to run Duolingo migration.'));
+        } finally {
+          setIsMigratingDuolingo(false);
+        }
+      }
+    );
+  };
 
   const loadAdminLinkedInGames = useCallback(async (userId: string, groupId: string) => {
     setIsLoadingAdminLinkedInGames(true);
@@ -1736,6 +1817,45 @@ export const AdminControlPage: React.FC = () => {
     }));
 
     toast.success('Email triggers quota applied! Click "Save" at the top to commit.');
+  };
+
+  // Duolingo Course Quota Override (Apply to staging)
+  const handleOverrideDuolingoCourseLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!duolingoCourseLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const limitVal = Number(newDuolingoCourseLimit);
+    const reason = duolingoCourseLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      duolingoCourseLimit: {
+        id: 'duolingoCourseLimit',
+        label: `Duolingo Courses Quota: ${limitVal}`,
+        description: `Set Duolingo committed courses quota to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideDuolingoCourseLimit(selectedUserId, {
+            duolingoCourseLimit: limitVal,
+            reason,
+            sensitivePin: pin,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
+          });
+        },
+      },
+    }));
+
+    toast.success('Duolingo courses quota applied! Click "Save" at the top to commit.');
   };
 
   // Freeze Shield Scope Switching
@@ -5176,6 +5296,134 @@ export const AdminControlPage: React.FC = () => {
                         })()}
                       </div>
                     )}
+
+                    {/* Duolingo Special Group Super Admin Panel */}
+                    <div className="bg-dark-card border border-[#58CC02]/30 rounded-2xl p-5 shadow-panel space-y-5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-dark-border">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">🦉</span>
+                            <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+                              <span>Duolingo Special Group: Course Controls & Migration</span>
+                            </h3>
+                            {duolingoGroup ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#58CC02]/20 text-[#58CC02] font-mono font-bold">
+                                {duolingoGroup.name}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 font-mono">
+                                No active Duolingo group
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-dark-muted mt-1 leading-relaxed">
+                            Manage course commitments, force-join courses, adjust course quotas, or run system-wide group migrations.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAdminMigrateDuolingo}
+                          disabled={isMigratingDuolingo}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-dark-surface hover:bg-dark-border border border-[#58CC02]/40 text-[#58CC02] text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 active:scale-95"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isMigratingDuolingo ? 'animate-spin' : ''}`} />
+                          <span>Migrate All Duolingo Groups</span>
+                        </button>
+                      </div>
+
+                      {/* Force Commit User to Any Course */}
+                      {duolingoGroup ? (
+                        <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                          <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
+                            <span>Force Commit User to Any Course (1 of 45)</span>
+                            <span className="text-[10px] font-mono text-[#58CC02]">
+                              Current Quota: {selectedUserDetails?.duolingoCourseLimit || 5} courses
+                            </span>
+                          </h4>
+                          <p className="text-[11px] text-dark-muted">
+                            As Super Admin, you can enroll @{selectedUserDetails?.username} into any course even if they have reached their normal quota limit.
+                          </p>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                            <select
+                              value={selectedAdminDuolingoCourseId}
+                              onChange={(e) => setSelectedAdminDuolingoCourseId(e.target.value)}
+                              className="flex-1 px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                            >
+                              {[
+                                { id: 'english', name: 'English 🇬🇧' },
+                                { id: 'spanish', name: 'Spanish 🇪🇸' },
+                                { id: 'french', name: 'French 🇫🇷' },
+                                { id: 'japanese', name: 'Japanese 🇯🇵' },
+                                { id: 'german', name: 'German 🇩🇪' },
+                                { id: 'korean', name: 'Korean 🇰🇷' },
+                                { id: 'italian', name: 'Italian 🇮🇹' },
+                                { id: 'chinese-mandarin', name: 'Chinese (Mandarin) 🇨🇳' },
+                                { id: 'portuguese', name: 'Portuguese 🇵🇹' },
+                                { id: 'hindi', name: 'Hindi 🇮🇳' },
+                                { id: 'russian', name: 'Russian 🇷🇺' },
+                                { id: 'arabic', name: 'Arabic 🇸🇦' },
+                                { id: 'turkish', name: 'Turkish 🇹🇷' },
+                                { id: 'dutch', name: 'Dutch 🇳🇱' },
+                                { id: 'swedish', name: 'Swedish 🇸🇪' },
+                                { id: 'polish', name: 'Polish 🇵🇱' },
+                                { id: 'ukrainian', name: 'Ukrainian 🇺🇦' },
+                                { id: 'vietnamese', name: 'Vietnamese 🇻🇳' },
+                                { id: 'indonesian', name: 'Indonesian 🇮🇩' },
+                                { id: 'irish', name: 'Irish 🇮🇪' },
+                                { id: 'greek', name: 'Greek 🇬🇷' },
+                                { id: 'norwegian', name: 'Norwegian 🇳🇴' },
+                                { id: 'hebrew', name: 'Hebrew 🇮🇱' },
+                                { id: 'czech', name: 'Czech 🇨🇿' },
+                                { id: 'danish', name: 'Danish 🇩🇰' },
+                                { id: 'finnish', name: 'Finnish 🇫🇮' },
+                                { id: 'hungarian', name: 'Hungarian 🇭🇺' },
+                                { id: 'romanian', name: 'Romanian 🇷🇴' },
+                                { id: 'swahili', name: 'Swahili 🇰🇪' },
+                                { id: 'welsh', name: 'Welsh 🏴󠁧󠁢󠁷󠁬󠁳󠁿' },
+                                { id: 'intermediate-english', name: 'Intermediate English 🇬🇧' },
+                                { id: 'latin', name: 'Latin 🏛️' },
+                                { id: 'catalan', name: 'Catalan 🏴' },
+                                { id: 'esperanto', name: 'Esperanto 🌍' },
+                                { id: 'haitian-creole', name: 'Haitian Creole 🇭🇹' },
+                                { id: 'hawaiian', name: 'Hawaiian 🌺' },
+                                { id: 'navajo', name: 'Navajo 🪶' },
+                                { id: 'scottish-gaelic', name: 'Scottish Gaelic 🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
+                                { id: 'yiddish', name: 'Yiddish ✡️' },
+                                { id: 'zulu', name: 'Zulu 🇿🇦' },
+                                { id: 'high-valyrian', name: 'High Valyrian 🐉' },
+                                { id: 'klingon', name: 'Klingon 🖖' },
+                                { id: 'chess', name: 'Chess ♟️' },
+                                { id: 'math', name: 'Math ➕' },
+                                { id: 'music', name: 'Music 🎵' },
+                              ].map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={handleAdminForceCommitDuolingo}
+                              disabled={isForceCommittingDuolingo}
+                              className="px-4 py-2 bg-[#58CC02] hover:bg-[#46A302] text-zinc-950 font-black text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0"
+                            >
+                              {isForceCommittingDuolingo ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <span>Force Commit User to Course</span>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-dark-surface rounded-xl border border-dashed border-dark-border text-xs text-dark-muted text-center">
+                          @{selectedUserDetails?.username} is not currently a member of any Duolingo group. Add them to a Duolingo group or have them join one to configure course commitments.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -7454,6 +7702,108 @@ export const AdminControlPage: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4" />
                           )}
                           <span>Apply Email Notification Triggers Quota ({newEmailTriggerLimit} Triggers)</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* 11. Duolingo Committed Courses Quota */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between border-b border-dark-border pb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xl">🦉</span>
+                          <div>
+                            <h4 className="text-sm font-bold text-zinc-100">
+                              Duolingo Committed Courses Quota (Per-User)
+                            </h4>
+                            <p className="text-xs text-dark-muted">
+                              Configure how many simultaneous Duolingo courses (out of 45) this user can commit to (Default: 5).
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#58CC02]/10 text-[#58CC02] border border-[#58CC02]/30">
+                          MAX {selectedUserDetails?.duolingoCourseLimit || 5} COURSES
+                        </span>
+                      </div>
+
+                      <form onSubmit={handleOverrideDuolingoCourseLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Adjust Duolingo Course Limit for @{selectedUserDetails?.username}
+                        </span>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Active Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.duolingoCourseLimit || 5} courses allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (1 to 45)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="45"
+                                value={newDuolingoCourseLimit}
+                                onChange={(e) => setNewDuolingoCourseLimit(parseInt(e.target.value, 10) || 5)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[3, 5, 10, 15, 45].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewDuolingoCourseLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newDuolingoCourseLimit === preset
+                                        ? 'bg-[#58CC02] text-zinc-950 border-[#58CC02]'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-[#58CC02]/50'
+                                    }`}
+                                  >
+                                    {preset === 45 ? 'All (45)' : preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={duolingoCourseLimitReason}
+                            onChange={(e) => setDuolingoCourseLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded language learning courses quota for multi-language learner"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingDuolingoCourseLimit}
+                          className="w-full py-2.5 bg-[#58CC02] hover:bg-[#46A302] disabled:opacity-50 text-zinc-950 font-black text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          {isSubmittingDuolingoCourseLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Duolingo Courses Quota ({newDuolingoCourseLimit} Courses)</span>
                         </button>
                       </form>
                     </div>

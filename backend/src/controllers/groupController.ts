@@ -7,6 +7,7 @@ import { DEFAULT_TIMEZONE, isValidTimezone, getLocalDateString } from '../servic
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
 import { getUserDiscoverGroupsLimit, getUserActiveTaskLimit } from '../services/adminConfigService';
 import { isLinkedInName, getLinkedInDashboardStreak } from '../services/linkedInGameService';
+import { isDuolingoName, getDuolingoDashboardStreak } from '../services/duolingoService';
 import { detectSpecialPlatform, getSpecialGroupDefinition } from '../services/specialGroupRegistry';
 import {
   ensureSpecialGroupMemberTasks,
@@ -163,7 +164,7 @@ export async function createGroup(req: AuthenticatedRequest, res: Response) {
       });
 
       // 3. Assign tasks
-      if (shouldEnableSpecial && specialPlatform !== 'LINKEDIN') {
+      if (shouldEnableSpecial && specialPlatform !== 'LINKEDIN' && specialPlatform !== 'DUOLINGO') {
         const platformDef = getSpecialGroupDefinition(specialPlatform!);
         const dailyDef = platformDef?.activities.find((a) => a.id === 'daily') || platformDef?.activities[0];
         const potdDef = platformDef?.activities.find((a) => a.id === 'potd') || platformDef?.activities[1];
@@ -636,7 +637,7 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
       });
 
       // 3. Automatically assign shared group task if not already assigned
-      if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+      if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
         // Will ensure special tasks for the member
       } else {
         const existingTask = await tx.task.findFirst({
@@ -668,7 +669,7 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
       }
     });
 
-    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
       await ensureSpecialGroupMemberTasks(group.id, applicantUserId);
     }
 
@@ -744,10 +745,15 @@ export async function getUserGroups(req: AuthenticatedRequest, res: Response) {
           }
         });
 
-        const groups = memberships.map((m) => {
+        const groups = await Promise.all(memberships.map(async (m) => {
           const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
           const streaks = tasksByGroupMap.get(m.group.id) || [];
-          const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+          let currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+
+          if (m.group.specialPlatform === 'DUOLINGO' || isDuolingoName(m.group.name)) {
+            const dStreak = await getDuolingoDashboardStreak(m.group.id, userId, user?.timezone || DEFAULT_TIMEZONE);
+            currentStreak = dStreak.currentStreak;
+          }
 
           return {
             id: m.group.id,
@@ -762,12 +768,12 @@ export async function getUserGroups(req: AuthenticatedRequest, res: Response) {
             memberCount: m.group._count.members,
             pendingRequestsCount,
             currentStreak,
-            isSpecialGroup: m.group.isSpecialGroup,
-            specialPlatform: m.group.specialPlatform,
+            isSpecialGroup: m.group.isSpecialGroup || isDuolingoName(m.group.name),
+            specialPlatform: m.group.specialPlatform || (isDuolingoName(m.group.name) ? 'DUOLINGO' : null),
             isPotdCommitted: m.isPotdCommitted,
             joinedAt: m.joinedAt,
           };
-        });
+        }));
 
         return {
           success: true,
@@ -972,8 +978,13 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
 
     // Fetch special group view if applicable
     let specialGroupView = null;
-    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
       specialGroupView = await getSpecialGroupActivitiesForMember(id, userId, timezone);
+    }
+
+    let duolingoSummary = null;
+    if (group.specialPlatform === 'DUOLINGO' || isDuolingoName(group.name)) {
+      duolingoSummary = await getDuolingoDashboardStreak(id, userId, timezone);
     }
 
         return {
@@ -994,10 +1005,11 @@ export async function getGroupDetails(req: AuthenticatedRequest, res: Response) 
             memberHiddenFrom: membership.hiddenFrom || [],
             pendingRequestsCount,
             hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
-            isSpecialGroup: group.isSpecialGroup,
-            specialPlatform: group.specialPlatform,
+            isSpecialGroup: group.isSpecialGroup || (duolingoSummary !== null),
+            specialPlatform: group.specialPlatform || (duolingoSummary !== null ? 'DUOLINGO' : null),
             isPotdCommitted: membership.isPotdCommitted,
             specialGroupView,
+            duolingoSummary,
             createdAt: group.createdAt,
             userTask: userTask
               ? {
@@ -1069,7 +1081,8 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
       return res.status(404).json({ success: false, error: 'Group not found.' });
     }
 
-    const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN');
+    const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO');
+    const isDuolingo = Boolean(group.specialPlatform === 'DUOLINGO' || isDuolingoName(group.name));
     const activityFilter = ((req.query.activity as string) || 'overall').toLowerCase(); // 'overall' | 'daily' | 'potd'
 
     const cacheKey = `group:lb:${id}:${type}:${activityFilter}:${userId}`;
@@ -1174,6 +1187,11 @@ export async function getGroupLeaderboards(req: AuthenticatedRequest, res: Respo
           const liStats = await getLinkedInDashboardStreak(id, m.user.id, m.user.timezone || DEFAULT_TIMEZONE);
           currentStreak = liStats.currentStreak;
           longestStreak = liStats.longestStreak;
+        } else if (isDuolingo) {
+          // Duolingo group: highest current streak of any committed course
+          const duoStats = await getDuolingoDashboardStreak(id, m.user.id, m.user.timezone || DEFAULT_TIMEZONE);
+          currentStreak = duoStats.currentStreak;
+          longestStreak = duoStats.longestStreak;
         } else if (isSpecialGroup) {
           const dailyTask = taskMap.get(`${m.user.id}_DAILY`);
           const potdTask = taskMap.get(`${m.user.id}_POTD`);
@@ -2151,7 +2169,7 @@ export async function respondToGroupInvitation(req: AuthenticatedRequest, res: R
       }
     });
 
-    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+    if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
       await ensureSpecialGroupMemberTasks(group.id, userId);
     }
 

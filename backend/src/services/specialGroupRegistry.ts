@@ -3,7 +3,7 @@
  * Supports extensible special-group platforms (LinkedIn, LeetCode, GeeksforGeeks, and future platforms).
  */
 
-export type SpecialPlatformType = 'LINKEDIN' | 'LEETCODE' | 'GEEKSFORGEEKS';
+export type SpecialPlatformType = 'LINKEDIN' | 'LEETCODE' | 'GEEKSFORGEEKS' | 'DUOLINGO';
 
 export interface SpecialActivityMeta {
   id: 'daily' | 'potd' | string;
@@ -20,12 +20,22 @@ export interface SpecialGroupRegistryItem {
   icon: string;
   color: string;
   isAvailable: boolean;
-  activityModel: 'LINKEDIN_GAMES' | 'DAILY_POTD';
+  activityModel: 'LINKEDIN_GAMES' | 'DAILY_POTD' | 'DUOLINGO_COURSES';
   activities: SpecialActivityMeta[];
   defaultPotdCommitted?: boolean;
 }
 
 export const SPECIAL_GROUP_REGISTRY: Record<SpecialPlatformType, SpecialGroupRegistryItem> = {
+  DUOLINGO: {
+    platform: 'DUOLINGO',
+    displayName: 'Duolingo',
+    badgeLabel: 'Duolingo Special',
+    icon: 'Languages',
+    color: '#58CC02',
+    isAvailable: true,
+    activityModel: 'DUOLINGO_COURSES',
+    activities: [], // 45 courses managed in duolingoService
+  },
   LINKEDIN: {
     platform: 'LINKEDIN',
     displayName: 'LinkedIn',
@@ -123,6 +133,11 @@ export function detectSpecialPlatform(name?: string | null): SpecialPlatformType
     /geeks\s*for\s*geeks/i.test(clean) || /geeksforgeeks/i.test(clean.replace(/\s+/g, ''));
   if (hasGfgToken || hasGeeks) {
     matches.add('GEEKSFORGEEKS');
+  }
+
+  // 4. Duolingo matching
+  if (/(\b|_|^)duolingo(\b|_|$)/i.test(clean) || /duolingo/i.test(clean.replace(/\s+/g, '')) || /duo\s*lingo/i.test(clean)) {
+    matches.add('DUOLINGO');
   }
 
   // Unambiguous: exactly one platform must match

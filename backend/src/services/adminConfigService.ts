@@ -12,6 +12,7 @@ export interface UserAdminConfig {
   archivedTaskLimit?: number;
   friendLimit?: number;
   emailTriggerLimit?: number;
+  duolingoCourseLimit?: number;
   [key: string]: any;
 }
 
@@ -288,8 +289,27 @@ export function getUserAdminConfig(userId: string): UserAdminConfig {
     archivedTaskLimit: userConf.archivedTaskLimit ?? 5,
     friendLimit: userConf.friendLimit ?? 15,
     emailTriggerLimit: userConf.emailTriggerLimit ?? 4,
+    duolingoCourseLimit: userConf.duolingoCourseLimit ?? 5,
     ...userConf,
   };
+}
+
+export function getUserDuolingoCourseLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.duolingoCourseLimit === 'number' && userConf.duolingoCourseLimit >= 1) {
+    return userConf.duolingoCourseLimit;
+  }
+  return 5; // Default 5 Duolingo courses per user
+}
+
+export function setUserDuolingoCourseLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].duolingoCourseLimit = Math.max(1, Math.min(45, limit));
+  writeAllConfigs(configs);
 }
 
 export function deleteUserAdminConfig(userId: string): void {

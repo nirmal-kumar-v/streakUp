@@ -641,6 +641,47 @@ export async function overrideEmailTriggerLimit(
   return res.data;
 }
 
+export async function overrideDuolingoCourseLimit(
+  userId: string,
+  data: { duolingoCourseLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; duolingoCourseLimit: number }>(
+    `/admin/users/${userId}/override-duolingo-course-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminForceDuolingoCommit(
+  userId: string,
+  data: { groupId: string; courseId: string; sensitivePin?: string }
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; course: any }>(
+    `/admin/users/${userId}/duolingo-force-commit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminMigrateDuolingoGroups(sensitivePin?: string) {
+  const res = await adminApiClient.post<{ success: boolean; migrated: number; already: number }>(
+    `/admin/duolingo/migrate`,
+    {},
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function adminUpdateUserProfileImage(
   userId: string,
   data: {

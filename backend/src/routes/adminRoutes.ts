@@ -37,6 +37,7 @@ import {
   overrideArchivedTaskLimit,
   overrideFriendLimit,
   overrideEmailTriggerLimit,
+  overrideDuolingoCourseLimit,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -96,6 +97,7 @@ import {
   adminExportAuditLogs,
 } from '../controllers/adminController';
 import { getAdminRequests, updateRequestStatus } from '../controllers/userRequestController';
+import { adminForceDuolingoCommit, adminMigrateDuolingoGroups } from '../controllers/duolingoController';
 import { requireAdminAuth, requireSensitiveAuth } from '../middleware/adminAuthMiddleware';
 import { authRateLimiter } from '../middleware/rateLimiter';
 
@@ -138,6 +140,9 @@ router.post('/users/:userId/override-active-task-limit', requireSensitiveAuth, o
 router.post('/users/:userId/override-archived-task-limit', requireSensitiveAuth, overrideArchivedTaskLimit);
 router.post('/users/:userId/override-friend-limit', requireSensitiveAuth, overrideFriendLimit);
 router.post('/users/:userId/override-email-trigger-limit', requireSensitiveAuth, overrideEmailTriggerLimit);
+router.post('/users/:userId/override-duolingo-course-limit', requireSensitiveAuth, overrideDuolingoCourseLimit);
+router.post('/users/:userId/duolingo-force-commit', requireSensitiveAuth, adminForceDuolingoCommit);
+router.post('/duolingo/migrate', requireSensitiveAuth, adminMigrateDuolingoGroups);
 router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);

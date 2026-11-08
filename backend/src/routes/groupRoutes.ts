@@ -34,6 +34,17 @@ import {
   getLinkedInGameLeaderboard,
   setLinkedInGameCommitment,
 } from '../controllers/linkedInGameController';
+import {
+  getDuolingoCourses,
+  getDuolingoDashboardStreakEndpoint,
+  commitDuolingoCourse,
+  uncommitDuolingoCourse,
+  completeDuolingoCourse,
+  uncompleteDuolingoCourse,
+  completeAllDuolingoCourses,
+  uncompleteAllDuolingoCourses,
+  getDuolingoCourseLeaderboard,
+} from '../controllers/duolingoController';
 import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -79,6 +90,17 @@ router.post('/:id/linkedin-games/:gameId/complete', completeLinkedInGame);
 router.post('/:id/linkedin-games/:gameId/uncomplete', uncompleteLinkedInGame);
 router.put('/:id/linkedin-games/:gameId/commitment', setLinkedInGameCommitment);
 router.get('/:id/linkedin-games/:gameId/leaderboard', getLinkedInGameLeaderboard);
+
+// Duolingo Special Group Hub
+router.get('/:id/duolingo/courses', getDuolingoCourses);
+router.get('/:id/duolingo/dashboard-streak', getDuolingoDashboardStreakEndpoint);
+router.post('/:id/duolingo/commit', commitDuolingoCourse);
+router.post('/:id/duolingo/uncommit', uncommitDuolingoCourse);
+router.post('/:id/duolingo/complete-all', completeAllDuolingoCourses);
+router.post('/:id/duolingo/uncomplete-all', uncompleteAllDuolingoCourses);
+router.post('/:id/duolingo/courses/:courseId/complete', completeDuolingoCourse);
+router.post('/:id/duolingo/courses/:courseId/uncomplete', uncompleteDuolingoCourse);
+router.get('/:id/duolingo/leaderboard/:courseId', getDuolingoCourseLeaderboard);
 
 router.post('/:id/members/:targetUserId/promote', promoteMemberToAdmin);
 router.delete('/:id/members/:targetUserId', removeMemberFromGroup);

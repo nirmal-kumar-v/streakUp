@@ -258,6 +258,10 @@ export const TermsPage: React.FC = () => {
                 <strong className="text-zinc-100 block mb-1">Notification Delivery Channels (Any 4 Email Triggers Maximum)</strong>
                 <span>StreakUp enables users to configure In-App alerts and external transactional Email updates across all notification categories. Users may activate email dispatches for any 4 triggers maximum of their choice (defaulting to Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Reminders). Platform administrators may expand or modify limits per individual user account.</span>
               </div>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300 sm:col-span-2">
+                <strong className="text-zinc-100 block mb-1">Duolingo Special Groups &amp; Course Commitments (Max 5 Courses)</strong>
+                <span>Duolingo special accountability groups provide dedicated habit tracking across 45 recognized languages and subjects. Members may commit to at most 5 simultaneous courses (expandable per user via authorized administration). Streaks and freeze protections are calculated independently per course, with the overall Duolingo streak reflecting the member's best current streak among committed courses. Independent course leaderboards are strictly restricted to members actively committed to that respective course. Combined study notes are prompted once upon completing all committed courses for that day.</span>
+              </div>
             </div>
           </section>
 

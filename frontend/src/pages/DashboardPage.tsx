@@ -19,6 +19,7 @@ import { TaskCompletionModal } from '../components/TaskCompletionModal';
 import { TaskDetailModal } from '../components/TaskDetailModal';
 import { ActivityHeatmap } from '../components/ActivityHeatmap';
 import { SpecialGroupCard } from '../components/SpecialGroupCard';
+import { DuolingoGroupCard } from '../components/DuolingoGroupCard';
 import { triggerStreakCelebration } from '../components/StreakCelebration';
 import { triggerPostCompletionNudge } from '../components/PostCompletionNudge';
 import {
@@ -662,9 +663,32 @@ export const DashboardPage: React.FC = () => {
     dailyTask?: Task;
     potdTask?: Task;
   }>();
+
+  // Duolingo special groups into single cards
+  const duolingoGroupMap = new Map<string, {
+    groupId: string;
+    groupName: string;
+  }>();
+
   const regularTodaysTasks: Task[] = [];
 
   todaysTasks.forEach((t) => {
+    const isDuo = Boolean(
+      t.specialPlatform === 'DUOLINGO' ||
+      (t.groupName && t.groupName.toLowerCase().includes('duolingo')) ||
+      (t.title && t.title.toLowerCase().includes('duolingo') && (t.isGroupTask || !!t.groupId))
+    );
+
+    if (isDuo && t.groupId) {
+      if (!duolingoGroupMap.has(t.groupId)) {
+        duolingoGroupMap.set(t.groupId, {
+          groupId: t.groupId,
+          groupName: t.groupName || t.title,
+        });
+      }
+      return;
+    }
+
     if (t.specialActivity && t.groupId) {
       let entry = specialGroupMap.get(t.groupId);
       if (!entry) {
@@ -685,6 +709,7 @@ export const DashboardPage: React.FC = () => {
     }
   });
   const specialGroupsList = Array.from(specialGroupMap.values());
+  const duolingoGroupsList = Array.from(duolingoGroupMap.values());
 
   return (
     <div className="space-y-8 pb-16">
@@ -1017,6 +1042,16 @@ export const DashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Duolingo Special Group Cards */}
+              {duolingoGroupsList.map((dg) => (
+                <DuolingoGroupCard
+                  key={dg.groupId}
+                  groupId={dg.groupId}
+                  groupName={dg.groupName}
+                  onRefreshDashboard={loadDashboard}
+                />
+              ))}
+
               {/* Special Group Cards (LeetCode / GeeksforGeeks) */}
               {specialGroupsList.map((sg) => (
                 <SpecialGroupCard

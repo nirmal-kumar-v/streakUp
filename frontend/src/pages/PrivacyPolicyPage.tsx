@@ -139,7 +139,7 @@ export const PrivacyPolicyPage: React.FC = () => {
                   <span>B. Habit Definitions, Subtasks & Completion Records</span>
                 </h3>
                 <p className="text-xs text-dark-muted mt-2 leading-relaxed">
-                  To provide daily tracking, we store habit titles, descriptions, custom subtasks, urgency/priority tiers, scheduling recurrences (Daily, Weekdays, Weekends, or Custom Days), and completion timestamps. When you complete a task, you may optionally attach personal study reflections or completion notes, which are stored securely and visible to you and members of mutual accountability groups.
+                  To provide daily tracking, we store habit titles, descriptions, custom subtasks, urgency/priority tiers, scheduling recurrences (Daily, Weekdays, Weekends, or Custom Days), and completion timestamps. When you complete a task, you may optionally attach personal study reflections or completion notes, which are stored securely and visible to you and members of mutual accountability groups. For specialized groups (such as Duolingo special language & subject courses), completion notes and streak histories are isolated exclusively to users committed to mutual courses within that group.
                 </p>
               </div>
 

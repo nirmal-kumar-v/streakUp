@@ -545,4 +545,150 @@ export async function updateGroupMemberCommitment(
   return res.data;
 }
 
+// ─── Duolingo Special Group API ──────────────────────────────────────────────
+
+export interface DuolingoCourseItem {
+  courseId: string;
+  name: string;
+  emoji: string;
+  category: 'language' | 'other';
+  isCommitted: boolean;
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  todayNote: string | null;
+  freezeBalance: number;
+  freezeRechargeDays: number;
+  totalCompletions: number;
+  lastCompletedDate: string | null;
+  completionsHistory?: any[];
+}
+
+export interface DuolingoCoursesResponse {
+  success: boolean;
+  groupId: string;
+  groupName: string;
+  courses: DuolingoCourseItem[];
+  committedCount: number;
+  courseLimit: number;
+  totalCourses: number;
+}
+
+export interface DuolingoLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  username: string;
+  profileImage: string | null;
+  role: string;
+  currentStreak: number;
+  longestStreak: number;
+  totalCompletions: number;
+  completedToday: boolean;
+  todayNote: string | null;
+  lastCompletedDate: string | null;
+}
+
+export async function fetchDuolingoCourses(groupId: string): Promise<DuolingoCoursesResponse> {
+  const res = await apiClient.get(`/groups/${groupId}/duolingo/courses`);
+  return res.data;
+}
+
+export async function commitDuolingoCourse(groupId: string, courseId: string): Promise<{
+  success: boolean;
+  message: string;
+  course: DuolingoCourseItem;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/commit`, { courseId });
+  return res.data;
+}
+
+export async function uncommitDuolingoCourse(groupId: string, courseId: string): Promise<{
+  success: boolean;
+  message: string;
+  course: DuolingoCourseItem;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/uncommit`, { courseId });
+  return res.data;
+}
+
+export async function completeDuolingoCourse(
+  groupId: string,
+  courseId: string,
+  studyNote?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  course: DuolingoCourseItem;
+  leaderboard?: DuolingoLeaderboardEntry[];
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/courses/${courseId}/complete`, { studyNote });
+  return res.data;
+}
+
+export async function uncompleteDuolingoCourse(
+  groupId: string,
+  courseId: string
+): Promise<{
+  success: boolean;
+  message: string;
+  course: DuolingoCourseItem;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/courses/${courseId}/uncomplete`);
+  return res.data;
+}
+
+export async function completeAllDuolingoCourses(
+  groupId: string,
+  studyNote?: string
+): Promise<{
+  success: boolean;
+  message: string;
+  newlyCompleted: number;
+  alreadyCompleted: number;
+  totalCommitted: number;
+  dashboardStreak: any;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/complete-all`, { studyNote });
+  return res.data;
+}
+
+export async function uncompleteAllDuolingoCourses(
+  groupId: string
+): Promise<{
+  success: boolean;
+  message: string;
+  dashboardStreak: any;
+}> {
+  const res = await apiClient.post(`/groups/${groupId}/duolingo/uncomplete-all`);
+  return res.data;
+}
+
+export async function fetchDuolingoCourseLeaderboard(
+  groupId: string,
+  courseId: string
+): Promise<{
+  success: boolean;
+  groupId: string;
+  courseId: string;
+  leaderboard: DuolingoLeaderboardEntry[];
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/duolingo/leaderboard/${courseId}`);
+  return res.data;
+}
+
+export async function fetchDuolingoDashboardStreak(groupId: string): Promise<{
+  success: boolean;
+  currentStreak: number;
+  longestStreak: number;
+  completedToday: boolean;
+  committedCount: number;
+  totalCourses: number;
+  coursesCompletedToday: number;
+}> {
+  const res = await apiClient.get(`/groups/${groupId}/duolingo/dashboard-streak`);
+  return res.data;
+}
+
+
 

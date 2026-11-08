@@ -15,6 +15,12 @@ import {
   completeCommittedGamesForDashboard,
   uncompleteCommittedGamesForDashboard,
 } from '../services/linkedInGameService';
+import {
+  isDuolingoName,
+  getDuolingoDashboardStreak,
+  completeAllCommittedCourses,
+  uncompleteAllCommittedCourses,
+} from '../services/duolingoService';
 import { clearLeaderboardCache } from './leaderboardController';
 import { getUserActiveTaskLimit, getUserArchivedTaskLimit } from '../services/adminConfigService';
 import swrCache from '../utils/cacheService';
@@ -145,12 +151,21 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
         const isLinkedIn = Boolean(
           (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
         );
+        const isDuolingo = Boolean(
+          task.group?.specialPlatform === 'DUOLINGO' ||
+          ((task.isGroupTask || !!task.groupId) && (isDuolingoName(task.title) || isDuolingoName(task.group?.name)))
+        );
 
         if (isLinkedIn && task.groupId) {
           const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
           currentStreak = Math.max(currentStreak, li.currentStreak);
           longestStreak = Math.max(task.longestStreak, li.longestStreak);
           completedToday = Boolean(task.completions.length > 0 || li.completedToday);
+        } else if (isDuolingo && task.groupId) {
+          const duo = await getDuolingoDashboardStreak(task.groupId, userId, timezone);
+          currentStreak = Math.max(currentStreak, duo.currentStreak);
+          longestStreak = Math.max(task.longestStreak, duo.longestStreak);
+          completedToday = Boolean(task.completions.length > 0 || duo.completedToday);
         }
 
         const todayStudyNote =
@@ -163,6 +178,7 @@ export async function getTasks(req: AuthenticatedRequest, res: Response) {
           completedToday,
           todayStudyNote,
           isLinkedIn,
+          isDuolingo,
           specialActivity: task.specialActivity,
           specialPlatform: task.group?.specialPlatform || null,
           groupName: task.group?.name || null,
@@ -837,6 +853,11 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
       eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
     }).catch((err) => console.error('[completeTask] User completion notification error:', err));
 
+    // If Duolingo group umbrella task, complete all committed courses
+    if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
+      await completeAllCommittedCourses(task.groupId, userId, timezone, trimmedNote, todayDateStr).catch(() => {});
+    }
+
     clearLeaderboardCache();
     swrCache.invalidateUser(userId);
     if (task.groupId) swrCache.invalidateGroup(task.groupId);
@@ -1060,6 +1081,11 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       targetCurrentStreak: targetUserStreak,
       targetLongestStreak: task.user?.longestStreak || 0,
     });
+
+    // If Duolingo group umbrella task, uncomplete all committed courses
+    if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
+      await uncompleteAllCommittedCourses(task.groupId, userId, timezone, todayDateStr).catch(() => {});
+    }
 
     clearLeaderboardCache();
     swrCache.invalidateUser(userId);
@@ -1378,12 +1404,21 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
         const isLinkedIn = Boolean(
           (task.isGroupTask || !!task.groupId) && isLinkedInName(task.title)
         );
+        const isDuolingo = Boolean(
+          task.group?.specialPlatform === 'DUOLINGO' ||
+          ((task.isGroupTask || !!task.groupId) && (isDuolingoName(task.title) || isDuolingoName(task.group?.name)))
+        );
 
         if (isLinkedIn && task.groupId) {
           const li = await getLinkedInDashboardStreak(task.groupId, userId, timezone);
           currentStreak = Math.max(currentStreak, li.currentStreak);
           longestStreak = Math.max(longestStreak, li.longestStreak);
           completedToday = Boolean(task.completions.length > 0 || li.completedToday);
+        } else if (isDuolingo && task.groupId) {
+          const duo = await getDuolingoDashboardStreak(task.groupId, userId, timezone);
+          currentStreak = Math.max(currentStreak, duo.currentStreak);
+          longestStreak = Math.max(longestStreak, duo.longestStreak);
+          completedToday = Boolean(task.completions.length > 0 || duo.completedToday);
         }
 
         const todayStudyNote =
@@ -1408,6 +1443,7 @@ export async function getDashboardSummary(req: AuthenticatedRequest, res: Respon
           groupId: task.groupId,
           isGroupTask: task.isGroupTask || !!task.groupId,
           isLinkedIn,
+          isDuolingo,
           specialActivity: task.specialActivity,
           specialPlatform: task.group?.specialPlatform || null,
           groupName: task.group?.name || null,

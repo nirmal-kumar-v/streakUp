@@ -28,6 +28,8 @@ import {
   setUserFriendLimit,
   getUserEmailTriggerLimit,
   setUserEmailTriggerLimit,
+  getUserDuolingoCourseLimit,
+  setUserDuolingoCourseLimit,
   loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
@@ -668,6 +670,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).archivedTaskLimit = getUserArchivedTaskLimit(userId);
     (safeUser as any).friendLimit = getUserFriendLimit(userId);
     (safeUser as any).emailTriggerLimit = getUserEmailTriggerLimit(userId);
+    (safeUser as any).duolingoCourseLimit = getUserDuolingoCourseLimit(userId);
 
     const friendCount = await prisma.friendship.count({
       where: { OR: [{ user1Id: userId }, { user2Id: userId }] }
@@ -3112,6 +3115,72 @@ export async function overrideEmailTriggerLimit(req: AdminAuthenticatedRequest, 
   } catch (err: any) {
     console.error('overrideEmailTriggerLimit error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update email triggers quota limit.' });
+  }
+}
+
+/**
+ * Override the maximum committed Duolingo courses limit for a user (1-45)
+ */
+export async function overrideDuolingoCourseLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      duolingoCourseLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof duolingoCourseLimit !== 'number' || duolingoCourseLimit < 1 || duolingoCourseLimit > 45) {
+      return res.status(400).json({ success: false, error: 'Duolingo course limit must be an integer between 1 and 45.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserDuolingoCourseLimit(userId);
+    setUserDuolingoCourseLimit(userId, duolingoCourseLimit);
+
+    const changesSummary = `Duolingo committed courses quota changed from ${beforeLimit} to ${duolingoCourseLimit} courses.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_DUOLINGO_COURSE_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { duolingoCourseLimit: beforeLimit },
+      afterState: { duolingoCourseLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Duolingo Course Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Duolingo course quota for @${user.username} updated to ${duolingoCourseLimit}.`,
+      duolingoCourseLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideDuolingoCourseLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update Duolingo course quota.' });
   }
 }
 
