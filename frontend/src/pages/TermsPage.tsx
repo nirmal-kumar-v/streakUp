@@ -117,7 +117,7 @@ export const TermsPage: React.FC = () => {
                 <strong className="text-zinc-200">One Account Per Person:</strong> Each account must correspond to an individual user. Creating duplicate accounts, bot-managed profiles, or shared credentials to manipulate leaderboards is prohibited.
               </li>
               <li>
-                <strong className="text-zinc-200">Credential Confidentiality:</strong> You are solely responsible for safeguarding your login password and your local 4-digit App Lock PIN. You must notify StreakUp immediately at <a href="mailto:support@streakup.app" className="text-flame-400 hover:underline">support@streakup.app</a> if you discover unauthorized access.
+                <strong className="text-zinc-200">Credential Confidentiality:</strong> You are solely responsible for safeguarding your login password and your local 4-digit App Lock PIN. You must notify StreakUp immediately at <a href="mailto:streakup.web@gmail.com" className="text-flame-400 hover:underline">streakup.web@gmail.com</a> if you discover unauthorized access.
               </li>
             </ul>
           </section>
@@ -323,7 +323,7 @@ export const TermsPage: React.FC = () => {
               For legal inquiries, formal notices, or questions regarding these Terms &amp; Conditions, please contact:
             </p>
             <div className="font-mono text-xs text-zinc-300 space-y-1.5 pt-2">
-              <div>&bull; Electronic Mail: <a href="mailto:support@streakup.app" className="text-flame-400 hover:underline">support@streakup.app</a></div>
+              <div>&bull; Electronic Mail: <a href="mailto:streakup.web@gmail.com" className="text-flame-400 hover:underline">streakup.web@gmail.com</a></div>
               <div>&bull; In-App Feedback: Settings &gt; Feedback &amp; Requests</div>
               <div>&bull; Platform Operator: StreakUp Habit &amp; Productivity Systems</div>
             </div>

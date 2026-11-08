@@ -380,7 +380,7 @@ export const PrivacyPolicyPage: React.FC = () => {
               For questions, privacy requests, or data protection concerns regarding StreakUp, please reach out to our team:
             </p>
             <div className="font-mono text-xs text-zinc-300 space-y-1.5 pt-2">
-              <div>&bull; Electronic Mail: <a href="mailto:support@streakup.app" className="text-flame-400 hover:underline">support@streakup.app</a></div>
+              <div>&bull; Electronic Mail: <a href="mailto:streakup.web@gmail.com" className="text-flame-400 hover:underline">streakup.web@gmail.com</a></div>
               <div>&bull; In-App Feedback: Accessible via Settings &gt; Feedback &amp; Requests</div>
               <div>&bull; Platform Operator: StreakUp Habit &amp; Productivity Systems</div>
             </div>

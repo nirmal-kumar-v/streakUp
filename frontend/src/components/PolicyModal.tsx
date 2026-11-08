@@ -181,6 +181,16 @@ export const PolicyModal: React.FC<PolicyModalProps> = ({
                   You can update your profile, change your email (with a 14-day security cooldown), or permanently delete your account anytime via Settings &gt; Danger Zone.
                 </p>
               </section>
+
+              <section className="space-y-1.5">
+                <h4 className="font-bold text-zinc-100">5. Support & Security Contact</h4>
+                <p>
+                  For support inquiries, security notifications, or data protection questions, reach our team at{' '}
+                  <a href="mailto:streakup.web@gmail.com" className="text-flame-400 hover:underline">
+                    streakup.web@gmail.com
+                  </a>.
+                </p>
+              </section>
             </div>
           )}
         </div>

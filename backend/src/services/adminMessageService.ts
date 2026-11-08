@@ -324,7 +324,7 @@ export async function sendAdminMessageToMultipleUsers(params: {
     adminUsername,
     recipientUserId: sendToAll ? 'ALL' : recipients.map((r) => r.id).slice(0, 5).join(','),
     recipientUsername: summaryRecipientUsername,
-    recipientEmail: sendToAll ? 'broadcast@streakup.app' : recipients[0].email,
+    recipientEmail: sendToAll ? 'streakup.web@gmail.com' : recipients[0].email,
     title: title.trim(),
     message: message.trim(),
     channel,
