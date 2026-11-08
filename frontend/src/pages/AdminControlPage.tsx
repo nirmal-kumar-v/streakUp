@@ -79,6 +79,7 @@ import {
   overrideProfileImageLimit,
   overrideActiveTaskLimit,
   overrideArchivedTaskLimit,
+  overrideFriendLimit,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -346,6 +347,9 @@ export const AdminControlPage: React.FC = () => {
   const [newArchivedTaskLimit, setNewArchivedTaskLimit] = useState<number>(5);
   const [archivedTaskLimitReason, setArchivedTaskLimitReason] = useState('');
 
+  const [newFriendLimit, setNewFriendLimit] = useState<number>(15);
+  const [friendLimitReason, setFriendLimitReason] = useState('');
+
   // Submission Statuses linked to isSavingAllApplied
   const isSubmittingStreak = isSavingAllApplied;
   const isSubmittingFreezeControl = isSavingAllApplied;
@@ -358,6 +362,7 @@ export const AdminControlPage: React.FC = () => {
   const isSubmittingProfileImageLimit = isSavingAllApplied;
   const isSubmittingActiveTaskLimit = isSavingAllApplied;
   const isSubmittingArchivedTaskLimit = isSavingAllApplied;
+  const isSubmittingFriendLimit = isSavingAllApplied;
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -602,6 +607,36 @@ export const AdminControlPage: React.FC = () => {
         setNewProfileImageLimitMb(u.profileImageLimitMb || 5);
         setNewActiveTaskLimit(u.activeTaskLimit || 10);
         setNewArchivedTaskLimit(u.archivedTaskLimit || 5);
+        setNewFriendLimit(u.friendLimit || 15);
+        if (u.notificationPreference) {
+          setAdminNotificationPreferences(u.notificationPreference);
+        } else {
+          setAdminNotificationPreferences({
+            id: '',
+            userId: u.id,
+            emailNotificationsEnabled: true,
+            inAppNotificationsEnabled: true,
+            overallStreakRemindersInApp: true,
+            overallStreakRemindersEmail: true,
+            taskRemindersInApp: true,
+            taskRemindersEmail: false,
+            friendOverallActivityAlerts: true,
+            friendOverallActivityInApp: true,
+            friendTaskActivityAlerts: true,
+            friendTaskActivityInApp: true,
+            friendOverallMilestones: false,
+            friendOverallMilestonesInApp: true,
+            friendTaskMilestones: false,
+            friendTaskMilestonesInApp: true,
+            myMilestonesEmail: false,
+            myMilestonesInApp: true,
+            freezeStatusNotifications: true,
+            freezeStatusInApp: true,
+            customNotificationEmail: null,
+            isCustomEmailVerified: false,
+          });
+        }
+        loadUserReminders(u.id);
         setFreezeScope('overall');
         setNewFreezeCapacity(u.overallFreezeCapacity || 1);
         setNewFreezeBalance(u.overallFreezeBalance || 0);
@@ -1619,6 +1654,45 @@ export const AdminControlPage: React.FC = () => {
     toast.success('Archived tasks quota applied! Click "Save" at the top to commit.');
   };
 
+  // Friend Connection Quota Override (Apply to staging)
+  const handleOverrideFriendLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!friendLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const limitVal = Number(newFriendLimit);
+    const reason = friendLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      friendLimit: {
+        id: 'friendLimit',
+        label: `Friend Connections Quota: ${limitVal}`,
+        description: `Set friend connection quota to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideFriendLimit(selectedUserId, {
+            friendLimit: limitVal,
+            reason,
+            sensitivePin: pin,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
+          });
+        },
+      },
+    }));
+
+    toast.success('Friend connections quota applied! Click "Save" at the top to commit.');
+  };
+
   // Freeze Shield Scope Switching
   const handleFreezeScopeChange = (scope: string) => {
     setFreezeScope(scope);
@@ -1984,16 +2058,45 @@ export const AdminControlPage: React.FC = () => {
     }
   };
 
+  const defaultAdminNotifPrefs: NotificationPreference = {
+    id: '',
+    userId: selectedUserId || '',
+    emailNotificationsEnabled: true,
+    inAppNotificationsEnabled: true,
+    overallStreakRemindersInApp: true,
+    overallStreakRemindersEmail: true,
+    taskRemindersInApp: true,
+    taskRemindersEmail: false,
+    friendOverallActivityAlerts: true,
+    friendOverallActivityInApp: true,
+    friendTaskActivityAlerts: true,
+    friendTaskActivityInApp: true,
+    friendOverallMilestones: false,
+    friendOverallMilestonesInApp: true,
+    friendTaskMilestones: false,
+    friendTaskMilestonesInApp: true,
+    myMilestonesEmail: false,
+    myMilestonesInApp: true,
+    freezeStatusNotifications: true,
+    freezeStatusInApp: true,
+    customNotificationEmail: null,
+    isCustomEmailVerified: false,
+  };
+
+  const activeAdminPreferences: NotificationPreference =
+    adminNotificationPreferences ||
+    (selectedUserDetails?.notificationPreference as any) ||
+    defaultAdminNotifPrefs;
+
   const handleAdminTogglePref = (key: keyof NotificationPreference) => {
-    if (!adminNotificationPreferences) return;
     setAdminNotificationPreferences({
-      ...adminNotificationPreferences,
-      [key]: !adminNotificationPreferences[key],
+      ...activeAdminPreferences,
+      [key]: !activeAdminPreferences[key],
     });
   };
 
   const handleSaveAdminPreferences = async () => {
-    if (!selectedUserId || !adminNotificationPreferences) return;
+    if (!selectedUserId) return;
 
     openPinPrompt(
       'Authorize Notification Channel Updates',
@@ -2002,7 +2105,7 @@ export const AdminControlPage: React.FC = () => {
         setIsSavingPreferences(true);
         try {
           const res = await adminUpdateUserPreferences(selectedUserId, {
-            preferences: adminNotificationPreferences,
+            preferences: activeAdminPreferences,
             reason: `Admin updated notification channel preferences for @${selectedUserDetails?.username}`,
             sensitivePin: pin,
             sendInApp: notifyInApp,
@@ -5702,343 +5805,341 @@ export const AdminControlPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {adminNotificationPreferences && (
-                        <div className="divide-y divide-dark-border">
-                          {/* 1. Overall Daily Streak Reminders */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Flame className="w-3.5 h-3.5 text-flame-500" />
-                                Overall Daily Streak Reminders
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Automated reminders for daily overall completion
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('overallStreakRemindersInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.overallStreakRemindersInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.overallStreakRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('overallStreakRemindersEmail')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.overallStreakRemindersEmail !== false
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.overallStreakRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
+                      <div className="divide-y divide-dark-border">
+                        {/* 1. Overall Daily Streak Reminders */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Flame className="w-3.5 h-3.5 text-flame-500" />
+                              Overall Daily Streak Reminders
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Automated reminders for daily overall completion
+                            </span>
                           </div>
-
-                          {/* 2. Task Reminders */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5 text-purple-400" />
-                                Task Reminders
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Independent schedules for personal and group tasks
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('taskRemindersInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.taskRemindersInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.taskRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('taskRemindersEmail')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.taskRemindersEmail !== false
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.taskRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 3. Friend Overall Activity Alerts */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Users className="w-3.5 h-3.5 text-blue-400" />
-                                Friend Overall Activity Alerts
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Alerts when an accepted friend finishes today's overall activity
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendOverallActivityInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendOverallActivityInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendOverallActivityAlerts')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendOverallActivityAlerts
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 4. Friend Matching Task Alerts */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                Friend Matching Task Alerts
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Alerts when an accepted friend finishes a matching habit
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendTaskActivityInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendTaskActivityInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendTaskActivityAlerts')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendTaskActivityAlerts
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 5. Friend Overall Streak Milestones */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Award className="w-3.5 h-3.5 text-purple-400" />
-                                Friend Overall Streak Milestones
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Milestones when a friend hits 5, 10, 25, 50, 100+ day streaks
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendOverallMilestonesInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendOverallMilestonesInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendOverallMilestones')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendOverallMilestones
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendOverallMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 6. Friend Task Streak Milestones */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Award className="w-3.5 h-3.5 text-purple-400" />
-                                Friend Task Streak Milestones
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Milestones when a friend reaches a streak on a matching task
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendTaskMilestonesInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendTaskMilestonesInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('friendTaskMilestones')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.friendTaskMilestones
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.friendTaskMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 7. My Own Streak Milestones */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <Flame className="w-3.5 h-3.5 text-flame-500" />
-                                My Own Streak Milestones
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Celebratory alerts for unlocking streak milestones
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('myMilestonesInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.myMilestonesInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.myMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('myMilestonesEmail')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.myMilestonesEmail
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.myMilestonesEmail ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 8. Streak Freeze & Status Alerts */}
-                          <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
-                                <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-                                Streak Freeze & Status Alerts
-                              </span>
-                              <span className="text-[11px] text-zinc-400 block mt-0.5">
-                                Protection alerts when freeze saves a streak after a missed day
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('freezeStatusInApp')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.freezeStatusInApp !== false
-                                    ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Bell className="w-3 h-3 text-blue-400" />
-                                <span>In-App</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.freezeStatusInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAdminTogglePref('freezeStatusNotifications')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                                  adminNotificationPreferences.freezeStatusNotifications
-                                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
-                                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
-                                }`}
-                              >
-                                <Mail className="w-3 h-3 text-flame-400" />
-                                <span>Email</span>
-                                <span className={`w-1.5 h-1.5 rounded-full ${adminNotificationPreferences.freezeStatusNotifications ? 'bg-flame-400' : 'bg-zinc-600'}`} />
-                              </button>
-                            </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('overallStreakRemindersInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.overallStreakRemindersInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.overallStreakRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('overallStreakRemindersEmail')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.overallStreakRemindersEmail !== false
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.overallStreakRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
                           </div>
                         </div>
-                      )}
+
+                        {/* 2. Task Reminders */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-purple-400" />
+                              Task Reminders
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Independent schedules for personal and group tasks
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('taskRemindersInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.taskRemindersInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.taskRemindersInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('taskRemindersEmail')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.taskRemindersEmail !== false
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.taskRemindersEmail !== false ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 3. Friend Overall Activity Alerts */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Users className="w-3.5 h-3.5 text-blue-400" />
+                              Friend Overall Activity Alerts
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Alerts when an accepted friend finishes today's overall activity
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendOverallActivityInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendOverallActivityInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendOverallActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendOverallActivityAlerts')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendOverallActivityAlerts
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendOverallActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 4. Friend Matching Task Alerts */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              Friend Matching Task Alerts
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Alerts when an accepted friend finishes a matching habit
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendTaskActivityInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendTaskActivityInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendTaskActivityInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendTaskActivityAlerts')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendTaskActivityAlerts
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendTaskActivityAlerts ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 5. Friend Overall Streak Milestones */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Award className="w-3.5 h-3.5 text-purple-400" />
+                              Friend Overall Streak Milestones
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Milestones when a friend hits 5, 10, 25, 50, 100+ day streaks
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendOverallMilestonesInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendOverallMilestonesInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendOverallMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendOverallMilestones')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendOverallMilestones
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendOverallMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 6. Friend Task Streak Milestones */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Award className="w-3.5 h-3.5 text-purple-400" />
+                              Friend Task Streak Milestones
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Milestones when a friend reaches a streak on a matching task
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendTaskMilestonesInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendTaskMilestonesInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendTaskMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('friendTaskMilestones')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.friendTaskMilestones
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.friendTaskMilestones ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 7. My Own Streak Milestones */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <Flame className="w-3.5 h-3.5 text-flame-500" />
+                              My Own Streak Milestones
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Celebratory alerts for unlocking streak milestones
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('myMilestonesInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.myMilestonesInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.myMilestonesInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('myMilestonesEmail')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.myMilestonesEmail
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.myMilestonesEmail ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 8. Streak Freeze & Status Alerts */}
+                        <div className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                              Streak Freeze & Status Alerts
+                            </span>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Protection alerts when freeze saves a streak after a missed day
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('freezeStatusInApp')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.freezeStatusInApp !== false
+                                  ? 'bg-blue-500/15 text-blue-300 border-blue-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Bell className="w-3 h-3 text-blue-400" />
+                              <span>In-App</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.freezeStatusInApp !== false ? 'bg-blue-400' : 'bg-zinc-600'}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminTogglePref('freezeStatusNotifications')}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
+                                activeAdminPreferences.freezeStatusNotifications
+                                  ? 'bg-flame-500/15 text-flame-300 border-flame-500/40'
+                                  : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700'
+                              }`}
+                            >
+                              <Mail className="w-3 h-3 text-flame-400" />
+                              <span>Email</span>
+                              <span className={`w-1.5 h-1.5 rounded-full ${activeAdminPreferences.freezeStatusNotifications ? 'bg-flame-400' : 'bg-zinc-600'}`} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
 
                       <div className="flex justify-end pt-2">
                         <button
                           type="button"
                           onClick={handleSaveAdminPreferences}
-                          disabled={isSavingPreferences || !adminNotificationPreferences}
+                          disabled={isSavingPreferences}
                           className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-2"
                         >
                           {isSavingPreferences ? (
@@ -7110,6 +7211,105 @@ export const AdminControlPage: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4" />
                           )}
                           <span>Apply Archived Tasks Quota ({newArchivedTaskLimit} Tasks)</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* CARD 9: MAXIMUM FRIEND CONNECTIONS QUOTA */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-blue-400" />
+                          <span>Maximum Friend Connections Quota (Default: 15 Friends)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">
+                          {selectedUserDetails?.friendCount !== undefined ? selectedUserDetails.friendCount : (selectedUserDetails?.friends?.length || 0)} / {selectedUserDetails?.friendLimit || 15} FRIENDS
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        To maintain meaningful social accountability and prevent spam, StreakUp enforces a limit of <strong className="text-zinc-200">15 maximum active friend connections</strong> per user. As Super Admin, you can expand or restrict this quota specifically for <strong className="text-zinc-200">@{selectedUserDetails?.username}</strong> (e.g. to 20, 25, 50, or 100 friends).
+                      </p>
+
+                      <form onSubmit={handleOverrideFriendLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Maximum Friend Connections Quota
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Friend Limit
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.friendLimit || 15} friends allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 100)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={newFriendLimit}
+                                onChange={(e) => setNewFriendLimit(parseInt(e.target.value, 10) || 15)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[15, 20, 25, 50, 100].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewFriendLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newFriendLimit === preset
+                                        ? 'bg-blue-500 text-zinc-950 border-blue-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-blue-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={friendLimitReason}
+                            onChange={(e) => setFriendLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded friend quota for community leader or user request"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-blue-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingFriendLimit}
+                          className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingFriendLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Friend Connections Quota ({newFriendLimit} Friends)</span>
                         </button>
                       </form>
                     </div>

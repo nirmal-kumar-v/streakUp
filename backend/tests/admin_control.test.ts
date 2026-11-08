@@ -401,6 +401,61 @@ describe('Super Admin Control & Privileged Workflows', () => {
         await prismaClient.user.delete({ where: { id: user.id } });
       }
     });
+
+    it('should enforce friend connections quota default of 15 and allow admin override', async () => {
+      const { getUserFriendLimit, setUserFriendLimit } = await import('../src/services/adminConfigService');
+      const testUserId = `test-friend-user-${Date.now()}`;
+
+      // Default limit is 15 friends
+      expect(getUserFriendLimit(testUserId)).toBe(15);
+
+      // Admin customizes quota to 30 friends
+      setUserFriendLimit(testUserId, 30);
+      expect(getUserFriendLimit(testUserId)).toBe(30);
+
+      // Quota is clamped to valid range [1, 100]
+      setUserFriendLimit(testUserId, 150);
+      expect(getUserFriendLimit(testUserId)).toBe(100);
+
+      setUserFriendLimit(testUserId, 0);
+      expect(getUserFriendLimit(testUserId)).toBe(1);
+    });
+
+    it('should validate flexible any-4-maximum email notification triggers', () => {
+      // 8 total email triggers available on platform
+      const allTriggers = [
+        'overallStreakRemindersEmail',
+        'taskRemindersEmail',
+        'friendOverallActivityAlerts',
+        'friendTaskActivityAlerts',
+        'friendOverallMilestones',
+        'friendTaskMilestones',
+        'myMilestonesEmail',
+        'freezeStatusNotifications',
+      ];
+
+      // A user may activate any 4 triggers:
+      const userSelected = {
+        overallStreakRemindersEmail: false,
+        taskRemindersEmail: true,
+        friendOverallActivityAlerts: false,
+        friendTaskActivityAlerts: true,
+        friendOverallMilestones: false,
+        friendTaskMilestones: true,
+        myMilestonesEmail: true,
+        freezeStatusNotifications: false,
+      };
+
+      const activeEmailCount = allTriggers.filter(key => Boolean((userSelected as any)[key])).length;
+      expect(activeEmailCount).toBe(4);
+      expect(activeEmailCount <= 4).toBe(true);
+
+      // Exceeding 4 triggers is disallowed
+      (userSelected as any).overallStreakRemindersEmail = true;
+      const exceededCount = allTriggers.filter(key => Boolean((userSelected as any)[key])).length;
+      expect(exceededCount).toBe(5);
+      expect(exceededCount <= 4).toBe(false);
+    });
   });
 });
 

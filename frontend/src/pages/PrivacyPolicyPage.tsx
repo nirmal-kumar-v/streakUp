@@ -189,7 +189,7 @@ export const PrivacyPolicyPage: React.FC = () => {
                   <span>G. Notification Delivery Preferences & Channels</span>
                 </h3>
                 <p className="text-xs text-dark-muted mt-2 leading-relaxed">
-                  We store user notification channel preferences governing In-App alerts and external transactional emails. Email notifications are strictly dedicated to core operational triggers (Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status Alerts). Milestone celebrations and achievement notifications are delivered exclusively through real-time In-App alerts to safeguard your inbox from unwanted volume. Users retain full granular control to toggle individual alerts at any time via Settings &gt; Notifications.
+                  We store user notification channel preferences governing In-App alerts and external transactional emails. Users may enable transactional email notifications for any 4 triggers maximum of their choice (defaulting to Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status Alerts). All notification triggers support In-App delivery. Users retain full granular control to toggle individual alerts at any time via Settings &gt; Notifications, and friend connections are limited to a maximum of 15 mutual peers to maintain authentic social accountability.
                 </p>
               </div>
             </div>

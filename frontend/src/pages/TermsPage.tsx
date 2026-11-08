@@ -247,12 +247,16 @@ export const TermsPage: React.FC = () => {
                 <span>Users may maintain up to 5 archived habits in cold storage for historical tracking. To archive additional tasks, previously archived items must be permanently deleted.</span>
               </div>
               <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
+                <strong className="text-zinc-100 block mb-1">Friend Connections Quota (Max 15)</strong>
+                <span>Each user account may connect with a maximum of 15 accepted friends to foster high-trust, focused peer accountability. Accounts with existing connections above quota retain their friends uninterrupted, but cannot send or accept new requests until under quota.</span>
+              </div>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
                 <strong className="text-zinc-100 block mb-1">Scheduled Reminders Quota (Max 2)</strong>
                 <span>Each user may configure up to 2 daily scheduled reminder alerts for their overall streak. Accounts with prior schedules retain them; once deleted, new schedules adhere to the 2-alert quota.</span>
               </div>
-              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
-                <strong className="text-zinc-100 block mb-1">Notification Delivery Channels</strong>
-                <span>Email alerts are dedicated strictly to high-priority operational signals (Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status Alerts). Milestone celebrations and personal achievement alerts are delivered exclusively In-App.</span>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300 sm:col-span-2">
+                <strong className="text-zinc-100 block mb-1">Notification Delivery Channels (Any 4 Email Triggers Maximum)</strong>
+                <span>StreakUp enables users to configure In-App alerts and external transactional Email updates across all notification categories. Users may activate email dispatches for any 4 triggers maximum of their choice (defaulting to Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Reminders). Platform administrators may expand or modify limits per individual user account.</span>
               </div>
             </div>
           </section>

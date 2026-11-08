@@ -586,39 +586,15 @@ export const DashboardPage: React.FC = () => {
         toast.error(extractErrorMessage(err, 'Failed to save habit.'));
       }
     } else {
-      const tempId = `temp-${Date.now()}`;
-      const optimisticTask: Task = {
-        id: tempId,
-        title: taskData.title,
-        description: taskData.description || null,
-        category: taskData.category || 'General',
-        priority: taskData.priority,
-        recurrence: taskData.recurrence,
-        scheduledDays: taskData.scheduledDays || [0, 1, 2, 3, 4, 5, 6],
-        dueTime: taskData.dueTime || null,
-        status: 'ACTIVE',
-        currentStreak: 0,
-        longestStreak: 0,
-        freezeBalance: 0,
-        freezeRechargeDays: 0,
-        completedToday: false,
-        todayStudyNote: null,
-        hiddenFrom: taskData.hiddenFrom || [],
-        visibleOnlyTo: taskData.visibleOnlyTo || [],
-        userId: user?.id || 'me',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setTasks((prev) => [optimisticTask, ...prev]);
-      toast.info('Habit created');
+      // Create habit - await backend verification before notifying to prevent 1-second false success
       try {
         const res = await createTask(taskData);
         if (res.success && res.task) {
-          setTasks((prev) => prev.map((t) => (t.id === tempId ? res.task : t)));
+          setTasks((prev) => [res.task, ...prev]);
+          toast.info('Habit created');
+          loadDashboard();
         }
-        loadDashboard();
       } catch (err: any) {
-        setTasks(prevTasks);
         toast.error(extractErrorMessage(err, 'Failed to create habit.'));
       }
     }
@@ -626,21 +602,16 @@ export const DashboardPage: React.FC = () => {
 
   const handleArchiveToggle = async (task: Task) => {
     const isNowArchived = task.status !== 'ARCHIVED';
-    const previousTasks = [...tasks];
-
-    // Optimistic update
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: isNowArchived ? 'ARCHIVED' : 'ACTIVE' } : t))
-    );
-    toast.info(isNowArchived ? 'Habit archived' : 'Habit restored');
-
     try {
       const res = await toggleArchiveTask(task.id);
-      if (!res.success) throw new Error('Failed to toggle archive');
-      await loadDashboard();
+      if (res.success) {
+        setTasks((prev) =>
+          prev.map((t) => (t.id === task.id ? { ...t, status: isNowArchived ? 'ARCHIVED' : 'ACTIVE' } : t))
+        );
+        toast.info(isNowArchived ? 'Habit archived' : 'Habit restored');
+        loadDashboard();
+      }
     } catch (err: any) {
-      // Rollback
-      setTasks(previousTasks);
       toast.error(extractErrorMessage(err, 'Failed to update habit status.'));
     }
   };

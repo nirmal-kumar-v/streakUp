@@ -23,6 +23,8 @@ import {
   setUserActiveTaskLimit,
   getUserArchivedTaskLimit,
   setUserArchivedTaskLimit,
+  getUserFriendLimit,
+  setUserFriendLimit,
   loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
@@ -661,6 +663,12 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).profileImageLimitMb = getUserProfileImageLimitMb(userId);
     (safeUser as any).activeTaskLimit = getUserActiveTaskLimit(userId);
     (safeUser as any).archivedTaskLimit = getUserArchivedTaskLimit(userId);
+    (safeUser as any).friendLimit = getUserFriendLimit(userId);
+
+    const friendCount = await prisma.friendship.count({
+      where: { OR: [{ user1Id: userId }, { user2Id: userId }] }
+    });
+    (safeUser as any).friendCount = friendCount;
 
     const { isAccountDeleted } = await import('../services/deletedAccountService');
     const del = isAccountDeleted(userId);
@@ -2867,6 +2875,72 @@ export async function overrideArchivedTaskLimit(req: AdminAuthenticatedRequest, 
   } catch (err: any) {
     console.error('overrideArchivedTaskLimit error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update archived task quota limit.' });
+  }
+}
+
+/**
+ * Override the maximum friend connections quota for a specific user
+ */
+export async function overrideFriendLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      friendLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof friendLimit !== 'number' || friendLimit < 1 || friendLimit > 100) {
+      return res.status(400).json({ success: false, error: 'Friend connection quota limit must be an integer between 1 and 100.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserFriendLimit(userId);
+    setUserFriendLimit(userId, friendLimit);
+
+    const changesSummary = `Friend connection quota changed from ${beforeLimit} to ${friendLimit} friends.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_FRIEND_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { friendLimit: beforeLimit },
+      afterState: { friendLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Friend Connections Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Friend connection quota for @${user.username} updated to ${friendLimit}.`,
+      friendLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideFriendLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update friend quota limit.' });
   }
 }
 

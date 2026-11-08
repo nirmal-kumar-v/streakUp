@@ -10,6 +10,7 @@ export interface UserAdminConfig {
   profileImageLimitMb?: number;
   activeTaskLimit?: number;
   archivedTaskLimit?: number;
+  friendLimit?: number;
   [key: string]: any;
 }
 
@@ -237,6 +238,24 @@ export function setUserArchivedTaskLimit(userId: string, limit: number): void {
   writeAllConfigs(configs);
 }
 
+export function getUserFriendLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.friendLimit === 'number' && userConf.friendLimit > 0) {
+    return userConf.friendLimit;
+  }
+  return 15; // Default 15 friend connections quota
+}
+
+export function setUserFriendLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].friendLimit = Math.max(1, Math.min(100, limit));
+  writeAllConfigs(configs);
+}
+
 export function getUserAdminConfig(userId: string): UserAdminConfig {
   const configs = readAllConfigs();
   const userConf = configs[userId] || {};
@@ -248,6 +267,7 @@ export function getUserAdminConfig(userId: string): UserAdminConfig {
     profileImageLimitMb: userConf.profileImageLimitMb ?? 5,
     activeTaskLimit: userConf.activeTaskLimit ?? 10,
     archivedTaskLimit: userConf.archivedTaskLimit ?? 5,
+    friendLimit: userConf.friendLimit ?? 15,
     ...userConf,
   };
 }

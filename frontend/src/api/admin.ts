@@ -611,6 +611,21 @@ export async function overrideArchivedTaskLimit(
   return res.data;
 }
 
+export async function overrideFriendLimit(
+  userId: string,
+  data: { friendLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; friendLimit: number }>(
+    `/admin/users/${userId}/override-friend-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function adminUpdateUserProfileImage(
   userId: string,
   data: {
