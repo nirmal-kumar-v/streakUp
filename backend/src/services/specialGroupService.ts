@@ -36,7 +36,7 @@ export interface SpecialGroupMemberView {
   groupName: string;
   platform: SpecialPlatformType;
   displayName: string;
-  activityModel: 'LINKEDIN_GAMES' | 'DAILY_POTD';
+  activityModel: 'LINKEDIN_GAMES' | 'DAILY_POTD' | 'DUOLINGO_COURSES';
   isPotdCommitted: boolean;
   activities: SpecialActivityStatus[];
 }

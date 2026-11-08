@@ -751,7 +751,7 @@ export async function getUserGroups(req: AuthenticatedRequest, res: Response) {
           let currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
 
           if (m.group.specialPlatform === 'DUOLINGO' || isDuolingoName(m.group.name)) {
-            const dStreak = await getDuolingoDashboardStreak(m.group.id, userId, user?.timezone || DEFAULT_TIMEZONE);
+            const dStreak = await getDuolingoDashboardStreak(m.group.id, userId, req.user?.timezone || DEFAULT_TIMEZONE);
             currentStreak = dStreak.currentStreak;
           }
 

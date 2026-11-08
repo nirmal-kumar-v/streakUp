@@ -24,7 +24,6 @@ import {
   Plus,
   X,
   FileText,
-  Lock,
   Loader2,
   Layers,
 } from 'lucide-react';
@@ -109,11 +108,13 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
             sessionStorage.setItem(cacheKey, JSON.stringify(res.courses));
           } catch {}
 
-          // Auto-select first committed course for leaderboard if not selected
+          // Auto-select first committed course for leaderboard if not selected, or first course
           const committed = res.courses.filter((c) => c.isCommitted);
-          if (committed.length > 0 && !selectedLeaderboardCourseId) {
-            setSelectedLeaderboardCourseId(committed[0].courseId);
-          }
+          setSelectedLeaderboardCourseId((prev) => {
+            if (prev) return prev;
+            if (committed.length > 0) return committed[0].courseId;
+            return res.courses?.[0]?.courseId || 'english';
+          });
         }
       } catch (err: any) {
         toastRef.current.error(extractErrorMessage(err, 'Failed to load Duolingo courses.'));
@@ -122,7 +123,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
         setIsRefreshing(false);
       }
     },
-    [groupId, cacheKey, selectedLeaderboardCourseId]
+    [groupId, cacheKey]
   );
 
   useEffect(() => {
@@ -669,7 +670,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => setCategoryFilter('all')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -744,33 +745,55 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
       {/* ─── TAB 3: LEADERBOARDS (PER-COURSE) ─────────────────────────────── */}
       {activeTab === 'leaderboards' && (
         <div className="space-y-4">
-          {committedCourses.length === 0 ? (
-            <div className="text-center py-12 px-6 rounded-2xl border border-dashed border-dark-border bg-dark-card/50">
-              <Lock className="w-8 h-8 text-dark-muted mx-auto mb-2 opacity-50" />
-              <h3 className="text-sm font-bold text-zinc-100">Leaderboards are locked</h3>
-              <p className="text-xs text-dark-muted max-w-sm mx-auto mt-1">
-                You can only view the leaderboard for courses you are actively committed to. Commit to a course to unlock its rankings!
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* Course Selector Tabs */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                {committedCourses.map((c) => (
-                  <button
-                    key={c.courseId}
-                    onClick={() => setSelectedLeaderboardCourseId(c.courseId)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                      selectedLeaderboardCourseId === c.courseId
-                        ? 'bg-[#58CC02] text-zinc-950 font-black shadow-md shadow-[#58CC02]/20'
-                        : 'bg-dark-card border border-dark-border text-zinc-300 hover:border-zinc-700'
-                    }`}
-                  >
-                    <span>{c.emoji}</span>
-                    <span>{c.name}</span>
-                  </button>
-                ))}
+          {committedCourses.length === 0 && (
+            <div className="p-3.5 rounded-xl border border-[#58CC02]/30 bg-[#58CC02]/10 text-xs text-zinc-300 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base shrink-0">🦉</span>
+                <span>You haven't committed to any courses yet. Browse course leaderboards below or commit to track your own streaks!</span>
               </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('all_courses')}
+                className="px-3 py-1 rounded-lg bg-[#58CC02] hover:bg-[#46A302] text-zinc-950 font-bold text-xs shrink-0 transition-colors"
+              >
+                Commit to Courses
+              </button>
+            </div>
+          )}
+
+          {/* Course Selector Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {(committedCourses.length > 0 ? committedCourses : courses.slice(0, 10)).map((c) => (
+              <button
+                key={c.courseId}
+                onClick={() => setSelectedLeaderboardCourseId(c.courseId)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  (selectedLeaderboardCourseId || courses[0]?.courseId) === c.courseId
+                    ? 'bg-[#58CC02] text-zinc-950 font-black shadow-md shadow-[#58CC02]/20'
+                    : 'bg-dark-card border border-dark-border text-zinc-300 hover:border-zinc-700'
+                }`}
+              >
+                <span>{c.emoji}</span>
+                <span>{c.name}</span>
+              </button>
+            ))}
+
+            {/* Dropdown to browse any course */}
+            <div className="relative shrink-0">
+              <select
+                value={selectedLeaderboardCourseId || courses[0]?.courseId || ''}
+                onChange={(e) => setSelectedLeaderboardCourseId(e.target.value)}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-dark-card border border-dark-border text-zinc-300 hover:border-zinc-700 focus:outline-none focus:border-[#58CC02]"
+              >
+                <option value="" disabled>All 45 Courses...</option>
+                {courses.map((c) => (
+                  <option key={c.courseId} value={c.courseId}>
+                    {c.emoji} {c.name} {c.isCommitted ? '(Committed)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
               {/* Leaderboard Table */}
               <div className="rounded-2xl border border-dark-border bg-dark-card overflow-hidden">
@@ -797,7 +820,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[480px] sm:min-w-full text-left text-xs">
+                    <table className="w-full text-left text-xs">
                       <thead className="bg-dark-surface/40 text-[10px] font-mono uppercase text-dark-muted border-b border-dark-border">
                         <tr>
                           <th className="py-2.5 px-4 w-12">#</th>
@@ -895,10 +918,8 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
-        </div>
-      )}
 
       {/* ─── STUDY NOTE PROMPT MODAL ─────────────────────────────────────── */}
       {isNoteModalOpen && (

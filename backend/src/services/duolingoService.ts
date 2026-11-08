@@ -83,7 +83,8 @@ export function getCourseById(id: string): DuolingoCourse | undefined {
 
 export function isDuolingoName(name?: string | null): boolean {
   if (!name) return false;
-  return name.trim().toLowerCase().includes('duolingo');
+  const n = name.trim().toLowerCase();
+  return n.includes('duolingo') || n.includes('duo lingo') || n.includes('duo-lingo');
 }
 
 // ─── Storage Layer (mirrors linkedInGameService pattern) ─────────────────────
@@ -393,6 +394,9 @@ export async function getCourseLeaderboard(
       },
     },
   });
+
+  // Ensure member records are loaded from database table into memory
+  await Promise.all(members.map((m) => ensureMemberRecordsLoaded(groupId, m.userId)));
 
   const entries: Omit<CourseLeaderboardEntry, 'rank'>[] = [];
 

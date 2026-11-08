@@ -34,6 +34,18 @@ export function generateNumericOtp(): string {
   return crypto.randomInt(100000, 1000000).toString();
 }
 
+export type CreateEmailOtpResult =
+  | { success: true; otp: string; expiresAt: Date; error?: undefined; retryAfterSeconds?: undefined }
+  | { success: false; error: string; retryAfterSeconds: number; otp?: undefined; expiresAt?: undefined };
+
+export type VerifyEmailOtpResult =
+  | { success: true; targetData: string | null; userId: string | null; error?: undefined; maxAttemptsExceeded?: undefined }
+  | { success: false; error: string; maxAttemptsExceeded?: boolean; targetData?: undefined; userId?: undefined };
+
+export type VerifyPasswordResetTokenResult =
+  | { success: true; userId: string; tokenId: string; error?: undefined }
+  | { success: false; error: string; userId?: undefined; tokenId?: undefined };
+
 /**
  * Creates and stores a hashed 6-digit OTP for signup, email change, or notification verification.
  * Enforces a 60-second cooldown between requests and sets a 5-minute expiration.
@@ -43,10 +55,7 @@ export async function createEmailOtp(params: {
   purpose: OtpPurpose;
   userId?: string | null;
   targetData?: string | null;
-}): Promise<
-  | { success: true; otp: string; expiresAt: Date }
-  | { success: false; error: string; retryAfterSeconds: number }
-> {
+}): Promise<CreateEmailOtpResult> {
   const cleanEmail = params.email.trim().toLowerCase();
 
   // Check cooldown: reject if an OTP for this email and purpose was issued in the last 60 seconds
@@ -116,10 +125,7 @@ export async function verifyEmailOtp(params: {
   purpose: OtpPurpose;
   otp: string;
   userId?: string | null;
-}): Promise<
-  | { success: true; targetData: string | null; userId: string | null }
-  | { success: false; error: string; maxAttemptsExceeded?: boolean }
-> {
+}): Promise<VerifyEmailOtpResult> {
   const cleanEmail = params.email.trim().toLowerCase();
   const trimmedOtp = params.otp.trim();
 
@@ -270,10 +276,7 @@ export async function createPasswordResetToken(
  */
 export async function verifyPasswordResetToken(
   rawToken: string
-): Promise<
-  | { success: true; userId: string; tokenId: string }
-  | { success: false; error: string }
-> {
+): Promise<VerifyPasswordResetTokenResult> {
   const tokenHash = hashToken(rawToken.trim());
 
   const tokenRecord = await prisma.passwordResetToken.findFirst({

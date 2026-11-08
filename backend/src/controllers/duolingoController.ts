@@ -352,16 +352,7 @@ export async function getDuolingoCourseLeaderboard(req: AuthenticatedRequest, re
       return res.status(400).json({ success: false, error: `Unknown course: ${courseId}` });
     }
 
-    // Only allow viewing leaderboard if user is committed to that course
-    const courses = await getCommittedCoursesForMember(groupId, userId, validation.userTimezone);
-    const isCommitted = courses.some((c) => c.courseId === normalized);
-    if (!isCommitted) {
-      return res.status(403).json({
-        success: false,
-        error: 'You must be committed to this course to view its leaderboard.',
-      });
-    }
-
+    // Fetch leaderboard for this course across all committed members in the group
     const leaderboard = await getCourseLeaderboard(groupId, normalized);
 
     return res.json({

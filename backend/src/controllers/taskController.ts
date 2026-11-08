@@ -854,7 +854,7 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     }).catch((err) => console.error('[completeTask] User completion notification error:', err));
 
     // If Duolingo group umbrella task, complete all committed courses
-    if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
+    if (task.groupId && ((task as any).group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
       await completeAllCommittedCourses(task.groupId, userId, timezone, trimmedNote, todayDateStr).catch(() => {});
     }
 
@@ -1083,7 +1083,7 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
     });
 
     // If Duolingo group umbrella task, uncomplete all committed courses
-    if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
+    if (task.groupId && ((task as any).group?.specialPlatform === 'DUOLINGO' || isDuolingoName(task.title))) {
       await uncompleteAllCommittedCourses(task.groupId, userId, timezone, todayDateStr).catch(() => {});
     }
 
