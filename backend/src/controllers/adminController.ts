@@ -68,10 +68,7 @@ import {
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 
 /**
- * Bootstrap or synchronize the default admin account with requested credentials
- * Username: admin
- * Password: Admin@123
- * Sensitive Password / PIN: Nirmal@31/08/2006
+ * Bootstrap or synchronize the default admin account with secure environment credentials
  */
 async function ensureDefaultAdmin() {
   const defaultUsername = (process.env.ADMIN_INITIAL_USERNAME || 'admin').trim().toLowerCase();

@@ -122,16 +122,7 @@ const PageFallback: React.FC = () => (
   </div>
 );
 
-const EXACT_ADMIN_URL = '/streakup-karo/aB9!xQ4#mK2$vL7&pZ5*rW1@tN8%25cY3(e]6)uJ0[[_xG]0-5+zQ8=vB2-mK9!xQ4#mK7&pZ5*rW1@tN8%25cY3(eF6)uJ0_xG5+zQ8=vB2-mK';
 const EXACT_ADMIN_PATHNAME = '/streakup-karo/aB9!xQ4';
-
-/**
- * Obfuscated admin entrypoint redirector:
- * Redirects strictly to the exact fixed complex secret URL requested.
- */
-const AdminRedirect: React.FC = () => {
-  return <Navigate to={EXACT_ADMIN_URL} replace />;
-};
 
 /**
  * Validates that the full URL contains the exact complex secret string.
@@ -389,9 +380,7 @@ export const AppContent: React.FC = () => {
               }
             />
 
-            {/* Super Admin Control Panel (Strict fixed complex secret URL, no tokens) */}
-            <Route path="/admin-control" element={<AdminRedirect />} />
-            <Route path="/admin-panel" element={<AdminRedirect />} />
+            {/* Super Admin Control Panel (Strict fixed complex secret URL only, unguessable) */}
             <Route path={EXACT_ADMIN_PATHNAME} element={<AdminSecretRoute />} />
 
             {/* Catch-all */}

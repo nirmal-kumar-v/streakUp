@@ -141,7 +141,7 @@ export async function recordAccountDeletion(
     deletedBy = paramsOrUserId.deletedBy || 'USER';
     reason = paramsOrUserId.reason;
   } else {
-    userId = paramsOrUserId;
+    userId = String(paramsOrUserId);
     email = argEmail || '';
     username = argUsername || 'user';
     name = username;
