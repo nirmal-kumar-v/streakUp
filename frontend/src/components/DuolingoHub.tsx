@@ -28,6 +28,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 interface DuolingoHubProps {
   groupId: string;
@@ -45,19 +46,16 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
-  const cacheKey = `streakup_duolingo_courses_${groupId}`;
-  const [cachedCourses] = useState<DuolingoCourseItem[] | null>(() => {
-    try {
-      const raw = sessionStorage.getItem(cacheKey);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const coursesCacheKey = `duolingo_courses_${groupId}`;
+  const limitCacheKey = `duolingo_limit_${groupId}`;
 
-  const [courses, setCourses] = useState<DuolingoCourseItem[]>(() => cachedCourses || []);
-  const [courseLimit, setCourseLimit] = useState<number>(5);
-  const [isLoading, setIsLoading] = useState(() => !cachedCourses || cachedCourses.length === 0);
+  const [courses, setCourses] = useState<DuolingoCourseItem[]>(() => {
+    return getPersistentData<DuolingoCourseItem[]>(coursesCacheKey) || [];
+  });
+  const [courseLimit, setCourseLimit] = useState<number>(() => {
+    return getPersistentData<number>(limitCacheKey) || 5;
+  });
+  const [isLoading, setIsLoading] = useState(() => courses.length === 0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'my_courses' | 'all_courses' | 'leaderboards'>('my_courses');
   const [searchQuery, setSearchQuery] = useState('');
@@ -71,8 +69,15 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
   const [studyNoteInput, setStudyNoteInput] = useState('');
 
   // Selected course for leaderboard
-  const [selectedLeaderboardCourseId, setSelectedLeaderboardCourseId] = useState<string>('');
-  const [leaderboard, setLeaderboard] = useState<DuolingoLeaderboardEntry[]>([]);
+  const [selectedLeaderboardCourseId, setSelectedLeaderboardCourseId] = useState<string>(() => {
+    const committed = courses.filter((c) => c.isCommitted);
+    return committed[0]?.courseId || courses[0]?.courseId || 'english';
+  });
+
+  const [leaderboard, setLeaderboard] = useState<DuolingoLeaderboardEntry[]>(() => {
+    const initCourse = selectedLeaderboardCourseId || 'english';
+    return getPersistentData<DuolingoLeaderboardEntry[]>(`duolingo_lb_${groupId}_${initCourse}`) || [];
+  });
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
 
   // In-flight completions tracker to prevent double-clicks
@@ -95,7 +100,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
     return committedCourses.length > 0 && committedCourses.every((c) => c.completedToday);
   }, [committedCourses]);
 
-  // Load all 45 courses from backend
+  // Load all 45 courses from backend with silent persistent caching
   const loadCourses = useCallback(
     async (isManualRefresh = false) => {
       if (isManualRefresh) setIsRefreshing(true);
@@ -103,10 +108,11 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
         const res = await fetchDuolingoCourses(groupId);
         if (res.success && res.courses) {
           setCourses(res.courses);
-          if (res.courseLimit) setCourseLimit(res.courseLimit);
-          try {
-            sessionStorage.setItem(cacheKey, JSON.stringify(res.courses));
-          } catch {}
+          setPersistentData(coursesCacheKey, res.courses);
+          if (res.courseLimit) {
+            setCourseLimit(res.courseLimit);
+            setPersistentData(limitCacheKey, res.courseLimit);
+          }
 
           // Auto-select first committed course for leaderboard if not selected, or first course
           const committed = res.courses.filter((c) => c.isCommitted);
@@ -123,22 +129,29 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
         setIsRefreshing(false);
       }
     },
-    [groupId, cacheKey]
+    [groupId, coursesCacheKey, limitCacheKey]
   );
 
   useEffect(() => {
     loadCourses();
   }, [loadCourses]);
 
-  // Load leaderboard when selected leaderboard course changes
+  // Load leaderboard with instant local cache + background revalidation
   const loadLeaderboard = useCallback(
     async (courseId: string) => {
       if (!courseId) return;
-      setIsLoadingLeaderboard(true);
+      const lbCacheKey = `duolingo_lb_${groupId}_${courseId}`;
+      const cached = getPersistentData<DuolingoLeaderboardEntry[]>(lbCacheKey);
+      if (cached && cached.length > 0) {
+        setLeaderboard(cached);
+      } else {
+        setIsLoadingLeaderboard(true);
+      }
       try {
         const res = await fetchDuolingoCourseLeaderboard(groupId, courseId);
         if (res.success && res.leaderboard) {
           setLeaderboard(res.leaderboard);
+          setPersistentData(lbCacheKey, res.leaderboard);
         }
       } catch (err: any) {
         console.warn('[DuolingoHub] Leaderboard load error:', err);
@@ -154,6 +167,14 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
       loadLeaderboard(selectedLeaderboardCourseId);
     }
   }, [selectedLeaderboardCourseId, activeTab, loadLeaderboard]);
+
+  const handleSelectLeaderboardCourse = (courseId: string) => {
+    setSelectedLeaderboardCourseId(courseId);
+    const cached = getPersistentData<DuolingoLeaderboardEntry[]>(`duolingo_lb_${groupId}_${courseId}`);
+    if (cached && cached.length > 0) {
+      setLeaderboard(cached);
+    }
+  };
 
   // Handle Commit / Uncommit toggle
   const handleToggleCommit = async (course: DuolingoCourseItem) => {
@@ -766,7 +787,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
             {(committedCourses.length > 0 ? committedCourses : courses.slice(0, 10)).map((c) => (
               <button
                 key={c.courseId}
-                onClick={() => setSelectedLeaderboardCourseId(c.courseId)}
+                onClick={() => handleSelectLeaderboardCourse(c.courseId)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                   (selectedLeaderboardCourseId || courses[0]?.courseId) === c.courseId
                     ? 'bg-[#58CC02] text-zinc-950 font-black shadow-md shadow-[#58CC02]/20'
@@ -782,7 +803,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
             <div className="relative shrink-0">
               <select
                 value={selectedLeaderboardCourseId || courses[0]?.courseId || ''}
-                onChange={(e) => setSelectedLeaderboardCourseId(e.target.value)}
+                onChange={(e) => handleSelectLeaderboardCourse(e.target.value)}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold bg-dark-card border border-dark-border text-zinc-300 hover:border-zinc-700 focus:outline-none focus:border-[#58CC02]"
               >
                 <option value="" disabled>All 45 Courses...</option>
@@ -809,7 +830,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
                   </span>
                 </div>
 
-                {isLoadingLeaderboard ? (
+                {isLoadingLeaderboard && leaderboard.length === 0 ? (
                   <div className="py-12 text-center text-xs text-dark-muted flex items-center justify-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-[#58CC02]" />
                     <span>Loading leaderboard...</span>
@@ -819,7 +840,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
                     No members currently committed to this course.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className={`overflow-x-auto transition-opacity duration-200 ${isLoadingLeaderboard ? 'opacity-70' : 'opacity-100'}`}>
                     <table className="w-full text-left text-xs">
                       <thead className="bg-dark-surface/40 text-[10px] font-mono uppercase text-dark-muted border-b border-dark-border">
                         <tr>

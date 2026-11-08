@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'StreakUp',
   webDir: 'dist',
   server: {
+    url: 'https://streak-up-henna.vercel.app',
     androidScheme: 'https',
     clearCache: true
   }

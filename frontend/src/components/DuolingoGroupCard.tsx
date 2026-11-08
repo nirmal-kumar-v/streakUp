@@ -19,6 +19,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
+import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 interface DuolingoGroupCardProps {
   groupId: string;
@@ -36,19 +37,16 @@ export const DuolingoGroupCard: React.FC<DuolingoGroupCardProps> = ({
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
-  const cacheKey = `streakup_duolingo_courses_${groupId}`;
-  const [cachedCourses] = useState<DuolingoCourseItem[] | null>(() => {
-    try {
-      const raw = sessionStorage.getItem(cacheKey);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const coursesCacheKey = `duolingo_courses_${groupId}`;
+  const limitCacheKey = `duolingo_limit_${groupId}`;
 
-  const [courses, setCourses] = useState<DuolingoCourseItem[]>(() => cachedCourses || []);
-  const [courseLimit, setCourseLimit] = useState<number>(5);
-  const [isLoading, setIsLoading] = useState(() => !cachedCourses || cachedCourses.length === 0);
+  const [courses, setCourses] = useState<DuolingoCourseItem[]>(() => {
+    return getPersistentData<DuolingoCourseItem[]>(coursesCacheKey) || [];
+  });
+  const [courseLimit, setCourseLimit] = useState<number>(() => {
+    return getPersistentData<number>(limitCacheKey) || 5;
+  });
+  const [isLoading, setIsLoading] = useState(() => courses.length === 0);
 
   // Study note prompt modal
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
@@ -77,23 +75,24 @@ export const DuolingoGroupCard: React.FC<DuolingoGroupCardProps> = ({
     return committedCourses.length > 0 && committedCourses.every((c) => c.completedToday);
   }, [committedCourses]);
 
-  // Load courses
+  // Load courses silently in background
   const loadCourses = useCallback(async () => {
     try {
       const res = await fetchDuolingoCourses(groupId);
       if (res.success && res.courses) {
         setCourses(res.courses);
-        if (res.courseLimit) setCourseLimit(res.courseLimit);
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify(res.courses));
-        } catch {}
+        setPersistentData(coursesCacheKey, res.courses);
+        if (res.courseLimit) {
+          setCourseLimit(res.courseLimit);
+          setPersistentData(limitCacheKey, res.courseLimit);
+        }
       }
     } catch (err: any) {
       console.warn('[DuolingoGroupCard] Failed to load courses:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [groupId, cacheKey]);
+  }, [groupId, coursesCacheKey, limitCacheKey]);
 
   useEffect(() => {
     loadCourses();

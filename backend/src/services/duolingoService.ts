@@ -344,7 +344,7 @@ interface CachedLeaderboard {
   data: CourseLeaderboardEntry[];
 }
 const leaderboardCache = new Map<string, CachedLeaderboard>();
-const LEADERBOARD_CACHE_TTL_MS = 15000;
+const LEADERBOARD_CACHE_TTL_MS = 60000; // 60s in-memory cache; automatically invalidated on any user completion or admin update
 
 export function invalidateCourseLeaderboardCache(groupId?: string, courseId?: string) {
   if (!groupId) { leaderboardCache.clear(); return; }
