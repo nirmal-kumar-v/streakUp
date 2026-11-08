@@ -46,8 +46,15 @@ export const TaskCompletionModal: React.FC<TaskCompletionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-      <div className="relative w-full max-w-lg bg-dark-surface border border-dark-border rounded-2xl p-5 sm:p-6 shadow-2xl shadow-zinc-950/50 my-auto max-h-[92vh] flex flex-col">
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleCancel();
+      }}
+    >
+      <div className="relative w-full max-w-lg bg-dark-surface border border-dark-border rounded-2xl p-5 sm:p-6 shadow-2xl shadow-zinc-950/50 my-auto max-h-[92vh] flex flex-col touch-auto">
         {/* Header */}
         <div className="flex items-start justify-between pb-3 border-b border-dark-border shrink-0">
           <div className="flex items-center gap-3">

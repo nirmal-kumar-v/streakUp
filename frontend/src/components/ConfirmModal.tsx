@@ -77,12 +77,12 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
       aria-describedby="confirm-modal-desc"
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl shadow-black/80 space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col">
+      <div className="w-full sm:max-w-md bg-zinc-900 border border-zinc-800 sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl shadow-black/80 space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col touch-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">

@@ -196,11 +196,11 @@ export const ImageCropModal: React.FC<ImageCropModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto overscroll-contain"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-hidden touch-none overscroll-none"
       onClick={onClose}
     >
       <div
-        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative my-auto max-h-[92vh] flex flex-col"
+        className="bg-dark-card border border-dark-border rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative my-auto max-h-[92vh] flex flex-col touch-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}

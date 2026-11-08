@@ -36,7 +36,14 @@ interface GlobalHeatmapMemory {
   activeDaysCount: number;
 }
 
+interface GlobalHeatmapGridCache {
+  key: string;
+  gridWeeks: CalendarGridCell[][];
+  monthLabels: Array<{ monthName: string; weekIndex: number }>;
+}
+
 let globalMemoryHeatmap: GlobalHeatmapMemory | null = null;
+let globalGridCache: GlobalHeatmapGridCache | null = null;
 
 export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   timezone = 'Asia/Kolkata',
@@ -131,6 +138,17 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   }, [selectedDateDetail]);
 
   const applyResponse = useCallback((res: ActivityHistoryResponse, cKey: string) => {
+    // Avoid re-render if data is already identically loaded in memory cache
+    if (
+      globalMemoryHeatmap &&
+      globalMemoryHeatmap.cacheKey === cKey &&
+      globalMemoryHeatmap.activeDaysCount === (res.activeDaysCount || 0) &&
+      globalMemoryHeatmap.activityMap.size === res.activity.length
+    ) {
+      setHasLoadedOnce(true);
+      return;
+    }
+
     const map = new Map<string, { count: number; tasks: ActivityTaskInfo[] }>();
     res.activity.forEach((item) => {
       map.set(item.date, {
@@ -212,7 +230,13 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
   const endMs = endDate.toMillis();
   const todayMs = todayDt.toMillis();
 
+  const gridCacheKey = `${startMs}_${endMs}_${todayMs}`;
+
   const { gridWeeks, monthLabels } = useMemo(() => {
+    if (globalGridCache && globalGridCache.key === gridCacheKey) {
+      return globalGridCache;
+    }
+
     const firstGridSunday = startDate.minus({ days: startDate.weekday % 7 });
     const daysDiff = Math.ceil(endDate.diff(firstGridSunday, 'days').days) + 1;
     const totalWeeks = Math.ceil(daysDiff / 7);
@@ -249,8 +273,10 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
       weeksList.push(weekDays);
     }
 
-    return { gridWeeks: weeksList, monthLabels: labelsList };
-  }, [startMs, endMs, todayMs]);
+    const result = { key: gridCacheKey, gridWeeks: weeksList, monthLabels: labelsList };
+    globalGridCache = result;
+    return result;
+  }, [startMs, endMs, todayMs, gridCacheKey, startDate, endDate, todayDt]);
 
   // Fast O(1) data resolver for grid cells
   const getCellData = useCallback(
@@ -459,11 +485,11 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="heatmap-date-title"
-          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none"
           onClick={() => setSelectedDateDetail(null)}
         >
           <div
-            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col"
+            className="bg-dark-card border border-dark-border rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4 animate-scaleUp my-auto max-h-[92vh] flex flex-col touch-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-dark-border pb-3 shrink-0">

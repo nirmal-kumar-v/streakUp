@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchPublicAnnouncement, PlatformAnnouncementData } from '../api/admin';
+import { useBodyScrollLock } from '../utils/scrollLock';
 import {
   Sparkles,
   ShieldAlert,
@@ -84,6 +85,8 @@ export const AnnouncementPopup: React.FC = () => {
   const announcement = queue[0] || null;
   const remainingCount = queue.length;
 
+  useBodyScrollLock(Boolean(announcement));
+
   const handleDismiss = () => {
     if (!announcement) return;
     const versionKey = `${SEEN_PREFIX}${announcement.id || announcement.updatedAt || 'active'}`;
@@ -166,14 +169,14 @@ export const AnnouncementPopup: React.FC = () => {
       role="dialog"
       aria-modal="true"
       aria-labelledby="announcement-modal-title"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none"
       onClick={(e) => {
         if (e.target === e.currentTarget && announcement.dismissible !== false) {
           handleDismiss();
         }
       }}
     >
-      <div className="relative w-full max-w-lg">
+      <div className="relative w-full max-w-lg touch-auto">
         {/* Layered Stack Effect: Visual preview of underlying announcement cards if multiple exist */}
         {remainingCount > 1 && (
           <div

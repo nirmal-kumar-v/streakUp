@@ -46,11 +46,19 @@ import { getPersistentData, setPersistentData } from '../utils/persistentCache';
 
 const DASHBOARD_CACHE_KEY = 'streakup_dashboard_summary_cache';
 
+let globalDashboardMemory: any | null = null;
+
 function getCachedDashboard(): any | null {
-  return getPersistentData<any>(DASHBOARD_CACHE_KEY);
+  if (globalDashboardMemory) return globalDashboardMemory;
+  const fromStorage = getPersistentData<any>(DASHBOARD_CACHE_KEY);
+  if (fromStorage) {
+    globalDashboardMemory = fromStorage;
+  }
+  return fromStorage;
 }
 
 function setCachedDashboard(data: any) {
+  globalDashboardMemory = data;
   setPersistentData(DASHBOARD_CACHE_KEY, data);
 }
 

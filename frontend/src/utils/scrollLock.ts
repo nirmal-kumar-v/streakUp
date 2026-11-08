@@ -1,11 +1,37 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 let activeScrollLocks = 0;
 let scrollYPosition = 0;
 
+const preventDefaultTouchMove = (e: TouchEvent) => {
+  if (activeScrollLocks <= 0) return;
+  const target = e.target as HTMLElement | null;
+  // If target or any ancestor is an element explicitly designated to scroll internally, permit it
+  const isScrollable = target?.closest('.overflow-y-auto, .overflow-auto, [data-scrollable="true"]');
+  if (!isScrollable) {
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }
+};
+
+const preventDefaultWheel = (e: WheelEvent) => {
+  if (activeScrollLocks <= 0) return;
+  const target = e.target as HTMLElement | null;
+  const isScrollable = target?.closest('.overflow-y-auto, .overflow-auto, [data-scrollable="true"]');
+  if (!isScrollable) {
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }
+};
+
 /**
  * Universally lock scrolling on document.body and documentElement when modals are open.
- * Uses the bulletproof iOS/Android/Desktop position: fixed technique to prevent any background scroll.
+ * Uses the bulletproof iOS/Android/Desktop position: fixed technique plus global event prevention
+ * to completely eliminate background scrolling under all conditions.
  */
 export function lockBodyScroll() {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
@@ -13,7 +39,7 @@ export function lockBodyScroll() {
   activeScrollLocks++;
   if (activeScrollLocks === 1) {
     scrollYPosition = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
-    
+
     // Check if scrollbar takes space to avoid layout shift
     const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
 
@@ -29,6 +55,9 @@ export function lockBodyScroll() {
     }
     document.documentElement.style.overflow = 'hidden';
     document.documentElement.style.overscrollBehavior = 'none';
+
+    window.addEventListener('touchmove', preventDefaultTouchMove, { passive: false });
+    window.addEventListener('wheel', preventDefaultWheel, { passive: false });
   }
 }
 
@@ -51,7 +80,10 @@ export function unlockBodyScroll() {
     document.body.style.removeProperty('padding-right');
     document.documentElement.style.removeProperty('overflow');
     document.documentElement.style.removeProperty('overscroll-behavior');
-    
+
+    window.removeEventListener('touchmove', preventDefaultTouchMove);
+    window.removeEventListener('wheel', preventDefaultWheel);
+
     window.scrollTo({
       top: scrollYPosition,
       left: 0,
@@ -76,13 +108,19 @@ export function resetAllScrollLocks() {
   document.body.style.removeProperty('padding-right');
   document.documentElement.style.removeProperty('overflow');
   document.documentElement.style.removeProperty('overscroll-behavior');
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('touchmove', preventDefaultTouchMove);
+    window.removeEventListener('wheel', preventDefaultWheel);
+  }
 }
 
 /**
- * React hook to automatically lock body scroll while a modal is mounted/open
+ * React hook to automatically lock body scroll while a modal is mounted/open.
+ * Uses layout effect to guarantee synchronization before paint.
  */
 export function useBodyScrollLock(isOpen: boolean = true) {
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (!isOpen) return;
     lockBodyScroll();
     return () => {

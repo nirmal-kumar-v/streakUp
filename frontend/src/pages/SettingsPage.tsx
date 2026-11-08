@@ -65,7 +65,6 @@ export const SettingsPage: React.FC = () => {
   } = useAppLock();
 
   const [appLockModal, setAppLockModal] = useState<'none' | 'setup' | 'change' | 'disable'>('none');
-  useBodyScrollLock(appLockModal !== 'none');
   const [appLockPin, setAppLockPin] = useState('');
   const [appLockConfirmPin, setAppLockConfirmPin] = useState('');
   const [appLockCurrentPin, setAppLockCurrentPin] = useState('');
@@ -250,6 +249,7 @@ export const SettingsPage: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [rawImageForCrop, setRawImageForCrop] = useState<string | null>(null);
   const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  useBodyScrollLock(appLockModal !== 'none' || isDeleteModalOpen || isCropModalOpen);
   const [confirmRemoveImage, setConfirmRemoveImage] = useState(false);
   const [imageSuccess, setImageSuccess] = useState('');
   const [imageError, setImageError] = useState('');
@@ -1539,8 +1539,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* Delete Account Confirmation Modal */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl relative my-auto max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-hidden touch-none overscroll-none">
+          <div className="bg-dark-card border border-rose-500/30 rounded-3xl max-w-md w-full p-5 sm:p-7 shadow-2xl relative my-auto max-h-[92vh] flex flex-col touch-auto">
             <div className="flex items-center gap-3 text-rose-400 mb-4 shrink-0 pb-3 border-b border-rose-500/20">
               <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
                 <AlertCircle className="w-6 h-6" />
@@ -1652,8 +1652,8 @@ export const SettingsPage: React.FC = () => {
       )}
       {/* App Lock: Setup PIN Modal */}
       {appLockModal === 'setup' && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col touch-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-flame-400" />
@@ -1771,8 +1771,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* App Lock: Change PIN Modal */}
       {appLockModal === 'change' && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-5 sm:p-7 w-full max-w-sm shadow-2xl my-auto max-h-[92vh] flex flex-col touch-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-flame-400" />
@@ -1889,8 +1889,8 @@ export const SettingsPage: React.FC = () => {
 
       {/* App Lock: Disable Confirmation Modal */}
       {appLockModal === 'disable' && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-y-auto overscroll-contain">
-          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fadeIn overflow-hidden touch-none overscroll-none">
+          <div className="bg-dark-card border border-dark-border rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl space-y-5 my-auto touch-auto">
             <div className="flex items-center justify-between pb-3 border-b border-dark-border">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-rose-400" />
