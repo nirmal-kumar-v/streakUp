@@ -380,8 +380,15 @@ export const AppContent: React.FC = () => {
               }
             />
 
-            {/* Super Admin Control Panel (Strict fixed complex secret URL only, unguessable) */}
+            {/* Super Admin Control Panel - strictly /admin-control or /admin-panel / /admin-pannel */}
+            <Route path="/admin-control" element={<AdminControlPage />} />
+            <Route path="/admin-panel" element={<AdminControlPage />} />
+            <Route path="/admin-pannel" element={<AdminControlPage />} />
             <Route path={EXACT_ADMIN_PATHNAME} element={<AdminSecretRoute />} />
+
+            {/* Remove /admin - strictly disabled and redirected to home */}
+            <Route path="/admin" element={<Navigate to="/" replace />} />
+            <Route path="/admin/*" element={<Navigate to="/" replace />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
