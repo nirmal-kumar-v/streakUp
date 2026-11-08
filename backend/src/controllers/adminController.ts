@@ -884,6 +884,7 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
           taskId: string;
           completionDate: string;
           completedAt: Date;
+          studyNote?: string;
         }[] = [];
 
         let daysAdded = 0;
@@ -898,6 +899,8 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
               taskId,
               completionDate: dateStr,
               completedAt: dt.toJSDate(),
+              // If applyToOverall is false, tag completions with [ADMIN_TASK_ONLY] so recalculateUserStreaks NEVER inflates overall streak
+              studyNote: applyToOverall ? undefined : '[ADMIN_TASK_ONLY]',
             });
             daysAdded++;
           }
@@ -912,6 +915,45 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         }
       } else {
         // If explicitly setting current streak to 0, clear today's and yesterday's completion for this task
+        // If !applyToOverall, preserve overall streak continuity for today if this was the user's only task today
+        if (!applyToOverall) {
+          const remainingCompletionsToday = await prisma.taskCompletion.count({
+            where: {
+              userId,
+              taskId: { not: taskId },
+              completionDate: todayStr,
+              NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } },
+            },
+          });
+          const hasTaskToday = await prisma.taskCompletion.findFirst({
+            where: { taskId, completionDate: todayStr },
+          });
+          if (hasTaskToday && remainingCompletionsToday === 0) {
+            let anchorTask = await prisma.task.findFirst({
+              where: { userId, status: 'ACTIVE', id: { not: taskId } },
+              orderBy: { createdAt: 'asc' },
+            });
+            if (anchorTask) {
+              await prisma.taskCompletion.upsert({
+                where: {
+                  taskId_completionDate: {
+                    taskId: anchorTask.id,
+                    completionDate: todayStr,
+                  },
+                },
+                create: {
+                  userId,
+                  taskId: anchorTask.id,
+                  completionDate: todayStr,
+                  completedAt: new Date(),
+                  studyNote: 'Preserved user overall streak',
+                },
+                update: {},
+              });
+            }
+          }
+        }
+
         await prisma.taskCompletion.deleteMany({
           where: {
             taskId,

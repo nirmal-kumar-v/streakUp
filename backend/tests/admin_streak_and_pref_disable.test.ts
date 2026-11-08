@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import prisma from '../src/config/prisma';
-import { ensureTaskStreakCurrent, recalculateTaskStreaks } from '../src/services/streakService';
+import { ensureTaskStreakCurrent, recalculateTaskStreaks, recalculateUserStreaks } from '../src/services/streakService';
 import { DateTime } from 'luxon';
 import { DEFAULT_TIMEZONE, getLocalDateString } from '../src/services/timezoneService';
 
@@ -96,6 +96,62 @@ describe('Admin Task Streak Correction & Notification Preference Disabling', () 
     const dbTaskAfterInspect = await prisma.task.findUnique({ where: { id: testTaskId } });
     expect(dbTaskAfterInspect?.currentStreak).toBe(7);
     expect(dbTaskAfterInspect?.longestStreak).toBe(10);
+  });
+
+  it('does NOT affect user overall streak when task streak is corrected with applyToOverall = false', async () => {
+    const tz = 'Asia/Kolkata';
+
+    // Set initial user overall streak to 3
+    await prisma.user.update({
+      where: { id: testUserId },
+      data: { currentStreak: 3, longestStreak: 5 },
+    });
+
+    // Admin corrects task streak to 25 days with applyToOverall = false
+    const currentStreak = 25;
+    const longestStreak = 25;
+    const applyToOverall = false;
+
+    // Simulate correctStreaks:
+    const maxDaysToCreate = Math.min(currentStreak, 365);
+    const completionsToInsert: any[] = [];
+    for (let i = 0; i < maxDaysToCreate; i++) {
+      const dt = DateTime.now().setZone(tz).minus({ days: i + 1 });
+      const dateStr = dt.toFormat('yyyy-MM-dd');
+      completionsToInsert.push({
+        userId: testUserId,
+        taskId: testTaskId,
+        completionDate: dateStr,
+        completedAt: dt.toJSDate(),
+        studyNote: applyToOverall ? undefined : '[ADMIN_TASK_ONLY]',
+      });
+    }
+
+    await prisma.taskCompletion.createMany({
+      data: completionsToInsert,
+      skipDuplicates: true,
+    });
+
+    await prisma.task.update({
+      where: { id: testTaskId },
+      data: { currentStreak, longestStreak },
+    });
+
+    // Task streak is 25
+    const task = await prisma.task.findUnique({ where: { id: testTaskId } });
+    expect(task?.currentStreak).toBe(25);
+
+    // User overall streak before recalculate: still 3
+    let user = await prisma.user.findUnique({ where: { id: testUserId } });
+    expect(user?.currentStreak).toBe(3);
+
+    // Now recalculateUserStreaks runs "after sometime":
+    const overallRes = await recalculateUserStreaks(prisma, testUserId, tz);
+    expect(overallRes.currentStreak).not.toBe(25);
+
+    // User overall streak was NOT affected and did not jump to 25
+    user = await prisma.user.findUnique({ where: { id: testUserId } });
+    expect(user?.currentStreak).not.toBe(25);
   });
 
   it('allows user to disable email triggers down to 3, 2, 1, or 0 without quota error', async () => {

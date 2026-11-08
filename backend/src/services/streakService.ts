@@ -115,8 +115,14 @@ export async function recalculateUserStreaks(
   const maxCapacity = user?.overallFreezeCapacity || 1;
 
   // Fetch all unique completion dates for this user across all tasks
+  // Exclude admin task-only adjustments that were applied with applyToOverall = false
   const completions = await prisma.taskCompletion.findMany({
-    where: { userId },
+    where: {
+      userId,
+      NOT: {
+        studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+      }
+    },
     select: { completionDate: true },
     distinct: ['completionDate']
   });
@@ -350,11 +356,14 @@ export async function ensureUserStreakCurrent(
   const todayStr = getLocalDateString(tz);
   const yesterdayStr = getYesterdayDateString(tz);
 
-  // Fast check: did user complete anything today or yesterday?
+  // Fast check: did user complete anything today or yesterday? (excluding admin task-only completions)
   const recentCompletion = await prismaClient.taskCompletion.findFirst({
     where: {
       userId: user.id,
-      completionDate: { in: [todayStr, yesterdayStr] }
+      completionDate: { in: [todayStr, yesterdayStr] },
+      NOT: {
+        studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+      }
     },
     select: { id: true }
   });
@@ -467,7 +476,10 @@ export async function reconcileStaleStreaks(prismaClient: any = defaultPrisma): 
       const hasRecentActivity = await prismaClient.taskCompletion.findFirst({
         where: {
           userId: u.id,
-          completionDate: { in: [todayStr, yesterdayStr] }
+          completionDate: { in: [todayStr, yesterdayStr] },
+          NOT: {
+            studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+          }
         },
         select: { id: true }
       });

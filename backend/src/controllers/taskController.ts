@@ -674,7 +674,11 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
     })) > 0;
 
     const wasUserAlreadyCompletedToday = (await prisma.taskCompletion.count({
-      where: { userId, completionDate: todayDateStr }
+      where: {
+        userId,
+        completionDate: todayDateStr,
+        NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+      }
     })) > 0;
 
     // Create or update completion record (upsert to prevent duplicate records on same date)
@@ -709,7 +713,11 @@ export async function completeTask(req: AuthenticatedRequest, res: Response) {
 
     const wasUserActiveYesterday =
       (await prisma.taskCompletion.count({
-        where: { userId, completionDate: yesterdayDateStr }
+        where: {
+          userId,
+          completionDate: yesterdayDateStr,
+          NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+        }
       })) > 0 ||
       (await prisma.freezeLog.count({
         where: { userId, scope: 'OVERALL', protectedDate: yesterdayDateStr }
@@ -972,7 +980,11 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
       });
 
       const remainingTodayCompletions = await prisma.taskCompletion.count({
-        where: { userId, completionDate: todayDateStr }
+        where: {
+          userId,
+          completionDate: todayDateStr,
+          NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+        }
       });
       const targetUserStreak = remainingTodayCompletions > 0
         ? (task.user?.currentStreak || 0)
@@ -1069,7 +1081,11 @@ export async function uncompleteTask(req: AuthenticatedRequest, res: Response) {
 
     // Check if user has other completions today across any tasks
     const remainingTodayCompletions = await prisma.taskCompletion.count({
-      where: { userId, completionDate: todayDateStr }
+      where: {
+        userId,
+        completionDate: todayDateStr,
+        NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+      }
     });
 
     const targetUserStreak = remainingTodayCompletions > 0

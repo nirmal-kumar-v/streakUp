@@ -24,7 +24,7 @@ import {
 } from '../services/emailService';
 import { getOrCreateNotificationPreferences } from '../services/notificationService';
 import { getUserProfileImageLimitMb } from '../services/adminConfigService';
-import { recalculateUserStreaks } from '../services/streakService';
+import { recalculateUserStreaks, ensureUserStreakCurrent } from '../services/streakService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_dev_jwt_secret_key_2026';
 const JWT_EXPIRES_IN = '365d';
@@ -814,11 +814,11 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
     let longestStreak = user.longestStreak;
     if (user.currentStreak > 0) {
       try {
-        const refreshed = await recalculateUserStreaks(prisma, userId, user.timezone);
+        const refreshed = await ensureUserStreakCurrent(prisma, user);
         currentStreak = refreshed.currentStreak;
         longestStreak = refreshed.longestStreak;
       } catch (e) {
-        console.error('getMe recalculateUserStreaks error:', e);
+        console.error('getMe ensureUserStreakCurrent error:', e);
       }
     }
 
