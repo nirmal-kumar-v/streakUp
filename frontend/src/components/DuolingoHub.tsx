@@ -669,7 +669,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
               <button
                 onClick={() => setCategoryFilter('all')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -797,7 +797,7 @@ export const DuolingoHub: React.FC<DuolingoHubProps> = ({
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full min-w-[480px] sm:min-w-full text-left text-xs">
                       <thead className="bg-dark-surface/40 text-[10px] font-mono uppercase text-dark-muted border-b border-dark-border">
                         <tr>
                           <th className="py-2.5 px-4 w-12">#</th>

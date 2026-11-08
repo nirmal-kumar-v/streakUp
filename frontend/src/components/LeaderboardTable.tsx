@@ -245,7 +245,7 @@ export const LeaderboardTable: React.FC<LeaderboardTableProps> = ({
       {/* Main Leaderboard Table */}
       <div className="bg-dark-card border border-dark-border rounded-2xl overflow-hidden shadow-panel">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[560px] sm:min-w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-dark-border bg-dark-surface/60 text-[11px] font-bold text-dark-muted uppercase tracking-wider font-mono">
                 <th className="py-3.5 px-4 w-16 text-center">Rank</th>

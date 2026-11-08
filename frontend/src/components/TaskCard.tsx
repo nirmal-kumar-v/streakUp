@@ -62,6 +62,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       return; // Drop click immediately while processing
     }
     isActionLockedRef.current = true;
+    setTimeout(() => {
+      isActionLockedRef.current = false;
+    }, 400);
     onToggleComplete(task);
   };
 
@@ -127,7 +130,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           )}
 
           {/* Task Name & Streak Only */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             <h3
               onClick={() => {
                 if (isLinkedIn) {

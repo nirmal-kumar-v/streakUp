@@ -23,7 +23,7 @@ import {
   GroupNoteItem,
   GroupJoinRequestItem,
 } from '../api/groups';
-import { completeTask, updateTask } from '../api/tasks';
+import { completeTask, uncompleteTask, updateTask } from '../api/tasks';
 import { sendFriendRequest, fetchFriendsList, searchUsers, FriendUser } from '../api/friends';
 import { toggleStudyNoteReaction, EmojiType } from '../api/reactions';
 import { useToast } from '../context/ToastContext';
@@ -64,6 +64,7 @@ import {
   Search,
   X,
   Gamepad2,
+  Loader2,
 } from 'lucide-react';
 import { extractErrorMessage } from '../utils/error';
 import { getPersistentData, setPersistentData } from '../utils/persistentCache';
@@ -706,8 +707,27 @@ export const GroupDetailPage: React.FC = () => {
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
+  const [isUncompletingTask, setIsUncompletingTask] = useState(false);
+
   const handleCompleteTask = async (studyNote: string) => {
     if (!group?.userTask?.id) return;
+    const prevGroup = group;
+    // Optimistic update for 0ms perceived latency
+    setGroup((prev) => {
+      if (!prev || !prev.userTask) return prev;
+      const nextStreak = (prev.userTask.currentStreak || 0) + 1;
+      return {
+        ...prev,
+        userTask: {
+          ...prev.userTask,
+          completedToday: true,
+          currentStreak: nextStreak,
+          longestStreak: Math.max(prev.userTask.longestStreak || 0, nextStreak),
+          todayStudyNote: studyNote,
+        },
+      };
+    });
+
     try {
       const res = await completeTask(group.userTask.id, studyNote);
       if (res.success) {
@@ -729,8 +749,46 @@ export const GroupDetailPage: React.FC = () => {
         if (activeMainTab === 'leaderboard') loadLeaderboard();
       }
     } catch (err: any) {
+      setGroup(prevGroup);
       showFeedback(extractErrorMessage(err, 'Failed to complete task.'), 'error');
       throw err;
+    }
+  };
+
+  const handleUncompleteTask = async () => {
+    if (!group?.userTask?.id || isUncompletingTask) return;
+    setIsUncompletingTask(true);
+    const prevGroup = group;
+
+    // Optimistic untick
+    setGroup((prev) => {
+      if (!prev || !prev.userTask) return prev;
+      return {
+        ...prev,
+        userTask: {
+          ...prev.userTask,
+          completedToday: false,
+          currentStreak: Math.max(0, (prev.userTask.currentStreak || 1) - 1),
+          todayStudyNote: null,
+        },
+      };
+    });
+
+    try {
+      const res = await uncompleteTask(group.userTask.id);
+      if (res.success) {
+        showFeedback('Task completion undone.');
+        loadGroupDetails();
+        if (activeMainTab === 'notes') loadNotes();
+        if (activeMainTab === 'leaderboard') loadLeaderboard();
+      } else {
+        throw new Error('Failed to undo task completion');
+      }
+    } catch (err: any) {
+      setGroup(prevGroup);
+      showFeedback(extractErrorMessage(err, 'Failed to undo task completion.'), 'error');
+    } finally {
+      setIsUncompletingTask(false);
     }
   };
 
@@ -1491,9 +1549,24 @@ export const GroupDetailPage: React.FC = () => {
                     </div>
 
                     {userTask?.completedToday ? (
-                      <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span>Completed Today</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 font-bold text-xs rounded-xl">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          <span>Completed Today</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleUncompleteTask}
+                          disabled={isUncompletingTask}
+                          className="px-3 py-2 bg-dark-surface hover:bg-dark-hover text-zinc-400 hover:text-zinc-200 border border-dark-border text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                          title="Undo habit completion for today"
+                        >
+                          {isUncompletingTask ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+                          ) : (
+                            <span>Undo</span>
+                          )}
+                        </button>
                       </div>
                     ) : (
                       <button

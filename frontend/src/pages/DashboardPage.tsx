@@ -413,17 +413,73 @@ export const DashboardPage: React.FC = () => {
             const noteText = `${task.specialPlatform || 'Special'} ${task.specialActivity} completed`;
             const res = await completeTask(task.id, noteText);
             if (res.success) {
-              const sumRes = await fetchDashboardSummary();
-              if (sumRes.success && sumRes.todayTasks) {
-                setTasks(sumRes.todayTasks);
-                if (sumRes.user) {
-                  updateUser({
-                    currentStreak: sumRes.user.currentStreak,
-                    longestStreak: sumRes.user.longestStreak,
-                    points: sumRes.user.points,
-                  });
+              const finalTaskStreak = res.taskStreak?.currentStreak ?? nextStreak;
+              const finalTaskLongest = res.taskStreak?.longestStreak ?? nextLongest;
+              const finalUserStreak = res.streak?.currentStreak ?? nextUserStreak;
+              const finalUserLongest = res.streak?.longestStreak ?? nextUserLongest;
+
+              const syncedTasks = optimisticTasks.map((t) => {
+                if (t.id === task.id) {
+                  return {
+                    ...t,
+                    completedToday: true,
+                    currentStreak: finalTaskStreak,
+                    longestStreak: finalTaskLongest,
+                  };
                 }
+                if (isPotd && t.groupId === task.groupId && t.specialActivity === 'DAILY') {
+                  return {
+                    ...t,
+                    completedToday: true,
+                    currentStreak: (t.completedToday ? t.currentStreak : (t.currentStreak || 0) + 1) ?? 0,
+                  };
+                }
+                return t;
+              });
+              setTasks(syncedTasks);
+
+              if (typeof res.totalPoints === 'number') {
+                setPointsStats((prev) =>
+                  prev ? { ...prev, totalPoints: res.totalPoints! } : null
+                );
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                  points: res.totalPoints,
+                });
+              } else if (res.streak) {
+                updateUser({
+                  currentStreak: finalUserStreak,
+                  longestStreak: finalUserLongest,
+                });
               }
+
+              if (currentCache) {
+                setCachedDashboard({
+                  ...currentCache,
+                  todayTasks: syncedTasks,
+                  user: {
+                    ...currentCache.user,
+                    currentStreak: finalUserStreak,
+                    longestStreak: finalUserLongest,
+                    points: typeof res.totalPoints === 'number' ? res.totalPoints : currentCache.user?.points,
+                  },
+                });
+              }
+
+              // Background non-blocking sync
+              fetchDashboardSummary().then((sumRes) => {
+                if (sumRes?.success && sumRes.todayTasks) {
+                  setTasks(sumRes.todayTasks);
+                  if (sumRes.user) {
+                    updateUser({
+                      currentStreak: sumRes.user.currentStreak,
+                      longestStreak: sumRes.user.longestStreak,
+                      points: sumRes.user.points,
+                    });
+                  }
+                }
+              }).catch(() => {});
             }
           } catch (err: any) {
             if (err?.response?.status === 429) return;
