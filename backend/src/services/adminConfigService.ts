@@ -21,6 +21,23 @@ const CONFIG_FILE = path.join(DATA_DIR, 'user_admin_configs.json');
 
 // In-memory cache for ultra-fast synchronous lookup
 let memoryCache: Record<string, UserAdminConfig> | null = null;
+let isConfigsDbTableInitialized = false;
+
+async function initConfigsDbTable(): Promise<void> {
+  if (isConfigsDbTableInitialized) return;
+  isConfigsDbTableInitialized = true;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "user_admin_configs_store" (
+        "user_id" VARCHAR(100) PRIMARY KEY,
+        "data" JSONB NOT NULL,
+        "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+  } catch {
+    // Failover silently
+  }
+}
 
 // Ensure directory exists
 function ensureDataDir() {
@@ -59,31 +76,45 @@ function writeAllConfigs(configs: Record<string, UserAdminConfig>): void {
   }
 }
 
-// Background sync to PostgreSQL database
+// Background sync to PostgreSQL database (both JSONB store and legacy prisma model)
 function syncToDatabase(userId: string, config: UserAdminConfig): void {
-  prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
-    .then((existingUser) => {
-      if (!existingUser) return;
-      return prisma.userAdminConfig.upsert({
-        where: { userId },
-        create: {
-          userId,
-          leaderboardLimit: config.leaderboardLimit ?? 10,
-          reminderLimit: config.reminderLimit ?? 3,
-          discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
-          profileImageLimitMb: config.profileImageLimitMb ?? 5,
-        },
-        update: {
-          leaderboardLimit: config.leaderboardLimit ?? 10,
-          reminderLimit: config.reminderLimit ?? 3,
-          discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
-          profileImageLimitMb: config.profileImageLimitMb ?? 5,
-        },
-      });
-    })
-    .catch(() => {
+  (async () => {
+    try {
+      await initConfigsDbTable();
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "user_admin_configs_store" ("user_id", "data", "updated_at")
+        VALUES ($1, $2::jsonb, NOW())
+        ON CONFLICT ("user_id")
+        DO UPDATE SET "data" = EXCLUDED."data", "updated_at" = NOW();
+      `, userId, JSON.stringify(config));
+    } catch {
+      // Fallback
+    }
+
+    try {
+      const existingUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+      if (existingUser) {
+        await prisma.userAdminConfig.upsert({
+          where: { userId },
+          create: {
+            userId,
+            leaderboardLimit: config.leaderboardLimit ?? 10,
+            reminderLimit: config.reminderLimit ?? 3,
+            discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
+            profileImageLimitMb: config.profileImageLimitMb ?? 5,
+          },
+          update: {
+            leaderboardLimit: config.leaderboardLimit ?? 10,
+            reminderLimit: config.reminderLimit ?? 3,
+            discoverGroupsLimit: config.discoverGroupsLimit ?? 5,
+            profileImageLimitMb: config.profileImageLimitMb ?? 5,
+          },
+        });
+      }
+    } catch {
       // Non-blocking catch for serverless resilience
-    });
+    }
+  })().catch(() => {});
 }
 
 /**
@@ -91,15 +122,30 @@ function syncToDatabase(userId: string, config: UserAdminConfig): void {
  */
 export async function loadUserAdminConfigsFromDb(): Promise<void> {
   try {
-    const dbConfigs = await prisma.userAdminConfig.findMany();
+    await initConfigsDbTable();
+    const rows = (await prisma.$queryRawUnsafe<any[]>(`
+      SELECT "user_id", "data" FROM "user_admin_configs_store"
+    `).catch(() => [])) as any[];
+
     const configs = readAllConfigs();
+    if (Array.isArray(rows) && rows.length > 0) {
+      for (const r of rows) {
+        try {
+          const parsed = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+          configs[r.user_id] = { ...configs[r.user_id], ...parsed };
+        } catch {}
+      }
+    }
+
+    // Also merge with legacy userAdminConfig table for backwards-compatibility
+    const dbConfigs = await prisma.userAdminConfig.findMany().catch(() => []);
     for (const c of dbConfigs) {
       configs[c.userId] = {
-        ...configs[c.userId],
         leaderboardLimit: c.leaderboardLimit,
         reminderLimit: c.reminderLimit,
         discoverGroupsLimit: c.discoverGroupsLimit,
         profileImageLimitMb: c.profileImageLimitMb,
+        ...configs[c.userId], // JSONB store takes precedence
       };
     }
     writeAllConfigs(configs);
@@ -220,6 +266,7 @@ export function setUserActiveTaskLimit(userId: string, limit: number): void {
   }
   configs[userId].activeTaskLimit = Math.max(1, Math.min(100, limit));
   writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
 }
 
 export function getUserArchivedTaskLimit(userId: string): number {
@@ -238,6 +285,7 @@ export function setUserArchivedTaskLimit(userId: string, limit: number): void {
   }
   configs[userId].archivedTaskLimit = Math.max(1, Math.min(50, limit));
   writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
 }
 
 export function getUserFriendLimit(userId: string): number {
@@ -256,6 +304,7 @@ export function setUserFriendLimit(userId: string, limit: number): void {
   }
   configs[userId].friendLimit = Math.max(1, Math.min(100, limit));
   writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
 }
 
 export function getUserEmailTriggerLimit(userId: string): number {
@@ -274,6 +323,7 @@ export function setUserEmailTriggerLimit(userId: string, limit: number): void {
   }
   configs[userId].emailTriggerLimit = Math.max(1, Math.min(8, limit));
   writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
 }
 
 export function getUserAdminConfig(userId: string): UserAdminConfig {
@@ -310,6 +360,7 @@ export function setUserDuolingoCourseLimit(userId: string, limit: number): void 
   }
   configs[userId].duolingoCourseLimit = Math.max(1, Math.min(45, limit));
   writeAllConfigs(configs);
+  syncToDatabase(userId, configs[userId]);
 }
 
 export function deleteUserAdminConfig(userId: string): void {

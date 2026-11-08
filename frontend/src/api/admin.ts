@@ -967,6 +967,83 @@ export async function adminSetLinkedInGameCommitment(
   return res.data;
 }
 
+// ==================== Duolingo Special Group Super Admin Controls ====================
+
+export async function getMemberDuolingoCoursesAdmin(userId: string, groupId: string) {
+  const res = await adminApiClient.get<{
+    success: boolean;
+    user: any;
+    group: any;
+    courses: any[];
+    userLimit: number;
+  }>(`/admin/users/${userId}/duolingo-courses/${groupId}`);
+  return res.data;
+}
+
+export async function adminCorrectDuolingoCourseStreak(
+  userId: string,
+  groupId: string,
+  data: {
+    courseId: string;
+    currentStreak: number;
+    longestStreak?: number;
+    reason: string;
+    applyToOverall?: boolean;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; course: any; overallDuoCurrentStreak?: number }>(
+    `/admin/users/${userId}/duolingo-courses/${groupId}/correct`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminGrantDuolingoCourseDate(
+  userId: string,
+  groupId: string,
+  data: {
+    courseId: string;
+    date: string;
+    studyNote?: string;
+    reason: string;
+    applyToOverall?: boolean;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; course: any }>(
+    `/admin/users/${userId}/duolingo-courses/${groupId}/grant-date`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function adminSetDuolingoCourseCommitment(
+  userId: string,
+  groupId: string,
+  data: {
+    courseId: string;
+    isCommitted: boolean;
+    reason: string;
+  } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; course: any }>(
+    `/admin/users/${userId}/duolingo-courses/${groupId}/commitment`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 // ==================== User Requests & Feedback ====================
 
 export interface AdminUserRequest {

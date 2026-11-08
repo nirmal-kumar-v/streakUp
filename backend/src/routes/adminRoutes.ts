@@ -52,6 +52,10 @@ import {
   adminGrantLinkedInGameDate,
   adminFreezeLinkedInGameDate,
   adminSetLinkedInGameCommitment,
+  getMemberDuolingoCoursesAdmin,
+  adminCorrectDuolingoCourseStreak,
+  adminGrantDuolingoCourseDate,
+  adminSetDuolingoCourseCommitment,
   adminToggleGroupSpecialMode,
   getMemberSpecialActivitiesAdmin,
   adminCorrectSpecialActivityStreak,
@@ -174,6 +178,12 @@ router.post('/users/:userId/linkedin-games/:groupId/correct', requireSensitiveAu
 router.post('/users/:userId/linkedin-games/:groupId/grant-date', requireSensitiveAuth, adminGrantLinkedInGameDate);
 router.post('/users/:userId/linkedin-games/:groupId/freeze-date', requireSensitiveAuth, adminFreezeLinkedInGameDate);
 router.post('/users/:userId/linkedin-games/:groupId/commitment', requireSensitiveAuth, adminSetLinkedInGameCommitment);
+
+// Dedicated Duolingo Special Group Courses & Streaks Control
+router.get('/users/:userId/duolingo-courses/:groupId', getMemberDuolingoCoursesAdmin);
+router.post('/users/:userId/duolingo-courses/:groupId/correct', requireSensitiveAuth, adminCorrectDuolingoCourseStreak);
+router.post('/users/:userId/duolingo-courses/:groupId/grant-date', requireSensitiveAuth, adminGrantDuolingoCourseDate);
+router.post('/users/:userId/duolingo-courses/:groupId/commitment', requireSensitiveAuth, adminSetDuolingoCourseCommitment);
 
 // Task Management
 router.post('/tasks/:taskId/visibility', updateTaskVisibility);

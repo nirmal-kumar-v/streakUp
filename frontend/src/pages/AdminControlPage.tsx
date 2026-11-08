@@ -82,7 +82,6 @@ import {
   overrideFriendLimit,
   overrideEmailTriggerLimit,
   overrideDuolingoCourseLimit,
-  adminForceDuolingoCommit,
   adminMigrateDuolingoGroups,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
@@ -97,6 +96,10 @@ import {
   adminCorrectLinkedInGameStreak,
   adminGrantLinkedInGameDate,
   adminSetLinkedInGameCommitment,
+  getMemberDuolingoCoursesAdmin,
+  adminCorrectDuolingoCourseStreak,
+  adminGrantDuolingoCourseDate,
+  adminSetDuolingoCourseCommitment,
   adminToggleGroupSpecialMode,
   adminSetSpecialActivityCommitment,
   fetchAdminUserRequests,
@@ -942,6 +945,14 @@ export const AdminControlPage: React.FC = () => {
           if (selectedUserId && linkedInGroup?.id) {
             await loadAdminLinkedInGames(selectedUserId, linkedInGroup.id);
           }
+          if (selectedUserId && duolingoGroup?.id) {
+            await loadAdminDuolingoCourses(selectedUserId, duolingoGroup.id);
+          }
+          setAdminCourseStreakReason('');
+          setAdminCourseGrantReason('');
+          setAdminCourseGrantNote('');
+          setAdminCourseCommitmentReason('');
+          setDuolingoCourseLimitReason('');
           refreshCurrentUser();
         } catch (err: any) {
           toast.error(extractErrorMessage(err, 'Failed to save some applied modifications.'));
@@ -1045,38 +1056,7 @@ export const AdminControlPage: React.FC = () => {
     return null;
   }, [selectedUserDetails]);
 
-  const [selectedAdminDuolingoCourseId, setSelectedAdminDuolingoCourseId] = useState('spanish');
-  const [isForceCommittingDuolingo, setIsForceCommittingDuolingo] = useState(false);
   const [isMigratingDuolingo, setIsMigratingDuolingo] = useState(false);
-
-  const handleAdminForceCommitDuolingo = () => {
-    if (!selectedUserId || !duolingoGroup?.id) {
-      toast.error('No Duolingo group associated with this user.');
-      return;
-    }
-    openPinPrompt(
-      'Force Commit User to Duolingo Course',
-      `Enter Super Admin Sensitive Password to force commit @${selectedUserDetails?.username} to ${selectedAdminDuolingoCourseId}.`,
-      async (pin) => {
-        setIsForceCommittingDuolingo(true);
-        try {
-          const res = await adminForceDuolingoCommit(selectedUserId, {
-            groupId: duolingoGroup.id,
-            courseId: selectedAdminDuolingoCourseId,
-            sensitivePin: pin,
-          });
-          if (res.success) {
-            toast.success(`User successfully force-committed to course!`);
-            refreshCurrentUser();
-          }
-        } catch (err: any) {
-          toast.error(extractErrorMessage(err, 'Failed to force-commit user to course.'));
-        } finally {
-          setIsForceCommittingDuolingo(false);
-        }
-      }
-    );
-  };
 
   const handleAdminMigrateDuolingo = () => {
     openPinPrompt(
@@ -1096,6 +1076,254 @@ export const AdminControlPage: React.FC = () => {
         }
       }
     );
+  };
+
+  // Duolingo Special Group Courses Super Admin State
+  const [adminDuolingoCourses, setAdminDuolingoCourses] = useState<any[]>([]);
+  const [isLoadingAdminDuolingoCourses, setIsLoadingAdminDuolingoCourses] = useState(false);
+  const [selectedAdminDuolingoCourse, setSelectedAdminDuolingoCourse] = useState<string>('spanish');
+  const [adminCourseCurrentStreak, setAdminCourseCurrentStreak] = useState<number | string>(0);
+  const [adminCourseLongestStreak, setAdminCourseLongestStreak] = useState<number | string>(0);
+  const [adminCourseStreakReason, setAdminCourseStreakReason] = useState('');
+  const [adminCourseApplyToOverall, setAdminCourseApplyToOverall] = useState(false);
+  const [adminCourseFilter, setAdminCourseFilter] = useState<'all' | 'committed'>('all');
+  const [adminCourseSearch, setAdminCourseSearch] = useState('');
+  const [adminCourseGrantDate, setAdminCourseGrantDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [adminCourseGrantReason, setAdminCourseGrantReason] = useState('');
+  const [adminCourseGrantNote, setAdminCourseGrantNote] = useState('');
+  const [adminCourseCommitmentReason, setAdminCourseCommitmentReason] = useState('');
+  const [isSubmittingDuolingoStreak, setIsSubmittingDuolingoStreak] = useState(false);
+
+  const loadAdminDuolingoCourses = useCallback(async (userId: string, groupId: string) => {
+    setIsLoadingAdminDuolingoCourses(true);
+    try {
+      const res = await getMemberDuolingoCoursesAdmin(userId, groupId);
+      if (res.success && res.courses) {
+        setAdminDuolingoCourses(res.courses);
+        const cur = res.courses.find((c: any) => c.courseId === selectedAdminDuolingoCourse) ||
+                    res.courses.find((c: any) => c.isCommitted) ||
+                    res.courses[0];
+        if (cur) {
+          setSelectedAdminDuolingoCourse(cur.courseId);
+          setAdminCourseCurrentStreak(cur.currentStreak || 0);
+          setAdminCourseLongestStreak(cur.longestStreak || 0);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load member Duolingo courses:', err);
+    } finally {
+      setIsLoadingAdminDuolingoCourses(false);
+    }
+  }, [selectedAdminDuolingoCourse]);
+
+  useEffect(() => {
+    if (selectedUserId && duolingoGroup?.id) {
+      loadAdminDuolingoCourses(selectedUserId, duolingoGroup.id);
+    } else {
+      setAdminDuolingoCourses([]);
+    }
+  }, [selectedUserId, duolingoGroup?.id, loadAdminDuolingoCourses]);
+
+  useEffect(() => {
+    const cur = adminDuolingoCourses.find((c: any) => c.courseId === selectedAdminDuolingoCourse);
+    if (cur) {
+      setAdminCourseCurrentStreak(cur.currentStreak || 0);
+      setAdminCourseLongestStreak(cur.longestStreak || 0);
+    }
+  }, [selectedAdminDuolingoCourse, adminDuolingoCourses]);
+
+  const handleAdminCorrectDuolingoCourseStreak = (e: React.FormEvent, saveImmediately = false) => {
+    e.preventDefault();
+    if (!selectedUserId || !duolingoGroup?.id) return;
+    const course = adminDuolingoCourses.find((c) => c.courseId === selectedAdminDuolingoCourse);
+    const courseName = course ? course.name : selectedAdminDuolingoCourse;
+    const courseId = selectedAdminDuolingoCourse;
+    const curr = Number(adminCourseCurrentStreak);
+    const long = Number(adminCourseLongestStreak);
+    const reason = adminCourseStreakReason.trim() || `Admin corrected Duolingo ${courseName} streak for @${selectedUserDetails?.username}`;
+    const applyToOverall = adminCourseApplyToOverall;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = duolingoGroup.id;
+
+    const changeKey = `duolingo_streak_${courseId}`;
+    const displayLabel = `Duolingo ${courseName} Streak: ${curr}d curr / ${long}d best`;
+
+    const applyPayload = async (pin: string) => {
+      return adminCorrectDuolingoCourseStreak(selectedUserId, groupId, {
+        courseId,
+        currentStreak: curr,
+        longestStreak: long,
+        reason,
+        applyToOverall,
+        sensitivePin: pin,
+        sendInApp,
+        sendEmail,
+        includeReason,
+        includeChanges,
+      });
+    };
+
+    if (saveImmediately) {
+      openPinPrompt(
+        `Correct ${courseName} Streak`,
+        `Enter Super Admin Sensitive Password to immediately set @${selectedUserDetails?.username}'s ${courseName} streak to ${curr}d (best: ${long}d).`,
+        async (pin) => {
+          setIsSubmittingDuolingoStreak(true);
+          try {
+            await applyPayload(pin);
+            toast.success(`Successfully updated ${courseName} streak to ${curr} days!`);
+            await loadAdminDuolingoCourses(selectedUserId, groupId);
+            refreshCurrentUser();
+          } catch (err: any) {
+            toast.error(extractErrorMessage(err, `Failed to update ${courseName} streak.`));
+          } finally {
+            setIsSubmittingDuolingoStreak(false);
+          }
+        }
+      );
+      return;
+    }
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Correct Duolingo ${courseName} streak to ${curr}d curr, ${long}d best`,
+        applyFn: applyPayload,
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
+  };
+
+  const handleAdminGrantCourseDate = (e: React.FormEvent, saveImmediately = false) => {
+    e.preventDefault();
+    if (!selectedUserId || !duolingoGroup?.id || !adminCourseGrantDate) return;
+    const course = adminDuolingoCourses.find((c) => c.courseId === selectedAdminDuolingoCourse);
+    const courseName = course ? course.name : selectedAdminDuolingoCourse;
+    const courseId = selectedAdminDuolingoCourse;
+    const grantDate = adminCourseGrantDate;
+    const note = adminCourseGrantNote.trim() || undefined;
+    const reason = adminCourseGrantReason.trim() || `Admin granted ${courseName} completion on ${grantDate}`;
+    const applyToOverall = adminCourseApplyToOverall;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = duolingoGroup.id;
+
+    const changeKey = `duolingo_grant_${courseId}_${grantDate}`;
+    const displayLabel = `Duolingo ${courseName} Grant: ${grantDate}`;
+
+    const applyPayload = async (pin: string) => {
+      return adminGrantDuolingoCourseDate(selectedUserId, groupId, {
+        courseId,
+        date: grantDate,
+        studyNote: note,
+        reason,
+        applyToOverall,
+        sensitivePin: pin,
+        sendInApp,
+        sendEmail,
+        includeReason,
+        includeChanges,
+      });
+    };
+
+    if (saveImmediately) {
+      openPinPrompt(
+        `Grant ${courseName} Date`,
+        `Enter Super Admin Sensitive Password to grant lesson for ${courseName} on ${grantDate}.`,
+        async (pin) => {
+          try {
+            await applyPayload(pin);
+            toast.success(`Lesson for ${courseName} on ${grantDate} granted!`);
+            await loadAdminDuolingoCourses(selectedUserId, groupId);
+            refreshCurrentUser();
+          } catch (err: any) {
+            toast.error(extractErrorMessage(err, `Failed to grant ${courseName} date.`));
+          }
+        }
+      );
+      return;
+    }
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `Grant completion for Duolingo ${courseName} on ${grantDate}`,
+        applyFn: applyPayload,
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
+  };
+
+  const handleAdminSetCourseCommitment = (courseId: string, isCommitted: boolean, saveImmediately = true) => {
+    if (!selectedUserId || !duolingoGroup?.id) return;
+    const course = adminDuolingoCourses.find((c) => c.courseId === courseId);
+    const courseName = course ? course.name : courseId;
+    const actionLabel = isCommitted ? 'Commit' : 'Uncommit';
+    const reason = adminCourseCommitmentReason.trim() || `Admin ${actionLabel.toLowerCase()}ted @${selectedUserDetails?.username} for ${courseName}`;
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+    const groupId = duolingoGroup.id;
+
+    const changeKey = `duolingo_commitment_${courseId}`;
+    const displayLabel = `Duolingo ${courseName}: ${actionLabel}`;
+
+    const applyPayload = async (pin: string) => {
+      return adminSetDuolingoCourseCommitment(selectedUserId, groupId, {
+        courseId,
+        isCommitted,
+        reason,
+        sensitivePin: pin,
+        sendInApp,
+        sendEmail,
+        includeReason,
+        includeChanges,
+      });
+    };
+
+    if (saveImmediately) {
+      openPinPrompt(
+        `${actionLabel} Duolingo Course`,
+        `Enter Super Admin Sensitive Password to ${actionLabel.toLowerCase()} @${selectedUserDetails?.username} for ${courseName}.`,
+        async (pin) => {
+          try {
+            await applyPayload(pin);
+            toast.success(`User ${actionLabel.toLowerCase()}ted for ${courseName}!`);
+            await loadAdminDuolingoCourses(selectedUserId, groupId);
+            refreshCurrentUser();
+          } catch (err: any) {
+            toast.error(extractErrorMessage(err, `Failed to update ${courseName} commitment.`));
+          }
+        }
+      );
+      return;
+    }
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      [changeKey]: {
+        id: changeKey,
+        label: displayLabel,
+        description: `${actionLabel} ${courseName}`,
+        applyFn: applyPayload,
+      },
+    }));
+
+    toast.success(`${displayLabel} applied! Click "Save" at the top to commit.`);
   };
 
   const loadAdminLinkedInGames = useCallback(async (userId: string, groupId: string) => {
@@ -5304,7 +5532,7 @@ export const AdminControlPage: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className="text-xl">🦉</span>
                             <h3 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
-                              <span>Duolingo Special Group: Course Controls & Migration</span>
+                              <span>Duolingo Special Group: 45 Independent Course Streaks</span>
                             </h3>
                             {duolingoGroup ? (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#58CC02]/20 text-[#58CC02] font-mono font-bold">
@@ -5317,110 +5545,498 @@ export const AdminControlPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-xs text-dark-muted mt-1 leading-relaxed">
-                            Manage course commitments, force-join courses, adjust course quotas, or run system-wide group migrations.
+                            Each of the 45 Duolingo courses (Spanish, French, Japanese, Chess, Math, etc.) maintains its own independent streak, freeze protections, and leaderboard. Corrections made here update only @{selectedUserDetails?.username} for the chosen course.
                           </p>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={handleAdminMigrateDuolingo}
-                          disabled={isMigratingDuolingo}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-dark-surface hover:bg-dark-border border border-[#58CC02]/40 text-[#58CC02] text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 active:scale-95"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${isMigratingDuolingo ? 'animate-spin' : ''}`} />
-                          <span>Migrate All Duolingo Groups</span>
-                        </button>
-                      </div>
-
-                      {/* Force Commit User to Any Course */}
-                      {duolingoGroup ? (
-                        <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
-                          <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
-                            <span>Force Commit User to Any Course (1 of 45)</span>
-                            <span className="text-[10px] font-mono text-[#58CC02]">
-                              Current Quota: {selectedUserDetails?.duolingoCourseLimit || 5} courses
-                            </span>
-                          </h4>
-                          <p className="text-[11px] text-dark-muted">
-                            As Super Admin, you can enroll @{selectedUserDetails?.username} into any course even if they have reached their normal quota limit.
-                          </p>
-
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                            <select
-                              value={selectedAdminDuolingoCourseId}
-                              onChange={(e) => setSelectedAdminDuolingoCourseId(e.target.value)}
-                              className="flex-1 px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
-                            >
-                              {[
-                                { id: 'english', name: 'English 🇬🇧' },
-                                { id: 'spanish', name: 'Spanish 🇪🇸' },
-                                { id: 'french', name: 'French 🇫🇷' },
-                                { id: 'japanese', name: 'Japanese 🇯🇵' },
-                                { id: 'german', name: 'German 🇩🇪' },
-                                { id: 'korean', name: 'Korean 🇰🇷' },
-                                { id: 'italian', name: 'Italian 🇮🇹' },
-                                { id: 'chinese-mandarin', name: 'Chinese (Mandarin) 🇨🇳' },
-                                { id: 'portuguese', name: 'Portuguese 🇵🇹' },
-                                { id: 'hindi', name: 'Hindi 🇮🇳' },
-                                { id: 'russian', name: 'Russian 🇷🇺' },
-                                { id: 'arabic', name: 'Arabic 🇸🇦' },
-                                { id: 'turkish', name: 'Turkish 🇹🇷' },
-                                { id: 'dutch', name: 'Dutch 🇳🇱' },
-                                { id: 'swedish', name: 'Swedish 🇸🇪' },
-                                { id: 'polish', name: 'Polish 🇵🇱' },
-                                { id: 'ukrainian', name: 'Ukrainian 🇺🇦' },
-                                { id: 'vietnamese', name: 'Vietnamese 🇻🇳' },
-                                { id: 'indonesian', name: 'Indonesian 🇮🇩' },
-                                { id: 'irish', name: 'Irish 🇮🇪' },
-                                { id: 'greek', name: 'Greek 🇬🇷' },
-                                { id: 'norwegian', name: 'Norwegian 🇳🇴' },
-                                { id: 'hebrew', name: 'Hebrew 🇮🇱' },
-                                { id: 'czech', name: 'Czech 🇨🇿' },
-                                { id: 'danish', name: 'Danish 🇩🇰' },
-                                { id: 'finnish', name: 'Finnish 🇫🇮' },
-                                { id: 'hungarian', name: 'Hungarian 🇭🇺' },
-                                { id: 'romanian', name: 'Romanian 🇷🇴' },
-                                { id: 'swahili', name: 'Swahili 🇰🇪' },
-                                { id: 'welsh', name: 'Welsh 🏴󠁧󠁢󠁷󠁬󠁳󠁿' },
-                                { id: 'intermediate-english', name: 'Intermediate English 🇬🇧' },
-                                { id: 'latin', name: 'Latin 🏛️' },
-                                { id: 'catalan', name: 'Catalan 🏴' },
-                                { id: 'esperanto', name: 'Esperanto 🌍' },
-                                { id: 'haitian-creole', name: 'Haitian Creole 🇭🇹' },
-                                { id: 'hawaiian', name: 'Hawaiian 🌺' },
-                                { id: 'navajo', name: 'Navajo 🪶' },
-                                { id: 'scottish-gaelic', name: 'Scottish Gaelic 🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
-                                { id: 'yiddish', name: 'Yiddish ✡️' },
-                                { id: 'zulu', name: 'Zulu 🇿🇦' },
-                                { id: 'high-valyrian', name: 'High Valyrian 🐉' },
-                                { id: 'klingon', name: 'Klingon 🖖' },
-                                { id: 'chess', name: 'Chess ♟️' },
-                                { id: 'math', name: 'Math ➕' },
-                                { id: 'music', name: 'Music 🎵' },
-                              ].map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.name}
-                                </option>
-                              ))}
-                            </select>
-
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                          {duolingoGroup && (
                             <button
                               type="button"
-                              onClick={handleAdminForceCommitDuolingo}
-                              disabled={isForceCommittingDuolingo}
-                              className="px-4 py-2 bg-[#58CC02] hover:bg-[#46A302] text-zinc-950 font-black text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0"
+                              onClick={() => selectedUserId && duolingoGroup?.id && loadAdminDuolingoCourses(selectedUserId, duolingoGroup.id)}
+                              disabled={isLoadingAdminDuolingoCourses}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dark-surface hover:bg-dark-border border border-dark-border text-zinc-300 text-xs font-semibold rounded-xl transition-colors shrink-0"
                             >
-                              {isForceCommittingDuolingo ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <span>Force Commit User to Course</span>
-                              )}
+                              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAdminDuolingoCourses ? 'animate-spin text-[#58CC02]' : ''}`} />
+                              <span>Refresh Courses</span>
                             </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleAdminMigrateDuolingo}
+                            disabled={isMigratingDuolingo}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-dark-surface hover:bg-dark-border border border-[#58CC02]/40 text-[#58CC02] text-xs font-bold rounded-xl transition-all shadow-sm shrink-0 active:scale-95"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isMigratingDuolingo ? 'animate-spin' : ''}`} />
+                            <span>Migrate Duolingo Groups</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {duolingoGroup ? (
+                        <div className="space-y-5">
+                          {/* Search & Committed/All Filter Bar */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-1.5 bg-dark-surface p-1 rounded-xl border border-dark-border">
+                              <button
+                                type="button"
+                                onClick={() => setAdminCourseFilter('committed')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                  adminCourseFilter === 'committed'
+                                    ? 'bg-[#58CC02] text-zinc-950 shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                Committed Courses ({adminDuolingoCourses.filter((c: any) => c.isCommitted).length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAdminCourseFilter('all')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                  adminCourseFilter === 'all'
+                                    ? 'bg-[#58CC02] text-zinc-950 shadow-sm'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                All 45 Courses ({adminDuolingoCourses.length || 45})
+                              </button>
+                            </div>
+
+                            <div className="relative flex-1 max-w-xs">
+                              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                              <input
+                                type="text"
+                                value={adminCourseSearch}
+                                onChange={(e) => setAdminCourseSearch(e.target.value)}
+                                placeholder="Search courses (Spanish, Math, Chess...)"
+                                className="w-full pl-8 pr-3 py-1.5 bg-dark-surface border border-dark-border rounded-xl text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-[#58CC02]"
+                              />
+                            </div>
                           </div>
+
+                          {/* Courses Navigation Grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-h-72 overflow-y-auto pr-1">
+                            {(() => {
+                              const filtered = adminDuolingoCourses.filter((c: any) => {
+                                if (adminCourseFilter === 'committed' && !c.isCommitted) return false;
+                                if (adminCourseSearch.trim()) {
+                                  const q = adminCourseSearch.toLowerCase();
+                                  return c.name.toLowerCase().includes(q) || c.courseId.toLowerCase().includes(q);
+                                }
+                                return true;
+                              });
+
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="col-span-full py-6 text-center text-xs text-zinc-500 italic">
+                                    {adminCourseFilter === 'committed'
+                                      ? 'No courses currently committed for this member. Switch to "All 45 Courses" to select and manage any course.'
+                                      : 'No courses match your search query.'}
+                                  </div>
+                                );
+                              }
+
+                              return filtered.map((course: any) => {
+                                const isSelected = selectedAdminDuolingoCourse === course.courseId;
+                                const isCommitted = course.isCommitted === true;
+                                const hasStagedForCourse = Object.keys(appliedChanges).some(
+                                  (k) =>
+                                    k === `duolingo_streak_${course.courseId}` ||
+                                    k === `duolingo_commitment_${course.courseId}` ||
+                                    k.startsWith(`duolingo_grant_${course.courseId}_`)
+                                );
+
+                                return (
+                                  <button
+                                    key={course.courseId}
+                                    type="button"
+                                    onClick={() => setSelectedAdminDuolingoCourse(course.courseId)}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                      isSelected
+                                        ? 'bg-[#58CC02]/15 border-[#58CC02]/50 text-zinc-100 shadow-sm ring-1 ring-[#58CC02]/40'
+                                        : 'bg-dark-surface/60 border-dark-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        <span className="text-base shrink-0">{course.emoji || '📚'}</span>
+                                        <span className="font-bold text-xs truncate">{course.name}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        {hasStagedForCourse && (
+                                          <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500 text-zinc-950 font-mono">
+                                            Applied
+                                          </span>
+                                        )}
+                                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${
+                                          isSelected ? 'bg-[#58CC02]/30 text-[#58CC02]' : 'bg-dark-card text-zinc-500'
+                                        }`}>
+                                          🔥 {course.currentStreak ?? 0}d
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px] font-mono mt-1.5 text-dark-muted">
+                                      <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                        isCommitted
+                                          ? 'text-[#58CC02] bg-[#58CC02]/10 border border-[#58CC02]/20'
+                                          : 'text-zinc-500 bg-zinc-800'
+                                      }`}>
+                                        {isCommitted ? '✓ Committed' : 'off Uncommitted'}
+                                      </span>
+                                      <span>{course.completedToday ? 'Done' : 'Pending'}</span>
+                                    </div>
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+
+                          {/* Selected Course Dashboard Controls */}
+                          {(() => {
+                            const activeCourse = adminDuolingoCourses.find((c: any) => c.courseId === selectedAdminDuolingoCourse) || {
+                              courseId: selectedAdminDuolingoCourse,
+                              name: selectedAdminDuolingoCourse,
+                              emoji: '🦉',
+                              currentStreak: 0,
+                              longestStreak: 0,
+                              isCommitted: false,
+                              completedToday: false,
+                              totalCompletions: 0,
+                              freezeBalance: 0,
+                            };
+                            const isCommitted = activeCourse.isCommitted === true;
+
+                            return (
+                              <div className="space-y-4 pt-3 border-t border-dark-border">
+                                {/* Course Stats Cards */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                  <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                    <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                      Current Streak
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-[#58CC02]">
+                                      <Flame className="w-5 h-5 fill-[#58CC02] text-[#58CC02]" />
+                                      <span>{activeCourse.currentStreak ?? 0}d</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                    <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                      Longest Streak
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-amber-400">
+                                      <Trophy className="w-5 h-5 text-amber-400" />
+                                      <span>{activeCourse.longestStreak ?? 0}d</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                    <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                      Total Completed Lessons
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-zinc-200">
+                                      <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                                      <span>{activeCourse.totalCompletions ?? 0}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="p-3 bg-dark-surface rounded-xl border border-dark-border">
+                                    <span className="text-[10px] text-zinc-400 block font-semibold uppercase tracking-wider">
+                                      Freeze Balance
+                                    </span>
+                                    <div className="flex items-center gap-1.5 mt-1 font-mono text-xl font-black text-sky-400">
+                                      <Snowflake className="w-5 h-5 text-sky-400" />
+                                      <span>{activeCourse.freezeBalance ?? 0}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Commitment Toggle Banner */}
+                                <div className="p-3.5 bg-dark-surface rounded-xl border border-dark-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-2xl">{activeCourse.emoji || '📚'}</span>
+                                    <div>
+                                      <h4 className="text-xs font-bold text-zinc-100 flex items-center gap-2">
+                                        <span>Course Commitment: {activeCourse.name}</span>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                                          isCommitted
+                                            ? 'bg-[#58CC02]/20 text-[#58CC02]'
+                                            : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                          {isCommitted ? 'Currently Committed' : 'Not Committed'}
+                                        </span>
+                                      </h4>
+                                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                                        Quota: {selectedUserDetails?.duolingoCourseLimit || 5} courses max. Admin can commit beyond normal limit.
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {isCommitted ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminSetCourseCommitment(activeCourse.courseId, false, true)}
+                                        className="px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                                      >
+                                        Uncommit User from Course
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminSetCourseCommitment(activeCourse.courseId, true, true)}
+                                        className="px-3.5 py-1.5 bg-[#58CC02] hover:bg-[#46A302] text-zinc-950 text-xs font-black rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
+                                      >
+                                        Commit User to Course
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Duolingo Separate Streak Correction Form */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                  <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                                    <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                                      <Flame className="w-4 h-4 text-[#58CC02]" />
+                                      <span>Correct {activeCourse.name} Streak</span>
+                                    </h4>
+                                    <p className="text-[11px] text-dark-muted">
+                                      Set independent current & longest streaks for this course. Group overall streak recalculates automatically to the best course streak.
+                                    </p>
+
+                                    <form onSubmit={(e) => handleAdminCorrectDuolingoCourseStreak(e, false)} className="space-y-3">
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                            New Current Streak (Days)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={adminCourseCurrentStreak}
+                                            onChange={(e) => setAdminCourseCurrentStreak(e.target.value)}
+                                            className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                            required
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                            New Longest Streak (Days)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            value={adminCourseLongestStreak}
+                                            onChange={(e) => setAdminCourseLongestStreak(e.target.value)}
+                                            className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                            required
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2 p-2 bg-dark-card rounded-lg border border-dark-border">
+                                        <input
+                                          type="checkbox"
+                                          id="duolingoCourseApplyToOverall"
+                                          checked={adminCourseApplyToOverall}
+                                          onChange={(e) => setAdminCourseApplyToOverall(e.target.checked)}
+                                          className="w-3.5 h-3.5 rounded border-dark-border bg-dark-surface text-[#58CC02] focus:ring-[#58CC02]"
+                                        />
+                                        <label htmlFor="duolingoCourseApplyToOverall" className="text-[11px] text-zinc-300 font-semibold cursor-pointer select-none">
+                                          Affect Overall Streak (also reflect changes to user's overall streak)
+                                        </label>
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                          Mandatory Administrative Reason
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={adminCourseStreakReason}
+                                          onChange={(e) => setAdminCourseStreakReason(e.target.value)}
+                                          placeholder={`e.g. Corrected missed check-in on ${activeCourse.name} due to app crash`}
+                                          className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                          required
+                                        />
+                                      </div>
+
+                                      {renderNotificationOptions()}
+
+                                      {appliedChanges[`duolingo_streak_${selectedAdminDuolingoCourse}`] && (
+                                        <div className="p-2.5 bg-[#58CC02]/10 border border-[#58CC02]/30 rounded-lg flex items-center justify-between text-xs text-[#58CC02]">
+                                          <div className="flex items-center gap-1.5 truncate">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-[#58CC02] shrink-0" />
+                                            <span className="font-bold truncate">
+                                              Applied: {appliedChanges[`duolingo_streak_${selectedAdminDuolingoCourse}`].label}
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setAppliedChanges((prev) => {
+                                                const next = { ...prev };
+                                                delete next[`duolingo_streak_${selectedAdminDuolingoCourse}`];
+                                                return next;
+                                              });
+                                              toast.info('Streak change unapplied.');
+                                            }}
+                                            className="text-zinc-400 hover:text-zinc-200 underline text-[11px] shrink-0 ml-2"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      <div className="flex items-center gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleAdminCorrectDuolingoCourseStreak(e, true)}
+                                          disabled={isSubmittingDuolingoStreak}
+                                          className="flex-1 py-2 bg-[#58CC02] hover:bg-[#46A302] text-zinc-950 font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                          {isSubmittingDuolingoStreak ? (
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                          )}
+                                          <span>⚡ Save &amp; Apply Now</span>
+                                        </button>
+                                        <button
+                                          type="submit"
+                                          disabled={isSubmittingDuolingoStreak}
+                                          className="px-4 py-2 bg-dark-card hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-all shrink-0 cursor-pointer"
+                                          title="Stage this modification to save together with other changes"
+                                        >
+                                          <span>{appliedChanges[`duolingo_streak_${selectedAdminDuolingoCourse}`] ? 'Re-apply' : 'Stage'}</span>
+                                        </button>
+                                      </div>
+                                    </form>
+                                  </div>
+
+                                  {/* Retroactive Date Completion Grant */}
+                                  <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-3">
+                                    <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-2">
+                                      <Calendar className="w-4 h-4 text-emerald-400" />
+                                      <span>Retroactive Lesson Grant: {activeCourse.name}</span>
+                                    </h4>
+                                    <p className="text-[11px] text-dark-muted">
+                                      Grant a lesson completion for a specific past or current date without breaking the streak continuity.
+                                    </p>
+
+                                    <form onSubmit={(e) => handleAdminGrantCourseDate(e, false)} className="space-y-3">
+                                      <div>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                          Completion Date (YYYY-MM-DD)
+                                        </label>
+                                        <input
+                                          type="date"
+                                          value={adminCourseGrantDate}
+                                          onChange={(e) => setAdminCourseGrantDate(e.target.value)}
+                                          className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                          required
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                          Lesson Study Reflection / Note (Optional)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={adminCourseGrantNote}
+                                          onChange={(e) => setAdminCourseGrantNote(e.target.value)}
+                                          placeholder="e.g. Unit 3 completion verified by admin"
+                                          className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label className="block text-[11px] font-semibold text-zinc-300 mb-1">
+                                          Mandatory Administrative Reason
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={adminCourseGrantReason}
+                                          onChange={(e) => setAdminCourseGrantReason(e.target.value)}
+                                          placeholder="e.g. Approved makeup lesson request"
+                                          className="w-full px-3 py-1.5 bg-dark-card border border-dark-border rounded-lg text-xs text-zinc-100 focus:outline-none focus:border-[#58CC02]"
+                                          required
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleAdminGrantCourseDate(e, true)}
+                                          className="flex-1 py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+                                        >
+                                          <CheckCircle2 className="w-3.5 h-3.5" />
+                                          <span>⚡ Grant Date Now</span>
+                                        </button>
+                                        <button
+                                          type="submit"
+                                          className="px-4 py-2 bg-dark-card hover:bg-dark-border border border-dark-border text-zinc-300 font-bold text-xs rounded-xl transition-all shrink-0 cursor-pointer"
+                                        >
+                                          <span>Stage Grant</span>
+                                        </button>
+                                      </div>
+                                    </form>
+                                  </div>
+                                </div>
+
+                                {/* Recent Course Completions Table */}
+                                <div className="p-4 bg-dark-surface rounded-xl border border-dark-border space-y-2">
+                                  <h4 className="text-xs font-bold text-zinc-200 flex items-center justify-between">
+                                    <span>Recent Completion History: {activeCourse.name}</span>
+                                    <span className="text-[10px] font-mono text-zinc-400">
+                                      {(activeCourse.completionsHistory || []).length} recorded completions
+                                    </span>
+                                  </h4>
+
+                                  {(!activeCourse.completionsHistory || activeCourse.completionsHistory.length === 0) ? (
+                                    <p className="text-xs text-zinc-500 italic py-2">No lesson completions recorded yet for this course.</p>
+                                  ) : (
+                                    <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                                      <table className="w-full text-left text-xs">
+                                        <thead>
+                                          <tr className="border-b border-dark-border text-zinc-400 text-[11px]">
+                                            <th className="py-1.5 px-2">Date</th>
+                                            <th className="py-1.5 px-2">Status</th>
+                                            <th className="py-1.5 px-2">Study Note</th>
+                                            <th className="py-1.5 px-2">Recorded At</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-dark-border font-mono text-[11px]">
+                                          {activeCourse.completionsHistory.map((c: any, idx: number) => (
+                                            <tr key={idx} className="hover:bg-dark-card/50">
+                                              <td className="py-1.5 px-2 font-bold text-zinc-200">{c.completionDate}</td>
+                                              <td className="py-1.5 px-2">
+                                                <span className="px-1.5 py-0.2 rounded bg-[#58CC02]/10 text-[#58CC02] text-[10px] font-bold">
+                                                  Completed
+                                                </span>
+                                              </td>
+                                              <td className="py-1.5 px-2 text-zinc-400 italic truncate max-w-xs">{c.studyNote || '—'}</td>
+                                              <td className="py-1.5 px-2 text-zinc-500 text-[10px]">
+                                                {c.completedAt ? new Date(c.completedAt).toLocaleString() : '—'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       ) : (
-                        <div className="p-4 bg-dark-surface rounded-xl border border-dashed border-dark-border text-xs text-dark-muted text-center">
-                          @{selectedUserDetails?.username} is not currently a member of any Duolingo group. Add them to a Duolingo group or have them join one to configure course commitments.
+                        <div className="p-4 bg-dark-surface rounded-xl border border-dashed border-dark-border text-xs text-dark-muted text-center space-y-2">
+                          <p>@{selectedUserDetails?.username} is not currently a member of any Duolingo group.</p>
+                          <p className="text-[11px] text-zinc-500">
+                            Add them to a Duolingo special group or run "Migrate Duolingo Groups" if legacy groups exist to configure and correct individual course streaks.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -10626,6 +11242,25 @@ export const AdminControlPage: React.FC = () => {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Floating Staged Changes Save Button */}
+      {Object.keys(appliedChanges).length > 0 && (
+        <div className="fixed bottom-6 right-6 z-40 animate-bounce">
+          <button
+            type="button"
+            onClick={handleSaveAllAppliedChanges}
+            disabled={isSavingAllApplied}
+            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs sm:text-sm flex items-center gap-2.5 shadow-2xl shadow-emerald-500/50 ring-4 ring-emerald-400/40 cursor-pointer active:scale-95 transition-all"
+          >
+            {isSavingAllApplied ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4" />
+            )}
+            <span>Save {Object.keys(appliedChanges).length} Staged Change{Object.keys(appliedChanges).length > 1 ? 's' : ''} Now</span>
+          </button>
         </div>
       )}
     </div>

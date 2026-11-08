@@ -55,6 +55,15 @@ import {
   setGameCommitment,
 } from '../services/linkedInGameService';
 import {
+  getAllCoursesForMember,
+  adminCorrectCourseStreak as serviceAdminCorrectCourseStreak,
+  adminGrantCourseDate as serviceAdminGrantCourseDate,
+  adminForceCommitCourse,
+  uncommitFromCourse,
+  isDuolingoName,
+  normalizeCourseId,
+} from '../services/duolingoService';
+import {
   getAllManagers,
   grantManagerAccess,
   revokeManagerAccess,
@@ -842,7 +851,10 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
       if (!taskId) {
         return res.status(400).json({ success: false, error: 'Task ID is required for task streak correction.' });
       }
-      const task = await prisma.task.findUnique({ where: { id: taskId } });
+      const task = await prisma.task.findUnique({
+        where: { id: taskId },
+        include: { group: { select: { id: true, name: true, specialPlatform: true } } },
+      });
       if (!task || task.userId !== userId) {
         return res.status(404).json({ success: false, error: 'Task not found for this user.' });
       }
@@ -858,26 +870,37 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         });
         const startOffset = isAlreadyCompletedToday ? 0 : 1;
 
-        // Upsert completions for the last `currentStreak` consecutive days so
-        // recalculateTaskStreaks and ensureTaskStreakCurrent recognize the active streak
-        for (let i = 0; i < currentStreak; i++) {
-          const dt = DateTime.now().setZone(tz).minus({ days: i + startOffset });
-          const dateStr = dt.toFormat('yyyy-MM-dd');
-          await prisma.taskCompletion.upsert({
-            where: {
-              taskId_completionDate: {
+        const scheduledDays = Array.isArray(task.scheduledDays) && task.scheduledDays.length > 0
+          ? task.scheduledDays
+          : [0, 1, 2, 3, 4, 5, 6];
+
+        // Step backwards matching only the days the habit is scheduled for
+        // to guarantee uninterrupted continuity without skipped scheduled days
+        let daysAdded = 0;
+        let dayStep = startOffset;
+        while (daysAdded < currentStreak && dayStep < 3650) {
+          const dt = DateTime.now().setZone(tz).minus({ days: dayStep });
+          const dayOfWeek = dt.weekday % 7; // 0=Sunday, 1=Monday, ..., 6=Saturday
+          if (scheduledDays.includes(dayOfWeek)) {
+            const dateStr = dt.toFormat('yyyy-MM-dd');
+            await prisma.taskCompletion.upsert({
+              where: {
+                taskId_completionDate: {
+                  taskId,
+                  completionDate: dateStr,
+                },
+              },
+              create: {
+                userId,
                 taskId,
                 completionDate: dateStr,
+                completedAt: dt.toJSDate(),
               },
-            },
-            create: {
-              userId,
-              taskId,
-              completionDate: dateStr,
-              completedAt: dt.toJSDate(),
-            },
-            update: {},
-          });
+              update: {},
+            });
+            daysAdded++;
+          }
+          dayStep++;
         }
       } else {
         // If explicitly setting current streak to 0, clear today's and yesterday's completion for this task
@@ -908,6 +931,19 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
           }
         } catch (e) {
           console.error('[correctStreaks:LinkedIn] Error synchronizing primary game streak:', e);
+        }
+      }
+
+      if (task.groupId && (isDuolingoName(task.title) || isDuolingoName(task.group?.name) || task.group?.specialPlatform === 'DUOLINGO')) {
+        try {
+          const allCourses = await getAllCoursesForMember(task.groupId, userId, tz);
+          const committed = allCourses.filter((c) => c.isCommitted);
+          const targetCourse = committed.length > 0 ? committed[0] : allCourses[0];
+          if (targetCourse) {
+            await serviceAdminCorrectCourseStreak(task.groupId, userId, targetCourse.courseId, currentStreak, newLongest);
+          }
+        } catch (e) {
+          console.error('[correctStreaks:Duolingo] Error synchronizing primary course streak:', e);
         }
       }
 
@@ -4464,6 +4500,354 @@ export async function adminSetLinkedInGameCommitment(req: AdminAuthenticatedRequ
   } catch (err: any) {
     console.error('adminSetLinkedInGameCommitment error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game commitment.' });
+  }
+}
+
+// ========================================================
+// DUOLINGO SPECIAL GROUP COURSES DEDICATED SUPER ADMIN CONTROLS
+// ========================================================
+
+/**
+ * Retrieve all 45 Duolingo courses, streaks, and commitment status for a selected group member
+ */
+export async function getMemberDuolingoCoursesAdmin(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, joinCode: true, specialPlatform: true, isSpecialGroup: true },
+    });
+    if (!group) {
+      return res.status(404).json({ success: false, error: 'Group not found.' });
+    }
+
+    const isDuo = isDuolingoName(group.name) || group.specialPlatform === 'DUOLINGO';
+    if (!isDuo) {
+      return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+    }
+
+    const courses = await getAllCoursesForMember(groupId, userId, user.timezone || DEFAULT_TIMEZONE);
+    const userLimit = getUserDuolingoCourseLimit(userId);
+
+    return res.json({
+      success: true,
+      user,
+      group,
+      courses,
+      userLimit,
+    });
+  } catch (err: any) {
+    console.error('getMemberDuolingoCoursesAdmin error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to load member Duolingo courses.' });
+  }
+}
+
+/**
+ * Super Admin streak correction for an individual Duolingo course
+ */
+export async function adminCorrectDuolingoCourseStreak(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      courseId,
+      currentStreak,
+      longestStreak,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+      applyToOverall = false,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+
+    if (typeof currentStreak !== 'number' || currentStreak < 0) {
+      return res.status(400).json({ success: false, error: 'Valid non-negative current streak is required.' });
+    }
+
+    const normalizedCourseId = normalizeCourseId(courseId);
+    if (!normalizedCourseId) {
+      return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, specialPlatform: true },
+    });
+    if (!group || (!isDuolingoName(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+      return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+    }
+
+    const beforeCourses = await getAllCoursesForMember(groupId, userId, user.timezone || DEFAULT_TIMEZONE);
+    const beforeCourse = beforeCourses.find((c) => c.courseId === normalizedCourseId);
+
+    const updatedCourse = await serviceAdminCorrectCourseStreak(
+      groupId,
+      userId,
+      normalizedCourseId,
+      currentStreak,
+      typeof longestStreak === 'number' ? longestStreak : currentStreak
+    );
+
+    // Compute new overall Duolingo streak: the max current streak of all committed courses
+    const allCourses = await getAllCoursesForMember(groupId, userId, user.timezone || DEFAULT_TIMEZONE);
+    const committedCourses = allCourses.filter((c) => c.isCommitted);
+    const overallDuoCurrentStreak = committedCourses.reduce((max, c) => Math.max(max, c.currentStreak), 0);
+    const overallDuoLongestStreak = committedCourses.reduce((max, c) => Math.max(max, c.longestStreak), 0);
+
+    // Synchronize parent group task in Prisma so dashboard, group view, and tasks stay 100% consistent
+    await prisma.task.updateMany({
+      where: {
+        userId,
+        groupId,
+        status: { in: ['ACTIVE', 'ARCHIVED'] },
+      },
+      data: {
+        currentStreak: overallDuoCurrentStreak,
+        longestStreak: overallDuoLongestStreak,
+      },
+    });
+
+    if (applyToOverall) {
+      const uCurrent = await prisma.user.findUnique({ where: { id: userId }, select: { longestStreak: true } });
+      const nextLongest = Math.max(uCurrent?.longestStreak || 0, updatedCourse.longestStreak, currentStreak);
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          currentStreak,
+          longestStreak: nextLongest,
+        },
+      });
+    }
+
+    const changesSummary = `Duolingo course "${updatedCourse.name}" streak corrected: ${beforeCourse?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedCourse.longestStreak}d)${applyToOverall ? ' [Applied to user overall streak]' : ''}. Group streak: ${overallDuoCurrentStreak}d.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'DUOLINGO_COURSE_STREAK_CORRECTION',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: beforeCourse,
+      afterState: updatedCourse,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Duolingo ${updatedCourse.name} Streak Corrected`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Streak for ${updatedCourse.name} successfully updated to ${currentStreak} days.`,
+      course: updatedCourse,
+      overallDuoCurrentStreak,
+    });
+  } catch (err: any) {
+    console.error('adminCorrectDuolingoCourseStreak error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to correct Duolingo course streak.' });
+  }
+}
+
+/**
+ * Super Admin retroactively grants or toggles completion for an individual Duolingo course
+ */
+export async function adminGrantDuolingoCourseDate(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      courseId,
+      date,
+      studyNote,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+      applyToOverall = false,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ success: false, error: 'A valid date (YYYY-MM-DD) is required.' });
+    }
+
+    const normalizedCourseId = normalizeCourseId(courseId);
+    if (!normalizedCourseId) {
+      return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, specialPlatform: true },
+    });
+    if (!group || (!isDuolingoName(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+      return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+    }
+
+    const updatedCourse = await serviceAdminGrantCourseDate(
+      groupId,
+      userId,
+      normalizedCourseId,
+      date,
+      studyNote
+    );
+
+    const changesSummary = `Duolingo course "${updatedCourse.name}" completion granted for date ${date}. New streak: ${updatedCourse.currentStreak}d.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'DUOLINGO_COURSE_GRANT_DATE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      afterState: updatedCourse,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Duolingo ${updatedCourse.name} Lesson Granted`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Lesson for ${updatedCourse.name} on ${date} granted. Streak: ${updatedCourse.currentStreak} days.`,
+      course: updatedCourse,
+    });
+  } catch (err: any) {
+    console.error('adminGrantDuolingoCourseDate error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to grant Duolingo course date.' });
+  }
+}
+
+/**
+ * Super Admin commits or uncommits a user to/from any individual Duolingo course
+ */
+export async function adminSetDuolingoCourseCommitment(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId, groupId } = req.params;
+    const {
+      courseId,
+      isCommitted,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+    }
+
+    const normalizedCourseId = normalizeCourseId(courseId);
+    if (!normalizedCourseId) {
+      return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, name: true, timezone: true },
+    });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      select: { id: true, name: true, specialPlatform: true },
+    });
+    if (!group || (!isDuolingoName(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+      return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+    }
+
+    let updatedCourse;
+    if (isCommitted) {
+      const result = await adminForceCommitCourse(groupId, userId, normalizedCourseId);
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      updatedCourse = result.data!;
+    } else {
+      const result = await uncommitFromCourse(groupId, userId, normalizedCourseId, user.timezone || DEFAULT_TIMEZONE);
+      if (!result.success) {
+        return res.status(400).json({ success: false, error: result.error });
+      }
+      updatedCourse = result.data!;
+    }
+
+    const actionText = isCommitted ? 'committed to' : 'uncommitted from';
+    const changesSummary = `User ${actionText} Duolingo course "${updatedCourse.name}" by admin.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'DUOLINGO_COURSE_COMMITMENT_OVERRIDE',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      afterState: updatedCourse,
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: `Duolingo ${updatedCourse.name} Commitment Updated`,
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `User successfully ${actionText} ${updatedCourse.name}.`,
+      course: updatedCourse,
+    });
+  } catch (err: any) {
+    console.error('adminSetDuolingoCourseCommitment error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update course commitment.' });
   }
 }
 
