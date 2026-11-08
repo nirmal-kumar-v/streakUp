@@ -17,6 +17,7 @@ import {
   uncompleteCommittedGamesForDashboard,
 } from '../services/linkedInGameService';
 import { clearLeaderboardCache } from './leaderboardController';
+import { getUserActiveTaskLimit, getUserArchivedTaskLimit } from '../services/adminConfigService';
 import swrCache from '../utils/cacheService';
 
 // Task validation schemas
@@ -208,6 +209,20 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
 
     const data = parseResult.data;
 
+    // Enforce active quota limit (tasks + groups combined, default 10)
+    const activeLimit = getUserActiveTaskLimit(userId);
+    const [activePersonalTasks, joinedGroups] = await Promise.all([
+      prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+      prisma.groupMember.count({ where: { userId } }),
+    ]);
+
+    if (activePersonalTasks + joinedGroups >= activeLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to create a new one.`
+      });
+    }
+
     const task = await prisma.task.create({
       data: {
         userId,
@@ -273,6 +288,31 @@ export async function updateTask(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (parseResult.data.status && parseResult.data.status !== existingTask.status) {
+      if (parseResult.data.status === 'ARCHIVED') {
+        const archivedLimit = getUserArchivedTaskLimit(userId);
+        const archivedCount = await prisma.task.count({ where: { userId, status: 'ARCHIVED' } });
+        if (archivedCount >= archivedLimit) {
+          return res.status(400).json({
+            success: false,
+            error: `Archived quota limit reached (max ${archivedLimit} archived tasks). Permanently delete an archived task before archiving another.`
+          });
+        }
+      } else if (parseResult.data.status === 'ACTIVE') {
+        const activeLimit = getUserActiveTaskLimit(userId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+          prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+          prisma.groupMember.count({ where: { userId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= activeLimit) {
+          return res.status(400).json({
+            success: false,
+            error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to restore this task.`
+          });
+        }
+      }
+    }
+
     const updatedTask = await prisma.task.update({
       where: { id },
       data: parseResult.data
@@ -309,6 +349,30 @@ export async function toggleArchiveTask(req: AuthenticatedRequest, res: Response
     }
 
     const newStatus = existingTask.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE';
+
+    if (newStatus === 'ARCHIVED') {
+      const archivedLimit = getUserArchivedTaskLimit(userId);
+      const archivedCount = await prisma.task.count({ where: { userId, status: 'ARCHIVED' } });
+      if (archivedCount >= archivedLimit) {
+        return res.status(400).json({
+          success: false,
+          error: `Archived quota limit reached (max ${archivedLimit} archived tasks). Permanently delete an archived task before archiving another.`
+        });
+      }
+    } else {
+      const activeLimit = getUserActiveTaskLimit(userId);
+      const [activePersonalTasks, joinedGroups] = await Promise.all([
+        prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+        prisma.groupMember.count({ where: { userId } }),
+      ]);
+      if (activePersonalTasks + joinedGroups >= activeLimit) {
+        return res.status(400).json({
+          success: false,
+          error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to restore this task.`
+        });
+      }
+    }
+
     const updated = await prisma.task.update({
       where: { id },
       data: { status: newStatus }

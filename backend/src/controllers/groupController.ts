@@ -5,7 +5,7 @@ import prisma from '../config/prisma';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { DEFAULT_TIMEZONE, isValidTimezone, getLocalDateString } from '../services/timezoneService';
 import { isTaskVisibleToUser } from '../utils/taskPrivacy';
-import { getUserDiscoverGroupsLimit } from '../services/adminConfigService';
+import { getUserDiscoverGroupsLimit, getUserActiveTaskLimit } from '../services/adminConfigService';
 import { isLinkedInName, getLinkedInDashboardStreak } from '../services/linkedInGameService';
 import { detectSpecialPlatform, getSpecialGroupDefinition } from '../services/specialGroupRegistry';
 import {
@@ -117,6 +117,21 @@ export async function createGroup(req: AuthenticatedRequest, res: Response) {
     }
 
     const { name, description, scheduledDays, enableSpecialFeatures } = parseResult.data;
+
+    // Enforce active quota limit (tasks + groups combined, default 10)
+    const activeLimit = getUserActiveTaskLimit(userId);
+    const [activePersonalTasks, joinedGroups] = await Promise.all([
+      prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+      prisma.groupMember.count({ where: { userId } }),
+    ]);
+
+    if (activePersonalTasks + joinedGroups >= activeLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to create a new group.`,
+      });
+    }
+
     const detectedPlatform = detectSpecialPlatform(name);
     const shouldEnableSpecial = enableSpecialFeatures !== false && detectedPlatform !== null;
     const specialPlatform = shouldEnableSpecial ? detectedPlatform : null;
@@ -377,6 +392,20 @@ export async function requestToJoinGroup(req: AuthenticatedRequest, res: Respons
       return res.status(404).json({ success: false, error: 'Group not found.' });
     }
 
+    // Enforce active quota limit (tasks + groups combined, default 10)
+    const activeLimit = getUserActiveTaskLimit(userId);
+    const [activePersonalTasks, joinedGroups] = await Promise.all([
+      prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+      prisma.groupMember.count({ where: { userId } }),
+    ]);
+
+    if (activePersonalTasks + joinedGroups >= activeLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to join a new group.`,
+      });
+    }
+
     // Check if already an accepted member
     const existingMember = await prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId: group.id, userId } },
@@ -571,6 +600,20 @@ export async function respondToJoinRequest(req: AuthenticatedRequest, res: Respo
     // Action is ACCEPT: Add member & automatically assign the shared group task
     const applicantUserId = joinRequest.userId;
     const group = joinRequest.group;
+
+    // Enforce applicant active quota limit
+    const applicantActiveLimit = getUserActiveTaskLimit(applicantUserId);
+    const [activePersonalTasks, joinedGroups] = await Promise.all([
+      prisma.task.count({ where: { userId: applicantUserId, status: 'ACTIVE', groupId: null } }),
+      prisma.groupMember.count({ where: { userId: applicantUserId } }),
+    ]);
+
+    if (activePersonalTasks + joinedGroups >= applicantActiveLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `User has reached their active quota limit (max ${applicantActiveLimit} combined tasks and groups). They cannot join until they free up quota.`,
+      });
+    }
 
     await prisma.$transaction(async (tx) => {
       // 1. Update request status to ACCEPTED
@@ -1973,6 +2016,20 @@ export async function respondToGroupInvitation(req: AuthenticatedRequest, res: R
       return res.json({
         success: true,
         message: 'Group invitation declined.',
+      });
+    }
+
+    // Action is ACCEPT: enforce active quota limit (tasks + groups combined, default 10)
+    const activeLimit = getUserActiveTaskLimit(userId);
+    const [activePersonalTasks, joinedGroups] = await Promise.all([
+      prisma.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+      prisma.groupMember.count({ where: { userId } }),
+    ]);
+
+    if (activePersonalTasks + joinedGroups >= activeLimit) {
+      return res.status(400).json({
+        success: false,
+        error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to accept this invitation.`,
       });
     }
 

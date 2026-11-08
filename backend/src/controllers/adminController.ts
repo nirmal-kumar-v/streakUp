@@ -19,6 +19,10 @@ import {
   setUserDiscoverGroupsLimit,
   getUserProfileImageLimitMb,
   setUserProfileImageLimitMb,
+  getUserActiveTaskLimit,
+  setUserActiveTaskLimit,
+  getUserArchivedTaskLimit,
+  setUserArchivedTaskLimit,
   loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
@@ -655,6 +659,8 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).taskReminderLimit = getUserTaskReminderLimit(userId);
     (safeUser as any).discoverGroupsLimit = getUserDiscoverGroupsLimit(userId);
     (safeUser as any).profileImageLimitMb = getUserProfileImageLimitMb(userId);
+    (safeUser as any).activeTaskLimit = getUserActiveTaskLimit(userId);
+    (safeUser as any).archivedTaskLimit = getUserArchivedTaskLimit(userId);
 
     const { isAccountDeleted } = await import('../services/deletedAccountService');
     const del = isAccountDeleted(userId);
@@ -2729,6 +2735,138 @@ export async function overrideTaskReminderLimit(req: AdminAuthenticatedRequest, 
   } catch (err: any) {
     console.error('overrideTaskReminderLimit error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update per-task reminder limit.' });
+  }
+}
+
+/**
+ * Override the maximum combined active tasks and groups quota for a specific user
+ */
+export async function overrideActiveTaskLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      activeTaskLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof activeTaskLimit !== 'number' || activeTaskLimit < 1 || activeTaskLimit > 100) {
+      return res.status(400).json({ success: false, error: 'Active task/group quota limit must be an integer between 1 and 100.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserActiveTaskLimit(userId);
+    setUserActiveTaskLimit(userId, activeTaskLimit);
+
+    const changesSummary = `Active tasks/groups quota changed from ${beforeLimit} to ${activeTaskLimit} combined items.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_ACTIVE_TASK_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { activeTaskLimit: beforeLimit },
+      afterState: { activeTaskLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Active Tasks & Groups Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Active tasks/groups quota for @${user.username} updated to ${activeTaskLimit}.`,
+      activeTaskLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideActiveTaskLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update active task quota limit.' });
+  }
+}
+
+/**
+ * Override the maximum archived tasks quota for a specific user
+ */
+export async function overrideArchivedTaskLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      archivedTaskLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof archivedTaskLimit !== 'number' || archivedTaskLimit < 1 || archivedTaskLimit > 50) {
+      return res.status(400).json({ success: false, error: 'Archived task quota limit must be an integer between 1 and 50.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserArchivedTaskLimit(userId);
+    setUserArchivedTaskLimit(userId, archivedTaskLimit);
+
+    const changesSummary = `Archived tasks quota changed from ${beforeLimit} to ${archivedTaskLimit} archived tasks.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_ARCHIVED_TASK_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { archivedTaskLimit: beforeLimit },
+      afterState: { archivedTaskLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Archived Tasks Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Archived tasks quota for @${user.username} updated to ${archivedTaskLimit}.`,
+      archivedTaskLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideArchivedTaskLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update archived task quota limit.' });
   }
 }
 

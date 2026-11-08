@@ -182,6 +182,16 @@ export const PrivacyPolicyPage: React.FC = () => {
                   The Android home-screen widget reads your non-sensitive aggregate statistics (current streak number, today&apos;s completed vs. total task ratio, and contextual motivational message) via local Android SharedPreferences updated through authenticated background workers. StreakUp does not access your physical location, contacts, camera, or SMS messages. Storage permissions are requested exclusively when you explicitly choose to download celebratory streak badges or cards to your device&apos;s photo gallery.
                 </p>
               </div>
+
+              <div className="p-4 bg-dark-surface/50 rounded-2xl border border-dark-border">
+                <h3 className="font-bold text-zinc-100 text-sm flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-flame-400" />
+                  <span>G. Notification Delivery Preferences & Channels</span>
+                </h3>
+                <p className="text-xs text-dark-muted mt-2 leading-relaxed">
+                  We store user notification channel preferences governing In-App alerts and external transactional emails. Email notifications are strictly dedicated to core operational triggers (Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status Alerts). Milestone celebrations and achievement notifications are delivered exclusively through real-time In-App alerts to safeguard your inbox from unwanted volume. Users retain full granular control to toggle individual alerts at any time via Settings &gt; Notifications.
+                </p>
+              </div>
             </div>
           </section>
 

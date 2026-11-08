@@ -581,6 +581,36 @@ export async function overrideProfileImageLimit(
   return res.data;
 }
 
+export async function overrideActiveTaskLimit(
+  userId: string,
+  data: { activeTaskLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; activeTaskLimit: number }>(
+    `/admin/users/${userId}/override-active-task-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
+export async function overrideArchivedTaskLimit(
+  userId: string,
+  data: { archivedTaskLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; archivedTaskLimit: number }>(
+    `/admin/users/${userId}/override-archived-task-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function adminUpdateUserProfileImage(
   userId: string,
   data: {

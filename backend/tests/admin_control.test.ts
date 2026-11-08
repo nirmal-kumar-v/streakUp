@@ -182,6 +182,10 @@ describe('Super Admin Control & Privileged Workflows', () => {
       setUserDiscoverGroupsLimit,
       getUserProfileImageLimitMb,
       setUserProfileImageLimitMb,
+      getUserActiveTaskLimit,
+      setUserActiveTaskLimit,
+      getUserArchivedTaskLimit,
+      setUserArchivedTaskLimit,
       deleteUserAdminConfig,
     } = await import('../src/services/adminConfigService');
 
@@ -190,10 +194,12 @@ describe('Super Admin Control & Privileged Workflows', () => {
 
     try {
       // Defaults
-      expect(getUserReminderLimit(testUserId)).toBe(3);
+      expect(getUserReminderLimit(testUserId)).toBe(2);
       expect(getUserTaskReminderLimit(testUserId)).toBe(1);
       expect(getUserDiscoverGroupsLimit(testUserId)).toBe(5);
       expect(getUserProfileImageLimitMb(testUserId)).toBe(5);
+      expect(getUserActiveTaskLimit(testUserId)).toBe(10);
+      expect(getUserArchivedTaskLimit(testUserId)).toBe(5);
 
       // Overrides
       setUserReminderLimit(testUserId, 10);
@@ -207,6 +213,12 @@ describe('Super Admin Control & Privileged Workflows', () => {
 
       setUserProfileImageLimitMb(testUserId, 15);
       expect(getUserProfileImageLimitMb(testUserId)).toBe(15);
+
+      setUserActiveTaskLimit(testUserId, 25);
+      expect(getUserActiveTaskLimit(testUserId)).toBe(25);
+
+      setUserArchivedTaskLimit(testUserId, 12);
+      expect(getUserArchivedTaskLimit(testUserId)).toBe(12);
     } finally {
       deleteUserAdminConfig(testUserId);
     }
@@ -341,6 +353,53 @@ describe('Super Admin Control & Privileged Workflows', () => {
       const remainingAll = milestones.filter(m => m.userId !== 'user-1');
       expect(remainingAll.length).toBe(1);
       expect(remainingAll[0].userId).toBe('user-2');
+    });
+
+    it('should initialize default notification preferences with 4 core email triggers enabled and others disabled', async () => {
+      const { getOrCreateNotificationPreferences } = await import('../src/services/notificationService');
+      const prismaClient = (await import('../src/config/prisma')).default;
+      const testEmail = `test-pref-${Date.now()}@example.com`;
+      const testUsername = `pref_user_${Date.now()}`;
+
+      const user = await prismaClient.user.create({
+        data: {
+          name: 'Pref Test User',
+          email: testEmail,
+          username: testUsername,
+          normalizedUsername: testUsername.toLowerCase(),
+          passwordHash: 'dummy-hash',
+        },
+      });
+
+      try {
+        const pref = await getOrCreateNotificationPreferences(user.id);
+
+        // Core 4 email triggers are enabled by default
+        expect(pref.friendOverallActivityAlerts).toBe(true);
+        expect(pref.friendTaskActivityAlerts).toBe(true);
+        expect(pref.freezeStatusNotifications).toBe(true);
+        expect(pref.overallStreakRemindersEmail).toBe(true);
+
+        // Milestone and task-specific reminder emails are disabled by default
+        expect(pref.taskRemindersEmail).toBe(false);
+        expect(pref.friendOverallMilestones).toBe(false);
+        expect(pref.friendTaskMilestones).toBe(false);
+        expect(pref.myMilestonesEmail).toBe(false);
+
+        // In-app notifications remain enabled
+        expect(pref.inAppNotificationsEnabled).toBe(true);
+        expect(pref.overallStreakRemindersInApp).toBe(true);
+        expect(pref.taskRemindersInApp).toBe(true);
+        expect(pref.friendOverallActivityInApp).toBe(true);
+        expect(pref.friendTaskActivityInApp).toBe(true);
+        expect(pref.friendOverallMilestonesInApp).toBe(true);
+        expect(pref.friendTaskMilestonesInApp).toBe(true);
+        expect(pref.myMilestonesInApp).toBe(true);
+        expect(pref.freezeStatusInApp).toBe(true);
+      } finally {
+        await prismaClient.notificationPreference.deleteMany({ where: { userId: user.id } });
+        await prismaClient.user.delete({ where: { id: user.id } });
+      }
     });
   });
 });

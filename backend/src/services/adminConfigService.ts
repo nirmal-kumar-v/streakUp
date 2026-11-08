@@ -2,12 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../config/prisma';
 
-interface UserAdminConfig {
+export interface UserAdminConfig {
   leaderboardLimit?: number;
   reminderLimit?: number;
   taskReminderLimit?: number;
   discoverGroupsLimit?: number;
   profileImageLimitMb?: number;
+  activeTaskLimit?: number;
+  archivedTaskLimit?: number;
   [key: string]: any;
 }
 
@@ -129,7 +131,7 @@ export function getUserReminderLimit(userId: string): number {
   if (userConf && typeof userConf.reminderLimit === 'number' && userConf.reminderLimit > 0) {
     return userConf.reminderLimit;
   }
-  return 3; // Default 3 scheduled reminders quota
+  return 2; // Default 2 scheduled reminders quota
 }
 
 export function setUserReminderLimit(userId: string, limit: number): void {
@@ -199,13 +201,54 @@ export function setUserProfileImageLimitMb(userId: string, limitMb: number): voi
   syncToDatabase(userId, configs[userId]);
 }
 
+export function getUserActiveTaskLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.activeTaskLimit === 'number' && userConf.activeTaskLimit > 0) {
+    return userConf.activeTaskLimit;
+  }
+  return 10; // Default 10 active tasks + groups combined
+}
+
+export function setUserActiveTaskLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].activeTaskLimit = Math.max(1, Math.min(100, limit));
+  writeAllConfigs(configs);
+}
+
+export function getUserArchivedTaskLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.archivedTaskLimit === 'number' && userConf.archivedTaskLimit > 0) {
+    return userConf.archivedTaskLimit;
+  }
+  return 5; // Default 5 archived tasks
+}
+
+export function setUserArchivedTaskLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].archivedTaskLimit = Math.max(1, Math.min(50, limit));
+  writeAllConfigs(configs);
+}
+
 export function getUserAdminConfig(userId: string): UserAdminConfig {
   const configs = readAllConfigs();
-  return configs[userId] || {
-    leaderboardLimit: 10,
-    reminderLimit: 3,
-    discoverGroupsLimit: 5,
-    profileImageLimitMb: 5,
+  const userConf = configs[userId] || {};
+  return {
+    leaderboardLimit: userConf.leaderboardLimit ?? 10,
+    reminderLimit: userConf.reminderLimit ?? 2,
+    taskReminderLimit: userConf.taskReminderLimit ?? 1,
+    discoverGroupsLimit: userConf.discoverGroupsLimit ?? 5,
+    profileImageLimitMb: userConf.profileImageLimitMb ?? 5,
+    activeTaskLimit: userConf.activeTaskLimit ?? 10,
+    archivedTaskLimit: userConf.archivedTaskLimit ?? 5,
+    ...userConf,
   };
 }
 

@@ -77,6 +77,8 @@ import {
   overrideTaskReminderLimit,
   overrideDiscoverGroupsLimit,
   overrideProfileImageLimit,
+  overrideActiveTaskLimit,
+  overrideArchivedTaskLimit,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -326,7 +328,7 @@ export const AdminControlPage: React.FC = () => {
   const [newLeaderboardLimit, setNewLeaderboardLimit] = useState<number>(10);
   const [leaderboardReason, setLeaderboardReason] = useState('');
 
-  const [newReminderLimit, setNewReminderLimit] = useState<number>(3);
+  const [newReminderLimit, setNewReminderLimit] = useState<number>(2);
   const [reminderLimitReason, setReminderLimitReason] = useState('');
 
   const [newTaskReminderLimit, setNewTaskReminderLimit] = useState<number>(1);
@@ -338,6 +340,12 @@ export const AdminControlPage: React.FC = () => {
   const [newProfileImageLimitMb, setNewProfileImageLimitMb] = useState<number>(5);
   const [profileImageLimitReason, setProfileImageLimitReason] = useState('');
 
+  const [newActiveTaskLimit, setNewActiveTaskLimit] = useState<number>(10);
+  const [activeTaskLimitReason, setActiveTaskLimitReason] = useState('');
+
+  const [newArchivedTaskLimit, setNewArchivedTaskLimit] = useState<number>(5);
+  const [archivedTaskLimitReason, setArchivedTaskLimitReason] = useState('');
+
   // Submission Statuses linked to isSavingAllApplied
   const isSubmittingStreak = isSavingAllApplied;
   const isSubmittingFreezeControl = isSavingAllApplied;
@@ -348,6 +356,8 @@ export const AdminControlPage: React.FC = () => {
   const isSubmittingTaskReminderLimit = isSavingAllApplied;
   const isSubmittingDiscoverGroupsLimit = isSavingAllApplied;
   const isSubmittingProfileImageLimit = isSavingAllApplied;
+  const isSubmittingActiveTaskLimit = isSavingAllApplied;
+  const isSubmittingArchivedTaskLimit = isSavingAllApplied;
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -586,10 +596,12 @@ export const AdminControlPage: React.FC = () => {
         }
         setNewStarredLimit(u.maxStarredNotifications || 15);
         setNewLeaderboardLimit(u.leaderboardLimit || 10);
-        setNewReminderLimit(u.reminderLimit || 3);
+        setNewReminderLimit(u.reminderLimit || 2);
         setNewTaskReminderLimit(u.taskReminderLimit || 1);
         setNewDiscoverGroupsLimit(u.discoverGroupsLimit || 5);
         setNewProfileImageLimitMb(u.profileImageLimitMb || 5);
+        setNewActiveTaskLimit(u.activeTaskLimit || 10);
+        setNewArchivedTaskLimit(u.archivedTaskLimit || 5);
         setFreezeScope('overall');
         setNewFreezeCapacity(u.overallFreezeCapacity || 1);
         setNewFreezeBalance(u.overallFreezeBalance || 0);
@@ -1527,6 +1539,84 @@ export const AdminControlPage: React.FC = () => {
     }));
 
     toast.success('Profile picture quota applied! Click "Save" at the top to commit.');
+  };
+
+  // Active Tasks & Groups Quota Override (Apply to staging)
+  const handleOverrideActiveTaskLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!activeTaskLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const limitVal = Number(newActiveTaskLimit);
+    const reason = activeTaskLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      activeTaskLimit: {
+        id: 'activeTaskLimit',
+        label: `Active Items Quota: ${limitVal}`,
+        description: `Set active tasks + groups limit to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideActiveTaskLimit(selectedUserId, {
+            activeTaskLimit: limitVal,
+            reason,
+            sensitivePin: pin,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
+          });
+        },
+      },
+    }));
+
+    toast.success('Active tasks & groups quota applied! Click "Save" at the top to commit.');
+  };
+
+  // Archived Tasks Quota Override (Apply to staging)
+  const handleOverrideArchivedTaskLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!archivedTaskLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const limitVal = Number(newArchivedTaskLimit);
+    const reason = archivedTaskLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      archivedTaskLimit: {
+        id: 'archivedTaskLimit',
+        label: `Archived Tasks Quota: ${limitVal}`,
+        description: `Set archived tasks limit to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideArchivedTaskLimit(selectedUserId, {
+            archivedTaskLimit: limitVal,
+            reason,
+            sensitivePin: pin,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
+          });
+        },
+      },
+    }));
+
+    toast.success('Archived tasks quota applied! Click "Save" at the top to commit.');
   };
 
   // Freeze Shield Scope Switching
@@ -6231,7 +6321,7 @@ export const AdminControlPage: React.FC = () => {
                       </div>
 
                       <p className="text-xs text-zinc-400 leading-relaxed">
-                        By default, StreakUp limits users to 3 reminder times. You can <strong className="text-zinc-200">customize and increase the maximum reminders quota specifically for @{selectedUserDetails?.username}</strong> (e.g. to 5, 8, 10, or 15 schedules) so they can configure multiple alert schedules.
+                        By default, StreakUp limits users to 2 reminder times. You can <strong className="text-zinc-200">customize and increase the maximum reminders quota specifically for @{selectedUserDetails?.username}</strong> (e.g. to 3, 5, 8, or 10 schedules) so they can configure multiple alert schedules.
                       </p>
 
                       <form onSubmit={handleOverrideReminderLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
@@ -6247,7 +6337,7 @@ export const AdminControlPage: React.FC = () => {
                             <input
                               type="text"
                               disabled
-                              value={`Max ${selectedUserDetails?.reminderLimit || 3} reminder times allowed`}
+                              value={`Max ${selectedUserDetails?.reminderLimit || 2} reminder times allowed`}
                               className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
                             />
                           </div>
@@ -6262,12 +6352,12 @@ export const AdminControlPage: React.FC = () => {
                                 min="1"
                                 max="50"
                                 value={newReminderLimit}
-                                onChange={(e) => setNewReminderLimit(parseInt(e.target.value, 10) || 3)}
+                                onChange={(e) => setNewReminderLimit(parseInt(e.target.value, 10) || 2)}
                                 className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
                                 required
                               />
                               <div className="flex gap-1">
-                                {[3, 5, 8, 10, 15].map((preset) => (
+                                {[2, 3, 5, 8, 10].map((preset) => (
                                   <button
                                     key={preset}
                                     type="button"
@@ -6822,6 +6912,204 @@ export const AdminControlPage: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4" />
                           )}
                           <span>Apply Profile Picture Quota ({newProfileImageLimitMb} MB)</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* CARD 7: ACTIVE TASKS & GROUPS QUOTA LIMIT */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-flame-400" />
+                          <span>Active Tasks &amp; Groups Quota (Default: 10 Combined)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          QUOTA LIMIT
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        By default, StreakUp limits users to a maximum of 10 combined active tasks and groups. You can customize and increase this quota limit specifically for <strong className="text-zinc-200">@{selectedUserDetails?.username}</strong> (e.g. to 15, 20, 25, or 50 items) so they can create or join additional habits and groups.
+                      </p>
+
+                      <form onSubmit={handleOverrideActiveTaskLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Maximum Combined Active Items Quota
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Active Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.activeTaskLimit || 10} combined active items allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 100)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={newActiveTaskLimit}
+                                onChange={(e) => setNewActiveTaskLimit(parseInt(e.target.value, 10) || 10)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[10, 15, 20, 25, 50].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewActiveTaskLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newActiveTaskLimit === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={activeTaskLimitReason}
+                            onChange={(e) => setActiveTaskLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded active tasks quota to 25 items for power user"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingActiveTaskLimit}
+                          className="w-full py-2.5 bg-flame-500 hover:bg-flame-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingActiveTaskLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Active Items Quota ({newActiveTaskLimit} Items)</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* CARD 8: ARCHIVED TASKS QUOTA LIMIT */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-purple-400" />
+                          <span>Archived Tasks Quota (Default: 5 Tasks)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30">
+                          ARCHIVE QUOTA
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        By default, StreakUp limits users to keeping a maximum of 5 archived tasks in cold storage. You can customize and increase this quota limit specifically for <strong className="text-zinc-200">@{selectedUserDetails?.username}</strong> (e.g. to 10, 15, 20, or 30 tasks).
+                      </p>
+
+                      <form onSubmit={handleOverrideArchivedTaskLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Maximum Archived Tasks Quota
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Archived Quota
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.archivedTaskLimit || 5} archived tasks allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 50)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="50"
+                                value={newArchivedTaskLimit}
+                                onChange={(e) => setNewArchivedTaskLimit(parseInt(e.target.value, 10) || 5)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-purple-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[5, 10, 15, 20, 30].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewArchivedTaskLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newArchivedTaskLimit === preset
+                                        ? 'bg-purple-500 text-zinc-950 border-purple-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-purple-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={archivedTaskLimitReason}
+                            onChange={(e) => setArchivedTaskLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded archived tasks quota to 15 tasks for historical review"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-purple-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingArchivedTaskLimit}
+                          className="w-full py-2.5 bg-purple-500 hover:bg-purple-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingArchivedTaskLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Archived Tasks Quota ({newArchivedTaskLimit} Tasks)</span>
                         </button>
                       </form>
                     </div>

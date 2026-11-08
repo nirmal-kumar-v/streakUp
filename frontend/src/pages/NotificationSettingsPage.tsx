@@ -800,7 +800,7 @@ export const NotificationSettingsPage: React.FC = () => {
           <div>
             <h3 className="text-base font-bold text-zinc-100">Notification Types & Triggers</h3>
             <p className="text-xs text-dark-muted mt-0.5">
-              Choose specifically which delivery channels (In-App and/or Email) trigger for each notification event.
+              Choose specifically which delivery channels (In-App and/or Email) trigger for each notification event. Email alerts are reserved for high-priority operational signals (Friend Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status).
             </p>
           </div>
           <div className="hidden sm:flex items-center gap-3 pr-1 text-[11px] font-bold text-zinc-400">
@@ -929,20 +929,13 @@ export const NotificationSettingsPage: React.FC = () => {
                 <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleTogglePreference('friendOverallMilestones')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
-                  preferences.friendOverallMilestones
-                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
-                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
-                }`}
-                title="Email notification channel"
+              <span
+                className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-dark-surface/60 text-zinc-500 border border-dark-border flex items-center gap-1.5"
+                title="Milestone celebrations are delivered directly In-App"
               >
-                <Mail className={`w-3.5 h-3.5 ${preferences.friendOverallMilestones ? 'text-flame-400' : 'opacity-40'}`} />
-                <span>Email</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendOverallMilestones ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
-              </button>
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                In-App Only
+              </span>
             </div>
           </div>
 
@@ -973,20 +966,13 @@ export const NotificationSettingsPage: React.FC = () => {
                 <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleTogglePreference('friendTaskMilestones')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
-                  preferences.friendTaskMilestones
-                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
-                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
-                }`}
-                title="Email notification channel"
+              <span
+                className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-dark-surface/60 text-zinc-500 border border-dark-border flex items-center gap-1.5"
+                title="Milestone celebrations are delivered directly In-App"
               >
-                <Mail className={`w-3.5 h-3.5 ${preferences.friendTaskMilestones ? 'text-flame-400' : 'opacity-40'}`} />
-                <span>Email</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${preferences.friendTaskMilestones ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
-              </button>
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                In-App Only
+              </span>
             </div>
           </div>
 
@@ -1017,20 +1003,13 @@ export const NotificationSettingsPage: React.FC = () => {
                 <span className={`w-1.5 h-1.5 rounded-full ${preferences.myMilestonesInApp !== false ? 'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]' : 'bg-zinc-600'}`} />
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleTogglePreference('myMilestonesEmail')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border shadow-sm ${
-                  preferences.myMilestonesEmail
-                    ? 'bg-flame-500/15 text-flame-300 border-flame-500/40 hover:bg-flame-500/25'
-                    : 'bg-dark-surface text-zinc-500 border-dark-border hover:border-zinc-700 hover:text-zinc-400'
-                }`}
-                title="Email notification channel"
+              <span
+                className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-dark-surface/60 text-zinc-500 border border-dark-border flex items-center gap-1.5"
+                title="Personal milestone celebrations are delivered directly In-App"
               >
-                <Mail className={`w-3.5 h-3.5 ${preferences.myMilestonesEmail ? 'text-flame-400' : 'opacity-40'}`} />
-                <span>Email</span>
-                <span className={`w-1.5 h-1.5 rounded-full ${preferences.myMilestonesEmail ? 'bg-flame-400 shadow-[0_0_6px_rgba(249,115,22,0.8)]' : 'bg-zinc-600'}`} />
-              </button>
+                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                In-App Only
+              </span>
             </div>
           </div>
 

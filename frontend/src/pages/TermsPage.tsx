@@ -232,6 +232,37 @@ export const TermsPage: React.FC = () => {
               <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
                 07
               </span>
+              <h2 className="text-xl font-bold text-zinc-100">Account Quotas, Resource Limits &amp; Notification Dispatch</h2>
+            </div>
+            <p>
+              To maintain system performance, fair resource allocation, and zero-spam notification delivery, StreakUp enforces the following platform quota boundaries:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
+                <strong className="text-zinc-100 block mb-1">Active Items Quota (Max 10)</strong>
+                <span>Each account is permitted a maximum of 10 combined active items (personal daily habits plus joined community accountability groups). To create or join new items, existing items must be archived, deleted, or left. Existing accounts above quota remain fully active but cannot create new items until under quota.</span>
+              </div>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
+                <strong className="text-zinc-100 block mb-1">Archived Storage Quota (Max 5)</strong>
+                <span>Users may maintain up to 5 archived habits in cold storage for historical tracking. To archive additional tasks, previously archived items must be permanently deleted.</span>
+              </div>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
+                <strong className="text-zinc-100 block mb-1">Scheduled Reminders Quota (Max 2)</strong>
+                <span>Each user may configure up to 2 daily scheduled reminder alerts for their overall streak. Accounts with prior schedules retain them; once deleted, new schedules adhere to the 2-alert quota.</span>
+              </div>
+              <div className="p-3 bg-dark-surface/40 rounded-xl border border-dark-border text-zinc-300">
+                <strong className="text-zinc-100 block mb-1">Notification Delivery Channels</strong>
+                <span>Email alerts are dedicated strictly to high-priority operational signals (Friend Overall Activity, Friend Matching Habits, Streak Freeze Protection, and Daily Streak Status Alerts). Milestone celebrations and personal achievement alerts are delivered exclusively In-App.</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Section 8 */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
+                08
+              </span>
               <h2 className="text-xl font-bold text-zinc-100">Prohibited Conduct &amp; Abuse Prevention</h2>
             </div>
             <p>You agree not to engage in any of the following unauthorized activities:</p>
@@ -258,11 +289,11 @@ export const TermsPage: React.FC = () => {
             </p>
           </section>
 
-          {/* Section 8 */}
+          {/* Section 9 */}
           <section className="space-y-4">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
-                08
+                09
               </span>
               <h2 className="text-xl font-bold text-zinc-100">Intellectual Property Rights</h2>
             </div>
@@ -271,11 +302,11 @@ export const TermsPage: React.FC = () => {
             </p>
           </section>
 
-          {/* Section 9 */}
+          {/* Section 10 */}
           <section className="space-y-4">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
-                09
+                10
               </span>
               <h2 className="text-xl font-bold text-zinc-100">Account Termination &amp; 10-Day Recovery Policy</h2>
             </div>
@@ -284,11 +315,11 @@ export const TermsPage: React.FC = () => {
             </p>
           </section>
 
-          {/* Section 10 */}
+          {/* Section 11 */}
           <section className="space-y-4">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
-                10
+                11
               </span>
               <h2 className="text-xl font-bold text-zinc-100">Disclaimers &amp; Limitation of Liability</h2>
             </div>
@@ -300,11 +331,11 @@ export const TermsPage: React.FC = () => {
             </p>
           </section>
 
-          {/* Section 11 */}
+          {/* Section 12 */}
           <section className="space-y-4">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-7 h-7 rounded-xl bg-flame-500/10 border border-flame-500/30 text-flame-400 font-mono text-xs font-bold">
-                11
+                12
               </span>
               <h2 className="text-xl font-bold text-zinc-100">Governing Law &amp; Dispute Resolution</h2>
             </div>
@@ -313,7 +344,7 @@ export const TermsPage: React.FC = () => {
             </p>
           </section>
 
-          {/* Section 12 */}
+          {/* Section 13 */}
           <section className="space-y-4 p-5 bg-zinc-900/70 rounded-2xl border border-zinc-800 text-xs">
             <h3 className="font-bold text-zinc-100 text-sm flex items-center gap-2">
               <Mail className="w-4 h-4 text-flame-400" />

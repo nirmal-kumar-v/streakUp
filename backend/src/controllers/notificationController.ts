@@ -395,8 +395,23 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
 
     const friendOverallEmailVal = data.friendOverallActivityEmail !== undefined ? data.friendOverallActivityEmail : data.friendOverallActivityAlerts;
     const friendTaskEmailVal = data.friendTaskActivityEmail !== undefined ? data.friendTaskActivityEmail : data.friendTaskActivityAlerts;
-    const friendOverallMilestonesVal = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
-    const friendTaskMilestonesVal = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
+    
+    // Standard users can only enable email notifications for the 4 core triggers:
+    // 1. friendOverallActivityAlerts
+    // 2. friendTaskActivityAlerts
+    // 3. freezeStatusNotifications
+    // 4. overallStreakRemindersEmail
+    // Milestones and task reminders emails are reserved for In-App delivery (or toggled by Admin).
+    // Standard users can turn them OFF, but cannot turn them ON.
+    const rawFriendOverallMilestones = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
+    const friendOverallMilestonesVal = rawFriendOverallMilestones === false ? false : undefined;
+
+    const rawFriendTaskMilestones = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
+    const friendTaskMilestonesVal = rawFriendTaskMilestones === false ? false : undefined;
+
+    const taskRemindersEmailVal = data.taskRemindersEmail === false ? false : undefined;
+    const myMilestonesEmailVal = data.myMilestonesEmail === false ? false : undefined;
+
     const freezeStatusEmailVal = data.freezeStatusEmail !== undefined ? data.freezeStatusEmail : data.freezeStatusNotifications;
 
     const updated = await prisma.notificationPreference.update({
@@ -406,7 +421,7 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
         ...(data.inAppNotificationsEnabled !== undefined ? { inAppNotificationsEnabled: data.inAppNotificationsEnabled } : {}),
         ...(data.overallStreakRemindersEmail !== undefined ? { overallStreakRemindersEmail: data.overallStreakRemindersEmail } : {}),
         ...(data.overallStreakRemindersInApp !== undefined ? { overallStreakRemindersInApp: data.overallStreakRemindersInApp } : {}),
-        ...(data.taskRemindersEmail !== undefined ? { taskRemindersEmail: data.taskRemindersEmail } : {}),
+        ...(taskRemindersEmailVal !== undefined ? { taskRemindersEmail: taskRemindersEmailVal } : {}),
         ...(data.taskRemindersInApp !== undefined ? { taskRemindersInApp: data.taskRemindersInApp } : {}),
         ...(friendOverallEmailVal !== undefined ? { friendOverallActivityAlerts: friendOverallEmailVal } : {}),
         ...(data.friendOverallActivityInApp !== undefined ? { friendOverallActivityInApp: data.friendOverallActivityInApp } : {}),
@@ -416,7 +431,7 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
         ...(data.friendOverallMilestonesInApp !== undefined ? { friendOverallMilestonesInApp: data.friendOverallMilestonesInApp } : {}),
         ...(friendTaskMilestonesVal !== undefined ? { friendTaskMilestones: friendTaskMilestonesVal } : {}),
         ...(data.friendTaskMilestonesInApp !== undefined ? { friendTaskMilestonesInApp: data.friendTaskMilestonesInApp } : {}),
-        ...(data.myMilestonesEmail !== undefined ? { myMilestonesEmail: data.myMilestonesEmail } : {}),
+        ...(myMilestonesEmailVal !== undefined ? { myMilestonesEmail: myMilestonesEmailVal } : {}),
         ...(data.myMilestonesInApp !== undefined ? { myMilestonesInApp: data.myMilestonesInApp } : {}),
         ...(freezeStatusEmailVal !== undefined ? { freezeStatusNotifications: freezeStatusEmailVal } : {}),
         ...(data.freezeStatusInApp !== undefined ? { freezeStatusInApp: data.freezeStatusInApp } : {}),
