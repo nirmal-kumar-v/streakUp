@@ -80,6 +80,7 @@ import {
   overrideActiveTaskLimit,
   overrideArchivedTaskLimit,
   overrideFriendLimit,
+  overrideEmailTriggerLimit,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -350,6 +351,9 @@ export const AdminControlPage: React.FC = () => {
   const [newFriendLimit, setNewFriendLimit] = useState<number>(15);
   const [friendLimitReason, setFriendLimitReason] = useState('');
 
+  const [newEmailTriggerLimit, setNewEmailTriggerLimit] = useState<number>(4);
+  const [emailTriggerLimitReason, setEmailTriggerLimitReason] = useState('');
+
   // Submission Statuses linked to isSavingAllApplied
   const isSubmittingStreak = isSavingAllApplied;
   const isSubmittingFreezeControl = isSavingAllApplied;
@@ -363,6 +367,7 @@ export const AdminControlPage: React.FC = () => {
   const isSubmittingActiveTaskLimit = isSavingAllApplied;
   const isSubmittingArchivedTaskLimit = isSavingAllApplied;
   const isSubmittingFriendLimit = isSavingAllApplied;
+  const isSubmittingEmailTriggerLimit = isSavingAllApplied;
 
   // Full Task Settings Modal State
   const [editingTask, setEditingTask] = useState<any | null>(null);
@@ -608,6 +613,7 @@ export const AdminControlPage: React.FC = () => {
         setNewActiveTaskLimit(u.activeTaskLimit || 10);
         setNewArchivedTaskLimit(u.archivedTaskLimit || 5);
         setNewFriendLimit(u.friendLimit || 15);
+        setNewEmailTriggerLimit(u.emailTriggerLimit || 4);
         if (u.notificationPreference) {
           setAdminNotificationPreferences(u.notificationPreference);
         } else {
@@ -1691,6 +1697,45 @@ export const AdminControlPage: React.FC = () => {
     }));
 
     toast.success('Friend connections quota applied! Click "Save" at the top to commit.');
+  };
+
+  // Email Notification Triggers Quota Override (Apply to staging)
+  const handleOverrideEmailTriggerLimit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) return;
+    if (!emailTriggerLimitReason.trim()) {
+      toast.error('An administrative reason is mandatory for audit logging.');
+      return;
+    }
+
+    const limitVal = Number(newEmailTriggerLimit);
+    const reason = emailTriggerLimitReason.trim();
+    const sendInApp = notifyInApp;
+    const sendEmail = notifyEmail;
+    const includeReason = notifyIncludeReason;
+    const includeChanges = notifyIncludeChanges;
+
+    setAppliedChanges((prev) => ({
+      ...prev,
+      emailTriggerLimit: {
+        id: 'emailTriggerLimit',
+        label: `Email Triggers Quota: ${limitVal}`,
+        description: `Set email notification triggers quota to ${limitVal}`,
+        applyFn: async (pin: string) => {
+          return overrideEmailTriggerLimit(selectedUserId, {
+            emailTriggerLimit: limitVal,
+            reason,
+            sensitivePin: pin,
+            sendInApp,
+            sendEmail,
+            includeReason,
+            includeChanges,
+          });
+        },
+      },
+    }));
+
+    toast.success('Email triggers quota applied! Click "Save" at the top to commit.');
   };
 
   // Freeze Shield Scope Switching
@@ -7310,6 +7355,105 @@ export const AdminControlPage: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4" />
                           )}
                           <span>Apply Friend Connections Quota ({newFriendLimit} Friends)</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* CARD 10: MAXIMUM EMAIL NOTIFICATION TRIGGERS QUOTA */}
+                    <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-flame-400" />
+                          <span>Maximum Email Notification Triggers Quota (Default: 4 Triggers)</span>
+                        </h3>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-flame-500/10 text-flame-400 border border-flame-500/30">
+                          MAX {selectedUserDetails?.emailTriggerLimit || 4} TRIGGERS
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-zinc-400 leading-relaxed">
+                        To protect SMTP server deliverability and avoid notification overload, users can enable email notifications for at most <strong className="text-zinc-200">4 triggers</strong> by default. As Super Admin, you can expand or restrict this quota specifically for <strong className="text-zinc-200">@{selectedUserDetails?.username}</strong> up to 8 triggers.
+                      </p>
+
+                      <form onSubmit={handleOverrideEmailTriggerLimit} className="space-y-4 p-4 bg-dark-surface rounded-xl border border-dark-border">
+                        <span className="text-xs font-bold text-zinc-200 block">
+                          Override Maximum Email Triggers Quota
+                        </span>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              Current Email Triggers Limit
+                            </label>
+                            <input
+                              type="text"
+                              disabled
+                              value={`Max ${selectedUserDetails?.emailTriggerLimit || 4} triggers allowed`}
+                              className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-400"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                              New Quota Limit (Max 8)
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="number"
+                                min="1"
+                                max="8"
+                                value={newEmailTriggerLimit}
+                                onChange={(e) => setNewEmailTriggerLimit(parseInt(e.target.value, 10) || 4)}
+                                className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                                required
+                              />
+                              <div className="flex gap-1">
+                                {[4, 5, 6, 7, 8].map((preset) => (
+                                  <button
+                                    key={preset}
+                                    type="button"
+                                    onClick={() => setNewEmailTriggerLimit(preset)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                                      newEmailTriggerLimit === preset
+                                        ? 'bg-flame-500 text-zinc-950 border-flame-500'
+                                        : 'bg-dark-card text-zinc-400 border-dark-border hover:border-flame-500/50'
+                                    }`}
+                                  >
+                                    {preset}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                            Mandatory Administrative Reason
+                          </label>
+                          <input
+                            type="text"
+                            value={emailTriggerLimitReason}
+                            onChange={(e) => setEmailTriggerLimitReason(e.target.value)}
+                            placeholder="e.g. Expanded email triggers quota for power user or client requirement"
+                            className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-xl text-xs text-zinc-100 focus:outline-none focus:border-flame-500"
+                            required
+                          />
+                        </div>
+
+                        {renderNotificationOptions()}
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingEmailTriggerLimit}
+                          className="w-full py-2.5 bg-flame-600 hover:bg-flame-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingEmailTriggerLimit ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4" />
+                          )}
+                          <span>Apply Email Notification Triggers Quota ({newEmailTriggerLimit} Triggers)</span>
                         </button>
                       </form>
                     </div>

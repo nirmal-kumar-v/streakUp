@@ -11,6 +11,7 @@ export interface UserAdminConfig {
   activeTaskLimit?: number;
   archivedTaskLimit?: number;
   friendLimit?: number;
+  emailTriggerLimit?: number;
   [key: string]: any;
 }
 
@@ -256,6 +257,24 @@ export function setUserFriendLimit(userId: string, limit: number): void {
   writeAllConfigs(configs);
 }
 
+export function getUserEmailTriggerLimit(userId: string): number {
+  const configs = readAllConfigs();
+  const userConf = configs[userId];
+  if (userConf && typeof userConf.emailTriggerLimit === 'number' && userConf.emailTriggerLimit >= 1) {
+    return Math.max(1, Math.min(8, userConf.emailTriggerLimit));
+  }
+  return 4; // Default 4 maximum email notification triggers
+}
+
+export function setUserEmailTriggerLimit(userId: string, limit: number): void {
+  const configs = readAllConfigs();
+  if (!configs[userId]) {
+    configs[userId] = {};
+  }
+  configs[userId].emailTriggerLimit = Math.max(1, Math.min(8, limit));
+  writeAllConfigs(configs);
+}
+
 export function getUserAdminConfig(userId: string): UserAdminConfig {
   const configs = readAllConfigs();
   const userConf = configs[userId] || {};
@@ -268,6 +287,7 @@ export function getUserAdminConfig(userId: string): UserAdminConfig {
     activeTaskLimit: userConf.activeTaskLimit ?? 10,
     archivedTaskLimit: userConf.archivedTaskLimit ?? 5,
     friendLimit: userConf.friendLimit ?? 15,
+    emailTriggerLimit: userConf.emailTriggerLimit ?? 4,
     ...userConf,
   };
 }

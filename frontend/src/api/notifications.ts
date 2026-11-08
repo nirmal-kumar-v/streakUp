@@ -127,6 +127,7 @@ export async function fetchNotificationPreferences() {
     isSmtpConfigured?: boolean;
     reminderLimit?: number;
     taskReminderLimit?: number;
+    emailTriggerLimit?: number;
   };
 }
 

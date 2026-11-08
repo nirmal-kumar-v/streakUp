@@ -36,6 +36,7 @@ import {
   overrideActiveTaskLimit,
   overrideArchivedTaskLimit,
   overrideFriendLimit,
+  overrideEmailTriggerLimit,
   adminUpdateUserProfileImage,
   searchGroupsForAdmin,
   adminToggleGroupDiscoverability,
@@ -136,6 +137,7 @@ router.post('/users/:userId/override-profile-image-limit', requireSensitiveAuth,
 router.post('/users/:userId/override-active-task-limit', requireSensitiveAuth, overrideActiveTaskLimit);
 router.post('/users/:userId/override-archived-task-limit', requireSensitiveAuth, overrideArchivedTaskLimit);
 router.post('/users/:userId/override-friend-limit', requireSensitiveAuth, overrideFriendLimit);
+router.post('/users/:userId/override-email-trigger-limit', requireSensitiveAuth, overrideEmailTriggerLimit);
 router.post('/users/:userId/profile-image', requireSensitiveAuth, adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', requireSensitiveAuth, unfreezeUserDate);

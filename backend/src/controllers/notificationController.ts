@@ -14,7 +14,7 @@ import {
   buildVerifyNotificationEmailOtpEmail,
 } from '../services/emailService';
 import { validateReminderCount } from '../services/reminderSchedulerService';
-import { getUserReminderLimit, getUserTaskReminderLimit } from '../services/adminConfigService';
+import { getUserReminderLimit, getUserTaskReminderLimit, getUserEmailTriggerLimit } from '../services/adminConfigService';
 import { createEmailOtp, verifyEmailOtp } from '../services/otpService';
 import swrCache from '../utils/cacheService';
 
@@ -311,6 +311,7 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
 
     const reminderLimit = getUserReminderLimit(userId);
     const taskReminderLimit = getUserTaskReminderLimit(userId);
+    const emailTriggerLimit = getUserEmailTriggerLimit(userId);
 
     return res.json({
       success: true,
@@ -320,6 +321,7 @@ export async function getPreferences(req: AuthenticatedRequest, res: Response) {
       isEmailVerified: user?.isEmailVerified !== false,
       reminderLimit,
       taskReminderLimit,
+      emailTriggerLimit,
       isSmtpConfigured: isSmtpConfigured(),
     });
   } catch (err: any) {
@@ -444,10 +446,11 @@ export async function updatePreferences(req: AuthenticatedRequest, res: Response
       targetFreezeStatusEmail,
     ].filter(Boolean).length;
 
-    if (activeEmailCount > 4) {
+    const maxEmailTriggers = getUserEmailTriggerLimit(userId);
+    if (activeEmailCount > maxEmailTriggers) {
       return res.status(400).json({
         success: false,
-        error: `You can enable email notifications for at most 4 triggers (currently ${activeEmailCount}/4 selected). Please turn off another email alert before enabling this one.`,
+        error: `You can enable email notifications for at most ${maxEmailTriggers} triggers (currently ${activeEmailCount}/${maxEmailTriggers} selected). Please turn off another email alert before enabling this one.`,
       });
     }
 

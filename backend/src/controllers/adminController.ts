@@ -25,6 +25,8 @@ import {
   setUserArchivedTaskLimit,
   getUserFriendLimit,
   setUserFriendLimit,
+  getUserEmailTriggerLimit,
+  setUserEmailTriggerLimit,
   loadUserAdminConfigsFromDb,
 } from '../services/adminConfigService';
 import { clearLeaderboardCache } from './leaderboardController';
@@ -664,6 +666,7 @@ export async function getUserDetailsForAdmin(req: AdminAuthenticatedRequest, res
     (safeUser as any).activeTaskLimit = getUserActiveTaskLimit(userId);
     (safeUser as any).archivedTaskLimit = getUserArchivedTaskLimit(userId);
     (safeUser as any).friendLimit = getUserFriendLimit(userId);
+    (safeUser as any).emailTriggerLimit = getUserEmailTriggerLimit(userId);
 
     const friendCount = await prisma.friendship.count({
       where: { OR: [{ user1Id: userId }, { user2Id: userId }] }
@@ -2941,6 +2944,72 @@ export async function overrideFriendLimit(req: AdminAuthenticatedRequest, res: R
   } catch (err: any) {
     console.error('overrideFriendLimit error:', err);
     return res.status(500).json({ success: false, error: 'Failed to update friend quota limit.' });
+  }
+}
+
+/**
+ * Override the maximum email notification triggers quota for a specific user
+ */
+export async function overrideEmailTriggerLimit(req: AdminAuthenticatedRequest, res: Response) {
+  try {
+    const { userId } = req.params;
+    const {
+      emailTriggerLimit,
+      reason,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason = true,
+      includeChanges = true,
+    } = req.body;
+
+    if (!reason || typeof reason !== 'string') {
+      return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+    }
+
+    if (typeof emailTriggerLimit !== 'number' || emailTriggerLimit < 1 || emailTriggerLimit > 8) {
+      return res.status(400).json({ success: false, error: 'Email notification triggers quota limit must be an integer between 1 and 8.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const beforeLimit = getUserEmailTriggerLimit(userId);
+    setUserEmailTriggerLimit(userId, emailTriggerLimit);
+
+    const changesSummary = `Email notification triggers quota changed from ${beforeLimit} to ${emailTriggerLimit} triggers.`;
+
+    await recordAuditLog({
+      adminUsername: req.admin!.username,
+      action: 'OVERRIDE_EMAIL_TRIGGER_LIMIT',
+      targetUserId: userId,
+      targetUser: `@${user.username}`,
+      reason,
+      beforeState: { emailTriggerLimit: beforeLimit },
+      afterState: { emailTriggerLimit },
+    });
+
+    await dispatchAdminNotification({
+      userId,
+      adminUsername: req.admin!.username,
+      actionTitle: 'Email Notification Triggers Quota Updated',
+      reason,
+      changesSummary,
+      sendInApp,
+      sendEmail: shouldSendEmail,
+      includeReason,
+      includeChanges,
+    });
+
+    return res.json({
+      success: true,
+      message: `Email notification triggers quota for @${user.username} updated to ${emailTriggerLimit}.`,
+      emailTriggerLimit,
+    });
+  } catch (err: any) {
+    console.error('overrideEmailTriggerLimit error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to update email triggers quota limit.' });
   }
 }
 

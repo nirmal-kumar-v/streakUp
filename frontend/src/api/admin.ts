@@ -626,6 +626,21 @@ export async function overrideFriendLimit(
   return res.data;
 }
 
+export async function overrideEmailTriggerLimit(
+  userId: string,
+  data: { emailTriggerLimit: number; reason: string } & AdminNotificationPayload
+) {
+  const { sensitivePin, ...body } = data;
+  const res = await adminApiClient.post<{ success: boolean; message: string; emailTriggerLimit: number }>(
+    `/admin/users/${userId}/override-email-trigger-limit`,
+    body,
+    {
+      headers: sensitivePin ? { 'x-admin-pin': sensitivePin } : {},
+    }
+  );
+  return res.data;
+}
+
 export async function adminUpdateUserProfileImage(
   userId: string,
   data: {

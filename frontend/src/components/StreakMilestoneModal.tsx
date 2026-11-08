@@ -166,7 +166,7 @@ export const StreakMilestoneModal: React.FC = () => {
       role="dialog"
       aria-modal="true"
       aria-labelledby="streak-modal-title"
-      className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-3 sm:p-4 overflow-hidden touch-none overscroll-none bg-black/85 backdrop-blur-md animate-fadeIn"
+      className="fixed inset-0 z-[200] flex flex-col items-center justify-start sm:justify-center p-3 sm:p-4 pt-16 sm:pt-6 pb-6 overflow-y-auto overscroll-contain bg-black/85 backdrop-blur-md animate-fadeIn"
       onWheel={(e) => {
         if (e.target === e.currentTarget) e.preventDefault();
       }}
@@ -178,7 +178,7 @@ export const StreakMilestoneModal: React.FC = () => {
       }}
     >
       {/* Outer Card Container - Compact, Professional & Top-Safe */}
-      <div className="relative w-full max-w-sm sm:max-w-md bg-[#0c0c12] border border-amber-500/25 rounded-3xl shadow-2xl shadow-black/80 overflow-hidden my-auto max-h-[90dvh] flex flex-col animate-scaleUp touch-auto">
+      <div className="relative w-full max-w-sm sm:max-w-md bg-[#0c0c12] border border-amber-500/25 rounded-3xl shadow-2xl shadow-black/80 overflow-hidden my-auto shrink-0 max-h-[88dvh] flex flex-col animate-scaleUp touch-auto">
         {/* Ambient Top Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-72 h-36 bg-gradient-to-b from-amber-500/20 via-flame-500/10 to-transparent blur-2xl pointer-events-none" />
 
@@ -354,8 +354,8 @@ export const StreakMilestoneModal: React.FC = () => {
                 <Award className="w-3.5 h-3.5 text-amber-400" />
                 <span>Earned Badges</span>
               </span>
-              <span className="text-[10px] text-amber-400 font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                {unlockedMilestones.length}/{allMilestones.length}
+              <span className="text-xs font-mono font-medium text-zinc-400">
+                {unlockedMilestones.length} / {allMilestones.length}
               </span>
             </div>
 
