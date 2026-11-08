@@ -200,17 +200,19 @@ export async function dispatchAdminNotification(opts: AdminNotificationOptions) 
       });
     }
 
-    // 2. Email Notification
+    // 2. Email Notification (dispatched asynchronously so SMTP delays/failures never block or timeout admin actions)
     if (shouldSendEmail && user.email) {
       const emailText = `Hello ${user.name || user.username},\n\nAn administrative update has been made to your StreakUp account:\n\n${fullMessage}\n\nIf you have any questions, please contact support.\n\nBest regards,\nStreakUp Administration Team`;
 
-      await sendEmail({
+      sendEmail({
         userId,
         recipientEmail: user.email,
         category: NotificationCategory.SYSTEM,
         subject: `[StreakUp Admin] ${noticeTitle}`,
         text: emailText,
         idempotencyKey: `admin-notice-${userId}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      }).catch((emailErr) => {
+        console.error('[Admin] Background email notice failed:', emailErr);
       });
     }
   } catch (err) {
@@ -875,32 +877,38 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
           : [0, 1, 2, 3, 4, 5, 6];
 
         // Step backwards matching only the days the habit is scheduled for
-        // to guarantee uninterrupted continuity without skipped scheduled days
+        // Batch insert completions to prevent sequential network latency bottlenecks & serverless timeouts
+        const maxDaysToCreate = Math.min(currentStreak, 365);
+        const completionsToInsert: {
+          userId: string;
+          taskId: string;
+          completionDate: string;
+          completedAt: Date;
+        }[] = [];
+
         let daysAdded = 0;
         let dayStep = startOffset;
-        while (daysAdded < currentStreak && dayStep < 3650) {
+        while (daysAdded < maxDaysToCreate && dayStep < 3650) {
           const dt = DateTime.now().setZone(tz).minus({ days: dayStep });
           const dayOfWeek = dt.weekday % 7; // 0=Sunday, 1=Monday, ..., 6=Saturday
           if (scheduledDays.includes(dayOfWeek)) {
             const dateStr = dt.toFormat('yyyy-MM-dd');
-            await prisma.taskCompletion.upsert({
-              where: {
-                taskId_completionDate: {
-                  taskId,
-                  completionDate: dateStr,
-                },
-              },
-              create: {
-                userId,
-                taskId,
-                completionDate: dateStr,
-                completedAt: dt.toJSDate(),
-              },
-              update: {},
+            completionsToInsert.push({
+              userId,
+              taskId,
+              completionDate: dateStr,
+              completedAt: dt.toJSDate(),
             });
             daysAdded++;
           }
           dayStep++;
+        }
+
+        if (completionsToInsert.length > 0) {
+          await prisma.taskCompletion.createMany({
+            data: completionsToInsert,
+            skipDuplicates: true,
+          });
         }
       } else {
         // If explicitly setting current streak to 0, clear today's and yesterday's completion for this task
@@ -1019,23 +1027,29 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
         });
         const startOffset = isUserCompletedToday ? 0 : 1;
 
-        for (let i = 0; i < currentStreak; i++) {
+        const maxDaysToCreate = Math.min(currentStreak, 365);
+        const completionsToInsert: {
+          userId: string;
+          taskId: string;
+          completionDate: string;
+          completedAt: Date;
+        }[] = [];
+
+        for (let i = 0; i < maxDaysToCreate; i++) {
           const dt = DateTime.now().setZone(tz).minus({ days: i + startOffset });
           const dateStr = dt.toFormat('yyyy-MM-dd');
-          await prisma.taskCompletion.upsert({
-            where: {
-              taskId_completionDate: {
-                taskId: anchorTask.id,
-                completionDate: dateStr,
-              },
-            },
-            create: {
-              userId,
-              taskId: anchorTask.id,
-              completionDate: dateStr,
-              completedAt: dt.toJSDate(),
-            },
-            update: {},
+          completionsToInsert.push({
+            userId,
+            taskId: anchorTask.id,
+            completionDate: dateStr,
+            completedAt: dt.toJSDate(),
+          });
+        }
+
+        if (completionsToInsert.length > 0) {
+          await prisma.taskCompletion.createMany({
+            data: completionsToInsert,
+            skipDuplicates: true,
           });
         }
       } else {

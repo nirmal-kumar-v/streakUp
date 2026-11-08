@@ -924,9 +924,8 @@ export const AdminControlPage: React.FC = () => {
       async (pin) => {
         setIsSavingAllApplied(true);
         try {
-          for (const item of changesList) {
-            await item.applyFn(pin);
-          }
+          // Execute all staged modifications concurrently to prevent network latency stacking and avoid timeouts
+          await Promise.all(changesList.map((item) => item.applyFn(pin)));
           toast.success(`Successfully saved all ${changesList.length} modification${changesList.length > 1 ? 's' : ''}!`);
           setAppliedChanges({});
           setPointsDelta('');
