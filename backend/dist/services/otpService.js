@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.hashToken = hashToken;
+exports.safeCompareHash = safeCompareHash;
 exports.generateNumericOtp = generateNumericOtp;
 exports.createEmailOtp = createEmailOtp;
 exports.verifyEmailOtp = verifyEmailOtp;
@@ -22,6 +23,18 @@ const RESET_TOKEN_COOLDOWN_MS = 60 * 1000; // 60 seconds
  */
 function hashToken(value) {
     return crypto_1.default.createHash('sha256').update(value).digest('hex');
+}
+/**
+ * Constant-time hash comparison preventing timing side-channel attacks.
+ */
+function safeCompareHash(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string')
+        return false;
+    const bufA = Buffer.from(a, 'utf8');
+    const bufB = Buffer.from(b, 'utf8');
+    if (bufA.length !== bufB.length)
+        return false;
+    return crypto_1.default.timingSafeEqual(bufA, bufB);
 }
 /**
  * Generates a cryptographically secure 6-digit numeric OTP.
@@ -142,9 +155,9 @@ async function verifyEmailOtp(params) {
         where: { id: otpRecord.id },
         data: { attempts: { increment: 1 } },
     });
-    // Verify hash
+    // Verify hash safely in constant time
     const inputHash = hashToken(trimmedOtp);
-    if (inputHash !== otpRecord.otpHash) {
+    if (!safeCompareHash(inputHash, otpRecord.otpHash)) {
         const remaining = MAX_OTP_ATTEMPTS - updatedRecord.attempts;
         return {
             success: false,

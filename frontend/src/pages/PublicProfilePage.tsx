@@ -62,9 +62,9 @@ export const PublicProfilePage: React.FC = () => {
     loadProfile();
   }, [username]);
 
-  // Open modal if user arrived via a badge share link (?badge=50)
+  // Open modal if user arrived via a badge share link (?badge=50) - ONLY for user's own profile!
   useEffect(() => {
-    if (profile) {
+    if (profile && profile.relationshipStatus === 'SELF') {
       const badgeParam = searchParams.get('badge') || searchParams.get('milestone');
       if (badgeParam) {
         const days = parseInt(badgeParam, 10);
@@ -75,7 +75,7 @@ export const PublicProfilePage: React.FC = () => {
             userName: profile.name,
             userHandle: profile.username,
             targetMilestoneDays: days,
-            isOwner: profile.relationshipStatus === 'SELF',
+            isOwner: true,
           });
         }
       }
@@ -303,23 +303,30 @@ export const PublicProfilePage: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {/* Current Streak */}
         <div
-          onClick={() =>
-            openStreakMilestoneModal({
-              currentStreak: profile.currentStreak,
-              longestStreak: profile.longestStreak,
-              userName: profile.name,
-              userHandle: profile.username,
-              isOwner: profile.relationshipStatus === 'SELF',
-            })
+          onClick={
+            profile.relationshipStatus === 'SELF'
+              ? () =>
+                  openStreakMilestoneModal({
+                    currentStreak: profile.currentStreak,
+                    longestStreak: profile.longestStreak,
+                    userName: profile.name,
+                    userHandle: profile.username,
+                    isOwner: true,
+                  })
+              : undefined
           }
-          className="bg-dark-card border border-dark-border hover:border-flame-500/50 transition-all rounded-2xl p-5 shadow-panel text-center cursor-pointer group"
-          title="Click to view streak badges & achievements"
+          className={`bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center ${
+            profile.relationshipStatus === 'SELF'
+              ? 'hover:border-flame-500/50 transition-all cursor-pointer group'
+              : 'cursor-default'
+          }`}
+          title={profile.relationshipStatus === 'SELF' ? 'Click to view streak badges & achievements' : undefined}
         >
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
-            <Flame className="w-4 h-4 text-flame-500 group-hover:scale-110 transition-transform" />
-            <span className="group-hover:text-flame-400 transition-colors">Current Streak</span>
+            <Flame className={`w-4 h-4 text-flame-500 ${profile.relationshipStatus === 'SELF' ? 'group-hover:scale-110 transition-transform' : ''}`} />
+            <span className={profile.relationshipStatus === 'SELF' ? 'group-hover:text-flame-400 transition-colors' : ''}>Current Streak</span>
           </div>
-          <div className="text-3xl font-black font-mono text-flame-400 group-hover:scale-105 transition-transform inline-block">
+          <div className={`text-3xl font-black font-mono text-flame-400 inline-block ${profile.relationshipStatus === 'SELF' ? 'group-hover:scale-105 transition-transform' : ''}`}>
             {profile.currentStreak}
             <span className="text-xs font-normal text-dark-muted ml-1">days</span>
           </div>
@@ -327,23 +334,30 @@ export const PublicProfilePage: React.FC = () => {
 
         {/* Longest Streak */}
         <div
-          onClick={() =>
-            openStreakMilestoneModal({
-              currentStreak: profile.currentStreak,
-              longestStreak: profile.longestStreak,
-              userName: profile.name,
-              userHandle: profile.username,
-              isOwner: profile.relationshipStatus === 'SELF',
-            })
+          onClick={
+            profile.relationshipStatus === 'SELF'
+              ? () =>
+                  openStreakMilestoneModal({
+                    currentStreak: profile.currentStreak,
+                    longestStreak: profile.longestStreak,
+                    userName: profile.name,
+                    userHandle: profile.username,
+                    isOwner: true,
+                  })
+              : undefined
           }
-          className="bg-dark-card border border-dark-border hover:border-amber-500/50 transition-all rounded-2xl p-5 shadow-panel text-center cursor-pointer group"
-          title="Click to view streak badges & achievements"
+          className={`bg-dark-card border border-dark-border rounded-2xl p-5 shadow-panel text-center ${
+            profile.relationshipStatus === 'SELF'
+              ? 'hover:border-amber-500/50 transition-all cursor-pointer group'
+              : 'cursor-default'
+          }`}
+          title={profile.relationshipStatus === 'SELF' ? 'Click to view streak badges & achievements' : undefined}
         >
           <div className="flex items-center justify-center gap-1.5 text-xs text-dark-muted font-semibold uppercase tracking-wider mb-2">
-            <Trophy className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
-            <span className="group-hover:text-amber-300 transition-colors">Best Streak</span>
+            <Trophy className={`w-4 h-4 text-amber-400 ${profile.relationshipStatus === 'SELF' ? 'group-hover:scale-110 transition-transform' : ''}`} />
+            <span className={profile.relationshipStatus === 'SELF' ? 'group-hover:text-amber-300 transition-colors' : ''}>Best Streak</span>
           </div>
-          <div className="text-3xl font-black font-mono text-zinc-100 group-hover:text-amber-200 transition-colors">
+          <div className={`text-3xl font-black font-mono text-zinc-100 ${profile.relationshipStatus === 'SELF' ? 'group-hover:text-amber-200 transition-colors' : ''}`}>
             {profile.longestStreak}
             <span className="text-xs font-normal text-dark-muted ml-1">days</span>
           </div>
@@ -410,7 +424,9 @@ export const PublicProfilePage: React.FC = () => {
                 </span>
               </h3>
               <p className="text-xs text-dark-muted">
-                Official milestone badges unlocked for unbroken consistency. Click any badge to view card & share.
+                {profile.relationshipStatus === 'SELF'
+                  ? 'Official milestone badges unlocked for unbroken consistency. Click any badge to view card & share.'
+                  : `Official milestone badges unlocked by @${profile.username} for unbroken consistency.`}
               </p>
             </div>
           </div>
@@ -428,6 +444,57 @@ export const PublicProfilePage: React.FC = () => {
             const unlocked = isMilestoneUnlocked(milestone.days, profile.currentStreak, profile.longestStreak);
             const isActive = profile.currentStreak >= milestone.days;
 
+            if (profile.relationshipStatus !== 'SELF') {
+              // Static view-only card for friends/visitors: only visible, cannot be clicked/opened or downloaded/shared
+              return (
+                <div
+                  key={milestone.days}
+                  className={`relative p-4 rounded-2xl border text-center flex flex-col items-center justify-between gap-3 select-none ${
+                    isActive
+                      ? 'bg-gradient-to-b from-amber-500/10 to-transparent border-amber-500/40'
+                      : unlocked
+                      ? 'bg-dark-surface/80 border-dark-border'
+                      : 'bg-dark-bg/40 border-dark-border/40 opacity-50'
+                  }`}
+                >
+                  {/* 3D Medal */}
+                  <div className="py-1">
+                    <PremiumStreakMedal
+                      days={milestone.days}
+                      tier={milestone.tier}
+                      size="md"
+                      isLocked={!unlocked}
+                    />
+                  </div>
+
+                  {/* Details */}
+                  <div className="space-y-1 w-full">
+                    <span className="text-xs font-bold text-zinc-100 block truncate">
+                      {milestone.title}
+                    </span>
+
+                    <div className="flex items-center justify-center">
+                      {isActive ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                          <Flame className="w-2.5 h-2.5 fill-emerald-400" />
+                          <span>Active Flame</span>
+                        </span>
+                      ) : unlocked ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                          <Check className="w-2.5 h-2.5 text-amber-400" />
+                          <span>Unlocked</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-zinc-500 bg-zinc-800/80 border border-zinc-700/60 px-2 py-0.5 rounded-full">
+                          <span>{milestone.days}d goal</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <button
                 key={milestone.days}
@@ -441,7 +508,7 @@ export const PublicProfilePage: React.FC = () => {
                     userName: profile.name,
                     userHandle: profile.username,
                     targetMilestoneDays: milestone.days,
-                    isOwner: profile.relationshipStatus === 'SELF',
+                    isOwner: true,
                   });
                 }}
                 className={`relative p-4 rounded-2xl border text-center flex flex-col items-center justify-between gap-3 transition-all duration-200 ${

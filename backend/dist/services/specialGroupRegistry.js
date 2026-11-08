@@ -9,6 +9,16 @@ exports.detectSpecialPlatform = detectSpecialPlatform;
 exports.getSpecialGroupDefinition = getSpecialGroupDefinition;
 exports.isSpecialPlatformAvailable = isSpecialPlatformAvailable;
 exports.SPECIAL_GROUP_REGISTRY = {
+    DUOLINGO: {
+        platform: 'DUOLINGO',
+        displayName: 'Duolingo',
+        badgeLabel: 'Duolingo Special',
+        icon: 'Languages',
+        color: '#58CC02',
+        isAvailable: true,
+        activityModel: 'DUOLINGO_COURSES',
+        activities: [], // 45 courses managed in duolingoService
+    },
     LINKEDIN: {
         platform: 'LINKEDIN',
         displayName: 'LinkedIn',
@@ -100,6 +110,10 @@ function detectSpecialPlatform(name) {
     const hasGeeks = /geeks\s*for\s*geeks/i.test(clean) || /geeksforgeeks/i.test(clean.replace(/\s+/g, ''));
     if (hasGfgToken || hasGeeks) {
         matches.add('GEEKSFORGEEKS');
+    }
+    // 4. Duolingo matching
+    if (/(\b|_|^)duolingo(\b|_|$)/i.test(clean) || /duolingo/i.test(clean.replace(/\s+/g, '')) || /duo\s*lingo/i.test(clean)) {
+        matches.add('DUOLINGO');
     }
     // Unambiguous: exactly one platform must match
     if (matches.size === 1) {

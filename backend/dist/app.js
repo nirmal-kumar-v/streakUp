@@ -20,6 +20,15 @@ const timezoneService_1 = require("./services/timezoneService");
 const dbError_1 = require("./utils/dbError");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+app.disable('x-powered-by');
+// Defensive HTTP Security Headers (OWASP compliant)
+app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
 const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 app.use((0, cors_1.default)({
     origin: true, // Automatically mirrors origin (supports localhost, vercel.app, and custom domains)
@@ -43,12 +52,15 @@ const reminderSchedulerService_1 = require("./services/reminderSchedulerService"
 const adminConfigService_1 = require("./services/adminConfigService");
 const specialGroupMigration_1 = require("./services/specialGroupMigration");
 const streakService_1 = require("./services/streakService");
+const announcementService_1 = require("./services/announcementService");
 // Preload user admin configs from PostgreSQL into in-memory cache
 (0, adminConfigService_1.loadUserAdminConfigsFromDb)().catch(() => { });
 // Initialize special groups database columns and backfill legacy groups
 (0, specialGroupMigration_1.initSpecialGroupsDatabaseAndMigrate)().catch(() => { });
 // Reconcile broken streaks for inactive users on startup
 (0, streakService_1.reconcileStaleStreaks)().catch(() => { });
+// Initialize platform announcements table and seed initial announcement
+(0, announcementService_1.initAnnouncementTable)().catch(() => { });
 // Health & Info endpoint (accessible at both /api/health and /health)
 const handleHealth = (_req, res) => {
     res.json({
@@ -62,19 +74,32 @@ const handleHealth = (_req, res) => {
         hasJwtSecret: Boolean(process.env.JWT_SECRET)
     });
 };
-const announcementService_1 = require("./services/announcementService");
-app.get('/api/announcement', (_req, res) => {
-    const announcement = (0, announcementService_1.getPlatformAnnouncement)();
-    res.json({ success: true, announcement });
+app.get('/api/announcement', async (_req, res) => {
+    const announcements = await (0, announcementService_1.getActivePlatformAnnouncements)();
+    res.json({
+        success: true,
+        announcements,
+        announcement: announcements[0] || null,
+    });
 });
-app.get('/announcement', (_req, res) => {
-    const announcement = (0, announcementService_1.getPlatformAnnouncement)();
-    res.json({ success: true, announcement });
+app.get('/announcement', async (_req, res) => {
+    const announcements = await (0, announcementService_1.getActivePlatformAnnouncements)();
+    res.json({
+        success: true,
+        announcements,
+        announcement: announcements[0] || null,
+    });
 });
 app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
 app.get('/api', handleHealth);
-app.get('/', handleHealth);
+app.get('/', (req, res) => {
+    // If visited via a browser or Android WebView requesting HTML, redirect smoothly to frontend
+    if (req.accepts('html')) {
+        return res.redirect(302, 'https://streakup-karo.vercel.app');
+    }
+    return handleHealth(req, res);
+});
 // Cron / Automated Reminders Trigger (accessible via GET/POST on both /api/cron/reminders and /cron/reminders)
 const handleCronReminders = async (_req, res) => {
     try {
@@ -118,6 +143,10 @@ app.use('/admin', adminRoutes_1.default);
 app.use('/requests', userRequestRoutes_1.default);
 // 404 Handler
 app.use((req, res) => {
+    // If visited via browser/webview expecting a web page, redirect to frontend SPA
+    if (req.accepts('html')) {
+        return res.redirect(302, 'https://streakup-karo.vercel.app' + req.originalUrl);
+    }
     res.status(404).json({
         success: false,
         error: `API route not found: ${req.method} ${req.originalUrl}`
@@ -133,9 +162,13 @@ app.use((err, _req, res, _next) => {
     }
     console.error('Unhandled server error:', err);
     const status = err.status || 500;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const errorMessage = status >= 500 && isProduction
+        ? 'An internal server error occurred. Please try again later.'
+        : err.message || 'Internal server error occurred.';
     res.status(status).json({
         success: false,
-        error: err.message || 'Internal server error occurred.'
+        error: errorMessage
     });
 });
 exports.default = app;

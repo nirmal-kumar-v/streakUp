@@ -95,8 +95,14 @@ async function recalculateUserStreaks(prisma, userId, userTimezone, options) {
     const tz = userTimezone || user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
     const maxCapacity = user?.overallFreezeCapacity || 1;
     // Fetch all unique completion dates for this user across all tasks
+    // Exclude admin task-only adjustments that were applied with applyToOverall = false
     const completions = await prisma.taskCompletion.findMany({
-        where: { userId },
+        where: {
+            userId,
+            NOT: {
+                studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+            }
+        },
         select: { completionDate: true },
         distinct: ['completionDate']
     });
@@ -276,11 +282,14 @@ async function ensureUserStreakCurrent(prismaClient, user) {
     const tz = user.timezone || timezoneService_1.DEFAULT_TIMEZONE;
     const todayStr = (0, timezoneService_1.getLocalDateString)(tz);
     const yesterdayStr = (0, timezoneService_1.getYesterdayDateString)(tz);
-    // Fast check: did user complete anything today or yesterday?
+    // Fast check: did user complete anything today or yesterday? (excluding admin task-only completions)
     const recentCompletion = await prismaClient.taskCompletion.findFirst({
         where: {
             userId: user.id,
-            completionDate: { in: [todayStr, yesterdayStr] }
+            completionDate: { in: [todayStr, yesterdayStr] },
+            NOT: {
+                studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+            }
         },
         select: { id: true }
     });
@@ -367,7 +376,10 @@ async function reconcileStaleStreaks(prismaClient = prisma_1.default) {
             const hasRecentActivity = await prismaClient.taskCompletion.findFirst({
                 where: {
                     userId: u.id,
-                    completionDate: { in: [todayStr, yesterdayStr] }
+                    completionDate: { in: [todayStr, yesterdayStr] },
+                    NOT: {
+                        studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+                    }
                 },
                 select: { id: true }
             });

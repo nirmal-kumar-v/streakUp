@@ -49,6 +49,28 @@ async function initSpecialGroupsDatabaseAndMigrate() {
     let migratedGroupsCount = 0;
     let migratedMembersCount = 0;
     try {
+        // Specifically ensure all existing Duolingo groups are converted to special platform 'DUOLINGO'
+        const duolingoGroups = await prisma_1.default.group.findMany({
+            where: {
+                OR: [
+                    { name: { contains: 'duolingo', mode: 'insensitive' } },
+                    { name: { contains: 'duo lingo', mode: 'insensitive' } },
+                ],
+                NOT: {
+                    specialPlatform: 'DUOLINGO',
+                },
+            },
+        });
+        for (const dg of duolingoGroups) {
+            await prisma_1.default.group.update({
+                where: { id: dg.id },
+                data: {
+                    isSpecialGroup: true,
+                    specialPlatform: 'DUOLINGO',
+                },
+            });
+            migratedGroupsCount++;
+        }
         // Select groups where specialPlatform is NULL
         const unclassifiedGroups = await prisma_1.default.group.findMany({
             where: {

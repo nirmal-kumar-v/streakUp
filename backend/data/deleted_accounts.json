@@ -1,5 +1,18 @@
 [
   {
+    "id": "56afea1f-7167-44be-9e1f-8f19d94fef3c",
+    "userId": "test-del-user-1794162115173",
+    "username": "deleteduser_test",
+    "name": "deleteduser_test",
+    "email": "deleteduser@streakup.test",
+    "deletedAt": "2026-11-08T18:21:57.382Z",
+    "expiresAt": "2026-11-18T18:21:57.382Z",
+    "deletedBy": "USER",
+    "reason": "Deleted by user in settings",
+    "status": "RECOVERED",
+    "recoveredAt": "2026-11-08T18:21:57.748Z"
+  },
+  {
     "id": "a11ee940-0ea0-4761-a0c3-f76cbb1e7a0c",
     "userId": "test-del-user-1792901366186",
     "username": "deleteduser_test",

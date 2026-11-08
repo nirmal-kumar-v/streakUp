@@ -72,7 +72,7 @@ function getAppBaseUrl() {
     if (process.env.VERCEL_URL) {
         return `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`;
     }
-    return 'https://streak-up-karo.vercel.app';
+    return 'https://streakup-karo.vercel.app';
 }
 /**
  * Checks if SMTP transport has been configured with host and authentication

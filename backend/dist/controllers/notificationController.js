@@ -285,13 +285,42 @@ async function dismissNotification(req, res) {
 async function getPreferences(req, res) {
     try {
         const userId = req.user.userId;
-        const preferences = await (0, notificationService_1.getOrCreateNotificationPreferences)(userId);
+        let preferences = await (0, notificationService_1.getOrCreateNotificationPreferences)(userId);
         const user = await prisma_1.default.user.findUnique({
             where: { id: userId },
             select: { email: true, timezone: true, isEmailVerified: true },
         });
         const reminderLimit = (0, adminConfigService_1.getUserReminderLimit)(userId);
         const taskReminderLimit = (0, adminConfigService_1.getUserTaskReminderLimit)(userId);
+        const emailTriggerLimit = (0, adminConfigService_1.getUserEmailTriggerLimit)(userId);
+        // If pre-existing user has more than emailTriggerLimit active (due to legacy DB defaults where all 8 were true),
+        // normalize them to the 4 standard triggers so they aren't trapped with 8 active
+        const emailKeys = [
+            'overallStreakRemindersEmail',
+            'taskRemindersEmail',
+            'friendOverallActivityAlerts',
+            'friendTaskActivityAlerts',
+            'friendOverallMilestones',
+            'friendTaskMilestones',
+            'myMilestonesEmail',
+            'freezeStatusNotifications',
+        ];
+        const activeEmails = emailKeys.filter((k) => Boolean(preferences[k])).length;
+        if (activeEmails > emailTriggerLimit) {
+            preferences = await prisma_1.default.notificationPreference.update({
+                where: { userId },
+                data: {
+                    overallStreakRemindersEmail: true,
+                    taskRemindersEmail: false,
+                    friendOverallActivityAlerts: true,
+                    friendTaskActivityAlerts: true,
+                    friendOverallMilestones: false,
+                    friendTaskMilestones: false,
+                    myMilestonesEmail: false,
+                    freezeStatusNotifications: true,
+                },
+            });
+        }
         return res.json({
             success: true,
             preferences,
@@ -300,6 +329,7 @@ async function getPreferences(req, res) {
             isEmailVerified: user?.isEmailVerified !== false,
             reminderLimit,
             taskReminderLimit,
+            emailTriggerLimit,
             isSmtpConfigured: (0, emailService_1.isSmtpConfigured)(),
         });
     }
@@ -368,11 +398,66 @@ async function updatePreferences(req, res) {
                 };
             }
         }
-        const friendOverallEmailVal = data.friendOverallActivityEmail !== undefined ? data.friendOverallActivityEmail : data.friendOverallActivityAlerts;
-        const friendTaskEmailVal = data.friendTaskActivityEmail !== undefined ? data.friendTaskActivityEmail : data.friendTaskActivityAlerts;
-        const friendOverallMilestonesVal = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
-        const friendTaskMilestonesVal = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
-        const freezeStatusEmailVal = data.freezeStatusEmail !== undefined ? data.freezeStatusEmail : data.freezeStatusNotifications;
+        const reqFriendOverall = data.friendOverallActivityEmail !== undefined ? data.friendOverallActivityEmail : data.friendOverallActivityAlerts;
+        const reqFriendTask = data.friendTaskActivityEmail !== undefined ? data.friendTaskActivityEmail : data.friendTaskActivityAlerts;
+        const reqFriendOverallMilestones = data.friendOverallMilestonesEmail !== undefined ? data.friendOverallMilestonesEmail : data.friendOverallMilestones;
+        const reqFriendTaskMilestones = data.friendTaskMilestonesEmail !== undefined ? data.friendTaskMilestonesEmail : data.friendTaskMilestones;
+        const reqFreezeStatus = data.freezeStatusEmail !== undefined ? data.freezeStatusEmail : data.freezeStatusNotifications;
+        // Users can choose ANY 4 triggers maximum for email delivery.
+        // Calculate the target state of all 8 email trigger channels:
+        const targetOverallStreakEmail = data.overallStreakRemindersEmail !== undefined
+            ? Boolean(data.overallStreakRemindersEmail)
+            : (existingPref?.overallStreakRemindersEmail ?? true);
+        const targetTaskRemindersEmail = data.taskRemindersEmail !== undefined
+            ? Boolean(data.taskRemindersEmail)
+            : (existingPref?.taskRemindersEmail ?? false);
+        const targetFriendOverallEmail = reqFriendOverall !== undefined
+            ? Boolean(reqFriendOverall)
+            : (existingPref?.friendOverallActivityAlerts ?? true);
+        const targetFriendTaskEmail = reqFriendTask !== undefined
+            ? Boolean(reqFriendTask)
+            : (existingPref?.friendTaskActivityAlerts ?? true);
+        const targetFriendOverallMilestones = reqFriendOverallMilestones !== undefined
+            ? Boolean(reqFriendOverallMilestones)
+            : (existingPref?.friendOverallMilestones ?? false);
+        const targetFriendTaskMilestones = reqFriendTaskMilestones !== undefined
+            ? Boolean(reqFriendTaskMilestones)
+            : (existingPref?.friendTaskMilestones ?? false);
+        const targetMyMilestonesEmail = data.myMilestonesEmail !== undefined
+            ? Boolean(data.myMilestonesEmail)
+            : (existingPref?.myMilestonesEmail ?? false);
+        const targetFreezeStatusEmail = reqFreezeStatus !== undefined
+            ? Boolean(reqFreezeStatus)
+            : (existingPref?.freezeStatusNotifications ?? true);
+        const currentActiveEmails = [
+            existingPref?.overallStreakRemindersEmail,
+            existingPref?.taskRemindersEmail,
+            existingPref?.friendOverallActivityAlerts,
+            existingPref?.friendTaskActivityAlerts,
+            existingPref?.friendOverallMilestones,
+            existingPref?.friendTaskMilestones,
+            existingPref?.myMilestonesEmail,
+            existingPref?.freezeStatusNotifications,
+        ].filter(Boolean).length;
+        const activeEmailCount = [
+            targetOverallStreakEmail,
+            targetTaskRemindersEmail,
+            targetFriendOverallEmail,
+            targetFriendTaskEmail,
+            targetFriendOverallMilestones,
+            targetFriendTaskMilestones,
+            targetMyMilestonesEmail,
+            targetFreezeStatusEmail,
+        ].filter(Boolean).length;
+        const maxEmailTriggers = (0, adminConfigService_1.getUserEmailTriggerLimit)(userId);
+        // Only block if target activeEmailCount exceeds maxEmailTriggers AND user is increasing or adding beyond max
+        // Disabling / turning off an alert (activeEmailCount < currentActiveEmails) is ALWAYS allowed so users can reduce down to 3, 2, 1, 0!
+        if (activeEmailCount > maxEmailTriggers && activeEmailCount >= currentActiveEmails) {
+            return res.status(400).json({
+                success: false,
+                error: `You can enable email notifications for at most ${maxEmailTriggers} triggers (currently ${activeEmailCount}/${maxEmailTriggers} selected). Please turn off another email alert before enabling this one.`,
+            });
+        }
         const updated = await prisma_1.default.notificationPreference.update({
             where: { userId },
             data: {
@@ -382,17 +467,17 @@ async function updatePreferences(req, res) {
                 ...(data.overallStreakRemindersInApp !== undefined ? { overallStreakRemindersInApp: data.overallStreakRemindersInApp } : {}),
                 ...(data.taskRemindersEmail !== undefined ? { taskRemindersEmail: data.taskRemindersEmail } : {}),
                 ...(data.taskRemindersInApp !== undefined ? { taskRemindersInApp: data.taskRemindersInApp } : {}),
-                ...(friendOverallEmailVal !== undefined ? { friendOverallActivityAlerts: friendOverallEmailVal } : {}),
+                ...(reqFriendOverall !== undefined ? { friendOverallActivityAlerts: reqFriendOverall } : {}),
                 ...(data.friendOverallActivityInApp !== undefined ? { friendOverallActivityInApp: data.friendOverallActivityInApp } : {}),
-                ...(friendTaskEmailVal !== undefined ? { friendTaskActivityAlerts: friendTaskEmailVal } : {}),
+                ...(reqFriendTask !== undefined ? { friendTaskActivityAlerts: reqFriendTask } : {}),
                 ...(data.friendTaskActivityInApp !== undefined ? { friendTaskActivityInApp: data.friendTaskActivityInApp } : {}),
-                ...(friendOverallMilestonesVal !== undefined ? { friendOverallMilestones: friendOverallMilestonesVal } : {}),
+                ...(reqFriendOverallMilestones !== undefined ? { friendOverallMilestones: reqFriendOverallMilestones } : {}),
                 ...(data.friendOverallMilestonesInApp !== undefined ? { friendOverallMilestonesInApp: data.friendOverallMilestonesInApp } : {}),
-                ...(friendTaskMilestonesVal !== undefined ? { friendTaskMilestones: friendTaskMilestonesVal } : {}),
+                ...(reqFriendTaskMilestones !== undefined ? { friendTaskMilestones: reqFriendTaskMilestones } : {}),
                 ...(data.friendTaskMilestonesInApp !== undefined ? { friendTaskMilestonesInApp: data.friendTaskMilestonesInApp } : {}),
                 ...(data.myMilestonesEmail !== undefined ? { myMilestonesEmail: data.myMilestonesEmail } : {}),
                 ...(data.myMilestonesInApp !== undefined ? { myMilestonesInApp: data.myMilestonesInApp } : {}),
-                ...(freezeStatusEmailVal !== undefined ? { freezeStatusNotifications: freezeStatusEmailVal } : {}),
+                ...(reqFreezeStatus !== undefined ? { freezeStatusNotifications: reqFreezeStatus } : {}),
                 ...(data.freezeStatusInApp !== undefined ? { freezeStatusInApp: data.freezeStatusInApp } : {}),
                 ...customEmailUpdate,
             },

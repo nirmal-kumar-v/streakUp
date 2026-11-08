@@ -19,13 +19,14 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const luxon_1 = require("luxon");
 const streakService_1 = require("../services/streakService");
-const fuzzyMatchService_1 = require("../services/fuzzyMatchService");
 const notificationService_1 = require("../services/notificationService");
 const pointsService_1 = require("../services/pointsService");
 const client_1 = require("@prisma/client");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
 const linkedInGameService_1 = require("../services/linkedInGameService");
+const duolingoService_1 = require("../services/duolingoService");
 const leaderboardController_1 = require("./leaderboardController");
+const adminConfigService_1 = require("../services/adminConfigService");
 const cacheService_1 = __importDefault(require("../utils/cacheService"));
 // Task validation schemas
 const createTaskSchema = zod_1.z.object({
@@ -136,11 +137,19 @@ async function getTasks(req, res) {
             let currentStreak = updatedInfo ? updatedInfo.currentStreak : task.currentStreak;
             let longestStreak = updatedInfo ? updatedInfo.longestStreak : task.longestStreak;
             const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
+            const isDuolingo = Boolean(task.group?.specialPlatform === 'DUOLINGO' ||
+                ((task.isGroupTask || !!task.groupId) && ((0, duolingoService_1.isDuolingoName)(task.title) || (0, duolingoService_1.isDuolingoName)(task.group?.name))));
             if (isLinkedIn && task.groupId) {
                 const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
                 currentStreak = Math.max(currentStreak, li.currentStreak);
                 longestStreak = Math.max(task.longestStreak, li.longestStreak);
                 completedToday = Boolean(task.completions.length > 0 || li.completedToday);
+            }
+            else if (isDuolingo && task.groupId) {
+                const duo = await (0, duolingoService_1.getDuolingoDashboardStreak)(task.groupId, userId, timezone);
+                currentStreak = Math.max(currentStreak, duo.currentStreak);
+                longestStreak = Math.max(task.longestStreak, duo.longestStreak);
+                completedToday = Boolean(task.completions.length > 0 || duo.completedToday);
             }
             const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
             return {
@@ -150,6 +159,7 @@ async function getTasks(req, res) {
                 completedToday,
                 todayStudyNote,
                 isLinkedIn,
+                isDuolingo,
                 specialActivity: task.specialActivity,
                 specialPlatform: task.group?.specialPlatform || null,
                 groupName: task.group?.name || null,
@@ -189,11 +199,23 @@ async function createTask(req, res) {
             });
         }
         const data = parseResult.data;
+        // Enforce active quota limit (tasks + groups combined, default 10)
+        const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+            prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+            prisma_1.default.groupMember.count({ where: { userId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= activeLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to create a new one.`
+            });
+        }
         const task = await prisma_1.default.task.create({
             data: {
                 userId,
                 title: data.title.trim(),
-                normalizedTitle: (0, fuzzyMatchService_1.getCanonicalTaskTitle)(data.title),
+                normalizedTitle: data.title.trim().toLowerCase(),
                 description: data.description?.trim() || null,
                 category: data.category?.trim() || 'General',
                 priority: data.priority,
@@ -248,6 +270,31 @@ async function updateTask(req, res) {
                 error: parseResult.error.errors[0]?.message || 'Invalid task update data'
             });
         }
+        if (parseResult.data.status && parseResult.data.status !== existingTask.status) {
+            if (parseResult.data.status === 'ARCHIVED') {
+                const archivedLimit = (0, adminConfigService_1.getUserArchivedTaskLimit)(userId);
+                const archivedCount = await prisma_1.default.task.count({ where: { userId, status: 'ARCHIVED' } });
+                if (archivedCount >= archivedLimit) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Archived quota limit reached (max ${archivedLimit} archived tasks). Permanently delete an archived task before archiving another.`
+                    });
+                }
+            }
+            else if (parseResult.data.status === 'ACTIVE') {
+                const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+                const [activePersonalTasks, joinedGroups] = await Promise.all([
+                    prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+                    prisma_1.default.groupMember.count({ where: { userId } }),
+                ]);
+                if (activePersonalTasks + joinedGroups >= activeLimit) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to restore this task.`
+                    });
+                }
+            }
+        }
         const updatedTask = await prisma_1.default.task.update({
             where: { id },
             data: parseResult.data
@@ -281,6 +328,29 @@ async function toggleArchiveTask(req, res) {
             return res.status(403).json({ success: false, error: 'Unauthorized.' });
         }
         const newStatus = existingTask.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE';
+        if (newStatus === 'ARCHIVED') {
+            const archivedLimit = (0, adminConfigService_1.getUserArchivedTaskLimit)(userId);
+            const archivedCount = await prisma_1.default.task.count({ where: { userId, status: 'ARCHIVED' } });
+            if (archivedCount >= archivedLimit) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Archived quota limit reached (max ${archivedLimit} archived tasks). Permanently delete an archived task before archiving another.`
+                });
+            }
+        }
+        else {
+            const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+            const [activePersonalTasks, joinedGroups] = await Promise.all([
+                prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+                prisma_1.default.groupMember.count({ where: { userId } }),
+            ]);
+            if (activePersonalTasks + joinedGroups >= activeLimit) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to restore this task.`
+                });
+            }
+        }
         const updated = await prisma_1.default.task.update({
             where: { id },
             data: { status: newStatus }
@@ -526,7 +596,11 @@ async function completeTask(req, res) {
             where: { taskId: id, completionDate: todayDateStr }
         })) > 0;
         const wasUserAlreadyCompletedToday = (await prisma_1.default.taskCompletion.count({
-            where: { userId, completionDate: todayDateStr }
+            where: {
+                userId,
+                completionDate: todayDateStr,
+                NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+            }
         })) > 0;
         // Create or update completion record (upsert to prevent duplicate records on same date)
         const completion = await prisma_1.default.taskCompletion.upsert({
@@ -556,7 +630,11 @@ async function completeTask(req, res) {
         }
         const yesterdayDateStr = (0, timezoneService_1.getYesterdayDateString)(timezone);
         const wasUserActiveYesterday = (await prisma_1.default.taskCompletion.count({
-            where: { userId, completionDate: yesterdayDateStr }
+            where: {
+                userId,
+                completionDate: yesterdayDateStr,
+                NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+            }
         })) > 0 ||
             (await prisma_1.default.freezeLog.count({
                 where: { userId, scope: 'OVERALL', protectedDate: yesterdayDateStr }
@@ -671,6 +749,10 @@ async function completeTask(req, res) {
             actionUrl: `/dashboard`,
             eventKey: `TASK_COMPLETION:${userId}:${task.id}:${todayDateStr}`,
         }).catch((err) => console.error('[completeTask] User completion notification error:', err));
+        // If Duolingo group umbrella task, complete all committed courses
+        if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || (0, duolingoService_1.isDuolingoName)(task.title))) {
+            await (0, duolingoService_1.completeAllCommittedCourses)(task.groupId, userId, timezone, trimmedNote, todayDateStr).catch(() => { });
+        }
         (0, leaderboardController_1.clearLeaderboardCache)();
         cacheService_1.default.invalidateUser(userId);
         if (task.groupId)
@@ -767,7 +849,11 @@ async function uncompleteTask(req, res) {
                 },
             });
             const remainingTodayCompletions = await prisma_1.default.taskCompletion.count({
-                where: { userId, completionDate: todayDateStr }
+                where: {
+                    userId,
+                    completionDate: todayDateStr,
+                    NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+                }
             });
             const targetUserStreak = remainingTodayCompletions > 0
                 ? (task.user?.currentStreak || 0)
@@ -848,7 +934,11 @@ async function uncompleteTask(req, res) {
         };
         // Check if user has other completions today across any tasks
         const remainingTodayCompletions = await prisma_1.default.taskCompletion.count({
-            where: { userId, completionDate: todayDateStr }
+            where: {
+                userId,
+                completionDate: todayDateStr,
+                NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } }
+            }
         });
         const targetUserStreak = remainingTodayCompletions > 0
             ? (task.user?.currentStreak || 0)
@@ -858,6 +948,10 @@ async function uncompleteTask(req, res) {
             targetCurrentStreak: targetUserStreak,
             targetLongestStreak: task.user?.longestStreak || 0,
         });
+        // If Duolingo group umbrella task, uncomplete all committed courses
+        if (task.groupId && (task.group?.specialPlatform === 'DUOLINGO' || (0, duolingoService_1.isDuolingoName)(task.title))) {
+            await (0, duolingoService_1.uncompleteAllCommittedCourses)(task.groupId, userId, timezone, todayDateStr).catch(() => { });
+        }
         (0, leaderboardController_1.clearLeaderboardCache)();
         cacheService_1.default.invalidateUser(userId);
         if (task.groupId)
@@ -1136,11 +1230,19 @@ async function getDashboardSummary(req, res) {
             let freezeBalance = updatedTask ? updatedTask.freezeBalance : task.freezeBalance;
             let freezeRechargeDays = updatedTask ? updatedTask.freezeRechargeDays : task.freezeRechargeDays;
             const isLinkedIn = Boolean((task.isGroupTask || !!task.groupId) && (0, linkedInGameService_1.isLinkedInName)(task.title));
+            const isDuolingo = Boolean(task.group?.specialPlatform === 'DUOLINGO' ||
+                ((task.isGroupTask || !!task.groupId) && ((0, duolingoService_1.isDuolingoName)(task.title) || (0, duolingoService_1.isDuolingoName)(task.group?.name))));
             if (isLinkedIn && task.groupId) {
                 const li = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(task.groupId, userId, timezone);
                 currentStreak = Math.max(currentStreak, li.currentStreak);
                 longestStreak = Math.max(longestStreak, li.longestStreak);
                 completedToday = Boolean(task.completions.length > 0 || li.completedToday);
+            }
+            else if (isDuolingo && task.groupId) {
+                const duo = await (0, duolingoService_1.getDuolingoDashboardStreak)(task.groupId, userId, timezone);
+                currentStreak = Math.max(currentStreak, duo.currentStreak);
+                longestStreak = Math.max(longestStreak, duo.longestStreak);
+                completedToday = Boolean(task.completions.length > 0 || duo.completedToday);
             }
             const todayStudyNote = task.completions.length > 0 ? task.completions[0].studyNote : null;
             return {
@@ -1162,6 +1264,7 @@ async function getDashboardSummary(req, res) {
                 groupId: task.groupId,
                 isGroupTask: task.isGroupTask || !!task.groupId,
                 isLinkedIn,
+                isDuolingo,
                 specialActivity: task.specialActivity,
                 specialPlatform: task.group?.specialPlatform || null,
                 groupName: task.group?.name || null,

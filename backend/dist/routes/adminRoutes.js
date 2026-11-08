@@ -3,10 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const adminController_1 = require("../controllers/adminController");
 const userRequestController_1 = require("../controllers/userRequestController");
+const duolingoController_1 = require("../controllers/duolingoController");
 const adminAuthMiddleware_1 = require("../middleware/adminAuthMiddleware");
+const rateLimiter_1 = require("../middleware/rateLimiter");
 const router = (0, express_1.Router)();
-// Public Admin Auth
-router.post('/login', adminController_1.adminLogin);
+// Public Admin Auth (rate-limited against brute-force attacks)
+router.post('/login', rateLimiter_1.authRateLimiter, adminController_1.adminLogin);
 // Protected Super Admin Endpoints
 router.use(adminAuthMiddleware_1.requireAdminAuth);
 router.get('/me', adminController_1.getAdminProfile);
@@ -33,6 +35,13 @@ router.post('/users/:userId/override-reminder-limit', adminAuthMiddleware_1.requ
 router.post('/users/:userId/override-task-reminder-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideTaskReminderLimit);
 router.post('/users/:userId/override-discover-groups-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideDiscoverGroupsLimit);
 router.post('/users/:userId/override-profile-image-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideProfileImageLimit);
+router.post('/users/:userId/override-active-task-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideActiveTaskLimit);
+router.post('/users/:userId/override-archived-task-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideArchivedTaskLimit);
+router.post('/users/:userId/override-friend-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideFriendLimit);
+router.post('/users/:userId/override-email-trigger-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideEmailTriggerLimit);
+router.post('/users/:userId/override-duolingo-course-limit', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.overrideDuolingoCourseLimit);
+router.post('/users/:userId/duolingo-force-commit', adminAuthMiddleware_1.requireSensitiveAuth, duolingoController_1.adminForceDuolingoCommit);
+router.post('/duolingo/migrate', adminAuthMiddleware_1.requireSensitiveAuth, duolingoController_1.adminMigrateDuolingoGroups);
 router.post('/users/:userId/profile-image', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminUpdateUserProfileImage);
 router.post('/users/:userId/reset-nudge-cooldown', adminController_1.resetNudgeCooldown);
 router.delete('/users/:userId/freeze/:date', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.unfreezeUserDate);
@@ -61,6 +70,11 @@ router.post('/users/:userId/linkedin-games/:groupId/correct', adminAuthMiddlewar
 router.post('/users/:userId/linkedin-games/:groupId/grant-date', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminGrantLinkedInGameDate);
 router.post('/users/:userId/linkedin-games/:groupId/freeze-date', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminFreezeLinkedInGameDate);
 router.post('/users/:userId/linkedin-games/:groupId/commitment', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminSetLinkedInGameCommitment);
+// Dedicated Duolingo Special Group Courses & Streaks Control
+router.get('/users/:userId/duolingo-courses/:groupId', adminController_1.getMemberDuolingoCoursesAdmin);
+router.post('/users/:userId/duolingo-courses/:groupId/correct', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminCorrectDuolingoCourseStreak);
+router.post('/users/:userId/duolingo-courses/:groupId/grant-date', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminGrantDuolingoCourseDate);
+router.post('/users/:userId/duolingo-courses/:groupId/commitment', adminAuthMiddleware_1.requireSensitiveAuth, adminController_1.adminSetDuolingoCourseCommitment);
 // Task Management
 router.post('/tasks/:taskId/visibility', adminController_1.updateTaskVisibility);
 router.post('/tasks/:taskId/update-full', adminController_1.adminUpdateTaskFull);
@@ -114,7 +128,12 @@ router.get('/system/health', adminController_1.adminGetSystemHealth);
 router.post('/system/cache/flush', adminController_1.adminFlushCaches);
 router.post('/system/reconcile-streaks', adminController_1.adminReconcileStreaks);
 router.get('/system/announcement', adminController_1.adminGetAnnouncement);
+router.get('/system/announcements', adminController_1.adminGetAnnouncement);
 router.post('/system/announcement', adminController_1.adminUpdateAnnouncement);
+router.post('/system/announcements', adminController_1.adminUpdateAnnouncement);
+router.delete('/system/announcements/:id', adminController_1.adminDeleteAnnouncement);
+router.delete('/system/announcement/:id', adminController_1.adminDeleteAnnouncement);
+router.patch('/system/announcements/:id/toggle', adminController_1.adminToggleAnnouncement);
 router.post('/users/batch-grant-freeze', adminController_1.adminBatchGrantFreeze);
 router.get('/system/export/users', adminController_1.adminExportUsers);
 router.get('/system/export/audit-logs', adminController_1.adminExportAuditLogs);

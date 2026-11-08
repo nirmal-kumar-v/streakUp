@@ -41,6 +41,12 @@ export const StreakMilestoneModal: React.FC = () => {
     const handleOpen = (e: Event) => {
       const customEvent = e as CustomEvent<OpenStreakModalDetail>;
       const detail = customEvent.detail || {};
+
+      // Security & Privacy: Never open modal if isOwner is explicitly false
+      if (detail.isOwner === false) {
+        return;
+      }
+
       setModalDetail(detail);
 
       const effectiveCurrent = detail.currentStreak !== undefined ? detail.currentStreak : (user?.currentStreak || 0);
@@ -325,31 +331,33 @@ export const StreakMilestoneModal: React.FC = () => {
             )}
           </div>
 
-          {/* Action Buttons: Share & Download Only (No copy link feature) */}
-          <div className="grid grid-cols-2 gap-2 pt-0.5">
-            <button
-              type="button"
-              onClick={handleShare}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-gradient-to-r from-amber-500 to-flame-500 hover:from-amber-600 hover:to-flame-600 text-zinc-950 font-bold text-xs rounded-xl shadow-md shadow-amber-500/20 transition active:scale-95 cursor-pointer"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>{viewMode === 'BADGE' ? 'Share Badge' : 'Share Streak'}</span>
-            </button>
+          {/* Action Buttons: Share & Download Only (Owner only - friends cannot download/share) */}
+          {modalDetail?.isOwner !== false && (
+            <div className="grid grid-cols-2 gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={handleShare}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-gradient-to-r from-amber-500 to-flame-500 hover:from-amber-600 hover:to-flame-600 text-zinc-950 font-bold text-xs rounded-xl shadow-md shadow-amber-500/20 transition active:scale-95 cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>{viewMode === 'BADGE' ? 'Share Badge' : 'Share Streak'}</span>
+              </button>
 
-            <button
-              type="button"
-              disabled={isExporting}
-              onClick={handleDownload}
-              className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-zinc-200 hover:text-white font-semibold text-xs rounded-xl transition active:scale-95 disabled:opacity-50 cursor-pointer"
-            >
-              {isExporting ? (
-                <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Download className="w-3.5 h-3.5 text-amber-400" />
-              )}
-              <span>{viewMode === 'BADGE' ? 'Download Badge' : 'Download Card'}</span>
-            </button>
-          </div>
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={handleDownload}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-2.5 bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700 hover:border-amber-500/40 text-zinc-200 hover:text-white font-semibold text-xs rounded-xl transition active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isExporting ? (
+                  <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>{viewMode === 'BADGE' ? 'Download Badge' : 'Download Card'}</span>
+              </button>
+            </div>
+          )}
 
           {/* Earned Milestones Section: Badges only clickable when unlocked */}
           <div className="space-y-1.5 pt-0.5 text-left">

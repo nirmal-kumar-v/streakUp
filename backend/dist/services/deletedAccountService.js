@@ -153,7 +153,7 @@ async function recordAccountDeletion(paramsOrUserId, argEmail, argUsername) {
         reason = paramsOrUserId.reason;
     }
     else {
-        userId = paramsOrUserId;
+        userId = String(paramsOrUserId);
         email = argEmail || '';
         username = argUsername || 'user';
         name = username;

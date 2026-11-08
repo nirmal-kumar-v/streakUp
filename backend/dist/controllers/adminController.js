@@ -71,6 +71,11 @@ exports.adminDeleteReminderSchedule = adminDeleteReminderSchedule;
 exports.overrideLeaderboardLimit = overrideLeaderboardLimit;
 exports.overrideReminderLimit = overrideReminderLimit;
 exports.overrideTaskReminderLimit = overrideTaskReminderLimit;
+exports.overrideActiveTaskLimit = overrideActiveTaskLimit;
+exports.overrideArchivedTaskLimit = overrideArchivedTaskLimit;
+exports.overrideFriendLimit = overrideFriendLimit;
+exports.overrideEmailTriggerLimit = overrideEmailTriggerLimit;
+exports.overrideDuolingoCourseLimit = overrideDuolingoCourseLimit;
 exports.overrideDiscoverGroupsLimit = overrideDiscoverGroupsLimit;
 exports.overrideProfileImageLimit = overrideProfileImageLimit;
 exports.adminUpdateUserProfileImage = adminUpdateUserProfileImage;
@@ -85,6 +90,10 @@ exports.adminCorrectLinkedInGameStreak = adminCorrectLinkedInGameStreak;
 exports.adminGrantLinkedInGameDate = adminGrantLinkedInGameDate;
 exports.adminFreezeLinkedInGameDate = adminFreezeLinkedInGameDate;
 exports.adminSetLinkedInGameCommitment = adminSetLinkedInGameCommitment;
+exports.getMemberDuolingoCoursesAdmin = getMemberDuolingoCoursesAdmin;
+exports.adminCorrectDuolingoCourseStreak = adminCorrectDuolingoCourseStreak;
+exports.adminGrantDuolingoCourseDate = adminGrantDuolingoCourseDate;
+exports.adminSetDuolingoCourseCommitment = adminSetDuolingoCourseCommitment;
 exports.getManagersAdmin = getManagersAdmin;
 exports.grantManagerAdmin = grantManagerAdmin;
 exports.revokeManagerAdmin = revokeManagerAdmin;
@@ -123,11 +132,14 @@ exports.adminFlushCaches = adminFlushCaches;
 exports.adminReconcileStreaks = adminReconcileStreaks;
 exports.adminGetAnnouncement = adminGetAnnouncement;
 exports.adminUpdateAnnouncement = adminUpdateAnnouncement;
+exports.adminDeleteAnnouncement = adminDeleteAnnouncement;
+exports.adminToggleAnnouncement = adminToggleAnnouncement;
 exports.adminBatchGrantFreeze = adminBatchGrantFreeze;
 exports.adminExportUsers = adminExportUsers;
 exports.adminExportAuditLogs = adminExportAuditLogs;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const luxon_1 = require("luxon");
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const client_1 = require("@prisma/client");
@@ -140,6 +152,7 @@ const announcementService_1 = require("../services/announcementService");
 const reminderSchedulerService_1 = require("../services/reminderSchedulerService");
 const imageValidator_1 = require("../utils/imageValidator");
 const linkedInGameService_1 = require("../services/linkedInGameService");
+const duolingoService_1 = require("../services/duolingoService");
 const managerService_1 = require("../services/managerService");
 const adminMessageService_1 = require("../services/adminMessageService");
 const userRequestService_1 = require("../services/userRequestService");
@@ -147,10 +160,7 @@ const specialGroupRegistry_1 = require("../services/specialGroupRegistry");
 const specialGroupService_1 = require("../services/specialGroupService");
 const JWT_SECRET = process.env.JWT_SECRET || 'streakup_super_secret_jwt_key_2026_change_in_production';
 /**
- * Bootstrap or synchronize the default admin account with requested credentials
- * Username: admin
- * Password: Admin@123
- * Sensitive Password / PIN: Nirmal@31/08/2006
+ * Bootstrap or synchronize the default admin account with secure environment credentials
  */
 async function ensureDefaultAdmin() {
     const defaultUsername = (process.env.ADMIN_INITIAL_USERNAME || 'admin').trim().toLowerCase();
@@ -234,16 +244,18 @@ async function dispatchAdminNotification(opts) {
                 },
             });
         }
-        // 2. Email Notification
+        // 2. Email Notification (dispatched asynchronously so SMTP delays/failures never block or timeout admin actions)
         if (shouldSendEmail && user.email) {
             const emailText = `Hello ${user.name || user.username},\n\nAn administrative update has been made to your StreakUp account:\n\n${fullMessage}\n\nIf you have any questions, please contact support.\n\nBest regards,\nStreakUp Administration Team`;
-            await (0, emailService_1.sendEmail)({
+            (0, emailService_1.sendEmail)({
                 userId,
                 recipientEmail: user.email,
                 category: client_1.NotificationCategory.SYSTEM,
                 subject: `[StreakUp Admin] ${noticeTitle}`,
                 text: emailText,
                 idempotencyKey: `admin-notice-${userId}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            }).catch((emailErr) => {
+                console.error('[Admin] Background email notice failed:', emailErr);
             });
         }
     }
@@ -660,6 +672,15 @@ async function getUserDetailsForAdmin(req, res) {
         safeUser.taskReminderLimit = (0, adminConfigService_1.getUserTaskReminderLimit)(userId);
         safeUser.discoverGroupsLimit = (0, adminConfigService_1.getUserDiscoverGroupsLimit)(userId);
         safeUser.profileImageLimitMb = (0, adminConfigService_1.getUserProfileImageLimitMb)(userId);
+        safeUser.activeTaskLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        safeUser.archivedTaskLimit = (0, adminConfigService_1.getUserArchivedTaskLimit)(userId);
+        safeUser.friendLimit = (0, adminConfigService_1.getUserFriendLimit)(userId);
+        safeUser.emailTriggerLimit = (0, adminConfigService_1.getUserEmailTriggerLimit)(userId);
+        safeUser.duolingoCourseLimit = (0, adminConfigService_1.getUserDuolingoCourseLimit)(userId);
+        const friendCount = await prisma_1.default.friendship.count({
+            where: { OR: [{ user1Id: userId }, { user2Id: userId }] }
+        });
+        safeUser.friendCount = friendCount;
         const { isAccountDeleted } = await Promise.resolve().then(() => __importStar(require('../services/deletedAccountService')));
         const del = isAccountDeleted(userId);
         safeUser.isDeleted = del.isDeleted;
@@ -784,16 +805,109 @@ async function correctStreaks(req, res) {
         if (!user) {
             return res.status(404).json({ success: false, error: 'User not found.' });
         }
+        const tz = user.timezone || timezoneService_1.DEFAULT_TIMEZONE;
+        const todayStr = (0, timezoneService_1.getLocalDateString)(tz);
+        const yesterdayStr = (0, timezoneService_1.getYesterdayDateString)(tz);
         if (type === 'TASK') {
             if (!taskId) {
                 return res.status(400).json({ success: false, error: 'Task ID is required for task streak correction.' });
             }
-            const task = await prisma_1.default.task.findUnique({ where: { id: taskId } });
+            const task = await prisma_1.default.task.findUnique({
+                where: { id: taskId },
+                include: { group: { select: { id: true, name: true, specialPlatform: true } } },
+            });
             if (!task || task.userId !== userId) {
                 return res.status(404).json({ success: false, error: 'Task not found for this user.' });
             }
             const beforeState = { currentStreak: task.currentStreak, longestStreak: task.longestStreak };
             const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(task.longestStreak, currentStreak);
+            if (currentStreak > 0) {
+                // Check if task was already completed on today's local date
+                const isAlreadyCompletedToday = await prisma_1.default.taskCompletion.findFirst({
+                    where: { taskId, completionDate: todayStr },
+                    select: { id: true },
+                });
+                const startOffset = isAlreadyCompletedToday ? 0 : 1;
+                const scheduledDays = Array.isArray(task.scheduledDays) && task.scheduledDays.length > 0
+                    ? task.scheduledDays
+                    : [0, 1, 2, 3, 4, 5, 6];
+                // Step backwards matching only the days the habit is scheduled for
+                // Batch insert completions to prevent sequential network latency bottlenecks & serverless timeouts
+                const maxDaysToCreate = Math.min(currentStreak, 365);
+                const completionsToInsert = [];
+                let daysAdded = 0;
+                let dayStep = startOffset;
+                while (daysAdded < maxDaysToCreate && dayStep < 3650) {
+                    const dt = luxon_1.DateTime.now().setZone(tz).minus({ days: dayStep });
+                    const dayOfWeek = dt.weekday % 7; // 0=Sunday, 1=Monday, ..., 6=Saturday
+                    if (scheduledDays.includes(dayOfWeek)) {
+                        const dateStr = dt.toFormat('yyyy-MM-dd');
+                        completionsToInsert.push({
+                            userId,
+                            taskId,
+                            completionDate: dateStr,
+                            completedAt: dt.toJSDate(),
+                            // If applyToOverall is false, tag completions with [ADMIN_TASK_ONLY] so recalculateUserStreaks NEVER inflates overall streak
+                            studyNote: applyToOverall ? undefined : '[ADMIN_TASK_ONLY]',
+                        });
+                        daysAdded++;
+                    }
+                    dayStep++;
+                }
+                if (completionsToInsert.length > 0) {
+                    await prisma_1.default.taskCompletion.createMany({
+                        data: completionsToInsert,
+                        skipDuplicates: true,
+                    });
+                }
+            }
+            else {
+                // If explicitly setting current streak to 0, clear today's and yesterday's completion for this task
+                // If !applyToOverall, preserve overall streak continuity for today if this was the user's only task today
+                if (!applyToOverall) {
+                    const remainingCompletionsToday = await prisma_1.default.taskCompletion.count({
+                        where: {
+                            userId,
+                            taskId: { not: taskId },
+                            completionDate: todayStr,
+                            NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } },
+                        },
+                    });
+                    const hasTaskToday = await prisma_1.default.taskCompletion.findFirst({
+                        where: { taskId, completionDate: todayStr },
+                    });
+                    if (hasTaskToday && remainingCompletionsToday === 0) {
+                        let anchorTask = await prisma_1.default.task.findFirst({
+                            where: { userId, status: 'ACTIVE', id: { not: taskId } },
+                            orderBy: { createdAt: 'asc' },
+                        });
+                        if (anchorTask) {
+                            await prisma_1.default.taskCompletion.upsert({
+                                where: {
+                                    taskId_completionDate: {
+                                        taskId: anchorTask.id,
+                                        completionDate: todayStr,
+                                    },
+                                },
+                                create: {
+                                    userId,
+                                    taskId: anchorTask.id,
+                                    completionDate: todayStr,
+                                    completedAt: new Date(),
+                                    studyNote: 'Preserved user overall streak',
+                                },
+                                update: {},
+                            });
+                        }
+                    }
+                }
+                await prisma_1.default.taskCompletion.deleteMany({
+                    where: {
+                        taskId,
+                        completionDate: { in: [todayStr, yesterdayStr] },
+                    },
+                });
+            }
             const updatedTask = await prisma_1.default.task.update({
                 where: { id: taskId },
                 data: {
@@ -815,6 +929,19 @@ async function correctStreaks(req, res) {
                     console.error('[correctStreaks:LinkedIn] Error synchronizing primary game streak:', e);
                 }
             }
+            if (task.groupId && ((0, duolingoService_1.isDuolingoName)(task.title) || (0, duolingoService_1.isDuolingoName)(task.group?.name) || task.group?.specialPlatform === 'DUOLINGO')) {
+                try {
+                    const allCourses = await (0, duolingoService_1.getAllCoursesForMember)(task.groupId, userId, tz);
+                    const committed = allCourses.filter((c) => c.isCommitted);
+                    const targetCourse = committed.length > 0 ? committed[0] : allCourses[0];
+                    if (targetCourse) {
+                        await (0, duolingoService_1.adminCorrectCourseStreak)(task.groupId, userId, targetCourse.courseId, currentStreak, newLongest);
+                    }
+                }
+                catch (e) {
+                    console.error('[correctStreaks:Duolingo] Error synchronizing primary course streak:', e);
+                }
+            }
             if (applyToOverall) {
                 const nextUserLongest = Math.max(user.longestStreak || 0, newLongest);
                 await prisma_1.default.user.update({
@@ -825,6 +952,9 @@ async function correctStreaks(req, res) {
                     },
                 });
             }
+            (0, leaderboardController_1.clearLeaderboardCache)();
+            cacheService_1.default.invalidateTag(`task:${taskId}`);
+            cacheService_1.default.invalidateTag(`user:${userId}`);
             const changesSummary = `Task "${task.title}" streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days)${applyToOverall ? ' [Applied to user overall streak]' : ''}.`;
             await recordAuditLog({
                 adminUsername: req.admin.username,
@@ -856,6 +986,54 @@ async function correctStreaks(req, res) {
             // OVERALL STREAK
             const beforeState = { currentStreak: user.currentStreak, longestStreak: user.longestStreak };
             const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(user.longestStreak, currentStreak);
+            if (currentStreak > 0) {
+                let anchorTask = await prisma_1.default.task.findFirst({
+                    where: { userId, status: 'ACTIVE' },
+                    orderBy: { createdAt: 'asc' },
+                });
+                if (!anchorTask) {
+                    anchorTask = await prisma_1.default.task.create({
+                        data: {
+                            userId,
+                            title: 'Daily Productivity',
+                            recurrence: 'DAILY',
+                            scheduledDays: [0, 1, 2, 3, 4, 5, 6],
+                            status: 'ACTIVE',
+                        },
+                    });
+                }
+                const isUserCompletedToday = await prisma_1.default.taskCompletion.findFirst({
+                    where: { userId, completionDate: todayStr },
+                    select: { id: true },
+                });
+                const startOffset = isUserCompletedToday ? 0 : 1;
+                const maxDaysToCreate = Math.min(currentStreak, 365);
+                const completionsToInsert = [];
+                for (let i = 0; i < maxDaysToCreate; i++) {
+                    const dt = luxon_1.DateTime.now().setZone(tz).minus({ days: i + startOffset });
+                    const dateStr = dt.toFormat('yyyy-MM-dd');
+                    completionsToInsert.push({
+                        userId,
+                        taskId: anchorTask.id,
+                        completionDate: dateStr,
+                        completedAt: dt.toJSDate(),
+                    });
+                }
+                if (completionsToInsert.length > 0) {
+                    await prisma_1.default.taskCompletion.createMany({
+                        data: completionsToInsert,
+                        skipDuplicates: true,
+                    });
+                }
+            }
+            else {
+                await prisma_1.default.taskCompletion.deleteMany({
+                    where: {
+                        userId,
+                        completionDate: { in: [todayStr, yesterdayStr] },
+                    },
+                });
+            }
             const updatedUser = await prisma_1.default.user.update({
                 where: { id: userId },
                 data: {
@@ -864,6 +1042,8 @@ async function correctStreaks(req, res) {
                 },
                 select: { id: true, username: true, currentStreak: true, longestStreak: true },
             });
+            (0, leaderboardController_1.clearLeaderboardCache)();
+            cacheService_1.default.invalidateTag(`user:${userId}`);
             const changesSummary = `Overall streak updated: Current streak changed from ${beforeState.currentStreak} to ${currentStreak} days (longest: ${newLongest} days).`;
             await recordAuditLog({
                 adminUsername: req.admin.username,
@@ -2419,6 +2599,261 @@ async function overrideTaskReminderLimit(req, res) {
     }
 }
 /**
+ * Override the maximum combined active tasks and groups quota for a specific user
+ */
+async function overrideActiveTaskLimit(req, res) {
+    try {
+        const { userId } = req.params;
+        const { activeTaskLimit, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+        }
+        if (typeof activeTaskLimit !== 'number' || activeTaskLimit < 1 || activeTaskLimit > 100) {
+            return res.status(400).json({ success: false, error: 'Active task/group quota limit must be an integer between 1 and 100.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const beforeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        (0, adminConfigService_1.setUserActiveTaskLimit)(userId, activeTaskLimit);
+        const changesSummary = `Active tasks/groups quota changed from ${beforeLimit} to ${activeTaskLimit} combined items.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'OVERRIDE_ACTIVE_TASK_LIMIT',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: { activeTaskLimit: beforeLimit },
+            afterState: { activeTaskLimit },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Active Tasks & Groups Quota Updated',
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Active tasks/groups quota for @${user.username} updated to ${activeTaskLimit}.`,
+            activeTaskLimit,
+        });
+    }
+    catch (err) {
+        console.error('overrideActiveTaskLimit error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update active task quota limit.' });
+    }
+}
+/**
+ * Override the maximum archived tasks quota for a specific user
+ */
+async function overrideArchivedTaskLimit(req, res) {
+    try {
+        const { userId } = req.params;
+        const { archivedTaskLimit, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+        }
+        if (typeof archivedTaskLimit !== 'number' || archivedTaskLimit < 1 || archivedTaskLimit > 50) {
+            return res.status(400).json({ success: false, error: 'Archived task quota limit must be an integer between 1 and 50.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const beforeLimit = (0, adminConfigService_1.getUserArchivedTaskLimit)(userId);
+        (0, adminConfigService_1.setUserArchivedTaskLimit)(userId, archivedTaskLimit);
+        const changesSummary = `Archived tasks quota changed from ${beforeLimit} to ${archivedTaskLimit} archived tasks.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'OVERRIDE_ARCHIVED_TASK_LIMIT',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: { archivedTaskLimit: beforeLimit },
+            afterState: { archivedTaskLimit },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Archived Tasks Quota Updated',
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Archived tasks quota for @${user.username} updated to ${archivedTaskLimit}.`,
+            archivedTaskLimit,
+        });
+    }
+    catch (err) {
+        console.error('overrideArchivedTaskLimit error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update archived task quota limit.' });
+    }
+}
+/**
+ * Override the maximum friend connections quota for a specific user
+ */
+async function overrideFriendLimit(req, res) {
+    try {
+        const { userId } = req.params;
+        const { friendLimit, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+        }
+        if (typeof friendLimit !== 'number' || friendLimit < 1 || friendLimit > 100) {
+            return res.status(400).json({ success: false, error: 'Friend connection quota limit must be an integer between 1 and 100.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const beforeLimit = (0, adminConfigService_1.getUserFriendLimit)(userId);
+        (0, adminConfigService_1.setUserFriendLimit)(userId, friendLimit);
+        const changesSummary = `Friend connection quota changed from ${beforeLimit} to ${friendLimit} friends.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'OVERRIDE_FRIEND_LIMIT',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: { friendLimit: beforeLimit },
+            afterState: { friendLimit },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Friend Connections Quota Updated',
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Friend connection quota for @${user.username} updated to ${friendLimit}.`,
+            friendLimit,
+        });
+    }
+    catch (err) {
+        console.error('overrideFriendLimit error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update friend quota limit.' });
+    }
+}
+/**
+ * Override the maximum email notification triggers quota for a specific user
+ */
+async function overrideEmailTriggerLimit(req, res) {
+    try {
+        const { userId } = req.params;
+        const { emailTriggerLimit, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+        }
+        if (typeof emailTriggerLimit !== 'number' || emailTriggerLimit < 1 || emailTriggerLimit > 8) {
+            return res.status(400).json({ success: false, error: 'Email notification triggers quota limit must be an integer between 1 and 8.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const beforeLimit = (0, adminConfigService_1.getUserEmailTriggerLimit)(userId);
+        (0, adminConfigService_1.setUserEmailTriggerLimit)(userId, emailTriggerLimit);
+        const changesSummary = `Email notification triggers quota changed from ${beforeLimit} to ${emailTriggerLimit} triggers.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'OVERRIDE_EMAIL_TRIGGER_LIMIT',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: { emailTriggerLimit: beforeLimit },
+            afterState: { emailTriggerLimit },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Email Notification Triggers Quota Updated',
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Email notification triggers quota for @${user.username} updated to ${emailTriggerLimit}.`,
+            emailTriggerLimit,
+        });
+    }
+    catch (err) {
+        console.error('overrideEmailTriggerLimit error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update email triggers quota limit.' });
+    }
+}
+/**
+ * Override the maximum committed Duolingo courses limit for a user (1-45)
+ */
+async function overrideDuolingoCourseLimit(req, res) {
+    try {
+        const { userId } = req.params;
+        const { duolingoCourseLimit, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory for audit trail.' });
+        }
+        if (typeof duolingoCourseLimit !== 'number' || duolingoCourseLimit < 1 || duolingoCourseLimit > 45) {
+            return res.status(400).json({ success: false, error: 'Duolingo course limit must be an integer between 1 and 45.' });
+        }
+        const user = await prisma_1.default.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const beforeLimit = (0, adminConfigService_1.getUserDuolingoCourseLimit)(userId);
+        (0, adminConfigService_1.setUserDuolingoCourseLimit)(userId, duolingoCourseLimit);
+        const changesSummary = `Duolingo committed courses quota changed from ${beforeLimit} to ${duolingoCourseLimit} courses.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'OVERRIDE_DUOLINGO_COURSE_LIMIT',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: { duolingoCourseLimit: beforeLimit },
+            afterState: { duolingoCourseLimit },
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: 'Duolingo Course Quota Updated',
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Duolingo course quota for @${user.username} updated to ${duolingoCourseLimit}.`,
+            duolingoCourseLimit,
+        });
+    }
+    catch (err) {
+        console.error('overrideDuolingoCourseLimit error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update Duolingo course quota.' });
+    }
+}
+/**
  * Override the top discover ranking groups limit for a specific user
  */
 async function overrideDiscoverGroupsLimit(req, res) {
@@ -3495,6 +3930,279 @@ async function adminSetLinkedInGameCommitment(req, res) {
         return res.status(500).json({ success: false, error: 'Failed to update LinkedIn game commitment.' });
     }
 }
+// ========================================================
+// DUOLINGO SPECIAL GROUP COURSES DEDICATED SUPER ADMIN CONTROLS
+// ========================================================
+/**
+ * Retrieve all 45 Duolingo courses, streaks, and commitment status for a selected group member
+ */
+async function getMemberDuolingoCoursesAdmin(req, res) {
+    try {
+        const { userId, groupId } = req.params;
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, name: true, timezone: true },
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const group = await prisma_1.default.group.findUnique({
+            where: { id: groupId },
+            select: { id: true, name: true, joinCode: true, specialPlatform: true, isSpecialGroup: true },
+        });
+        if (!group) {
+            return res.status(404).json({ success: false, error: 'Group not found.' });
+        }
+        const isDuo = (0, duolingoService_1.isDuolingoName)(group.name) || group.specialPlatform === 'DUOLINGO';
+        if (!isDuo) {
+            return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+        }
+        const courses = await (0, duolingoService_1.getAllCoursesForMember)(groupId, userId, user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+        const userLimit = (0, adminConfigService_1.getUserDuolingoCourseLimit)(userId);
+        return res.json({
+            success: true,
+            user,
+            group,
+            courses,
+            userLimit,
+        });
+    }
+    catch (err) {
+        console.error('getMemberDuolingoCoursesAdmin error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to load member Duolingo courses.' });
+    }
+}
+/**
+ * Super Admin streak correction for an individual Duolingo course
+ */
+async function adminCorrectDuolingoCourseStreak(req, res) {
+    try {
+        const { userId, groupId } = req.params;
+        const { courseId, currentStreak, longestStreak, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, applyToOverall = false, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+        }
+        if (typeof currentStreak !== 'number' || currentStreak < 0) {
+            return res.status(400).json({ success: false, error: 'Valid non-negative current streak is required.' });
+        }
+        const normalizedCourseId = (0, duolingoService_1.normalizeCourseId)(courseId);
+        if (!normalizedCourseId) {
+            return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, name: true, timezone: true },
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        }
+        const group = await prisma_1.default.group.findUnique({
+            where: { id: groupId },
+            select: { id: true, name: true, specialPlatform: true },
+        });
+        if (!group || (!(0, duolingoService_1.isDuolingoName)(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+            return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+        }
+        const beforeCourses = await (0, duolingoService_1.getAllCoursesForMember)(groupId, userId, user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+        const beforeCourse = beforeCourses.find((c) => c.courseId === normalizedCourseId);
+        const updatedCourse = await (0, duolingoService_1.adminCorrectCourseStreak)(groupId, userId, normalizedCourseId, currentStreak, typeof longestStreak === 'number' ? longestStreak : currentStreak);
+        // Compute new overall Duolingo streak: the max current streak of all committed courses
+        const allCourses = await (0, duolingoService_1.getAllCoursesForMember)(groupId, userId, user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+        const committedCourses = allCourses.filter((c) => c.isCommitted);
+        const overallDuoCurrentStreak = committedCourses.reduce((max, c) => Math.max(max, c.currentStreak), 0);
+        const overallDuoLongestStreak = committedCourses.reduce((max, c) => Math.max(max, c.longestStreak), 0);
+        // Synchronize parent group task in Prisma so dashboard, group view, and tasks stay 100% consistent
+        await prisma_1.default.task.updateMany({
+            where: {
+                userId,
+                groupId,
+                status: { in: ['ACTIVE', 'ARCHIVED'] },
+            },
+            data: {
+                currentStreak: overallDuoCurrentStreak,
+                longestStreak: overallDuoLongestStreak,
+            },
+        });
+        if (applyToOverall) {
+            const uCurrent = await prisma_1.default.user.findUnique({ where: { id: userId }, select: { longestStreak: true } });
+            const nextLongest = Math.max(uCurrent?.longestStreak || 0, updatedCourse.longestStreak, currentStreak);
+            await prisma_1.default.user.update({
+                where: { id: userId },
+                data: {
+                    currentStreak,
+                    longestStreak: nextLongest,
+                },
+            });
+        }
+        const changesSummary = `Duolingo course "${updatedCourse.name}" streak corrected: ${beforeCourse?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedCourse.longestStreak}d)${applyToOverall ? ' [Applied to user overall streak]' : ''}. Group streak: ${overallDuoCurrentStreak}d.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'DUOLINGO_COURSE_STREAK_CORRECTION',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            beforeState: beforeCourse,
+            afterState: updatedCourse,
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: `Duolingo ${updatedCourse.name} Streak Corrected`,
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Streak for ${updatedCourse.name} successfully updated to ${currentStreak} days.`,
+            course: updatedCourse,
+            overallDuoCurrentStreak,
+        });
+    }
+    catch (err) {
+        console.error('adminCorrectDuolingoCourseStreak error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to correct Duolingo course streak.' });
+    }
+}
+/**
+ * Super Admin retroactively grants or toggles completion for an individual Duolingo course
+ */
+async function adminGrantDuolingoCourseDate(req, res) {
+    try {
+        const { userId, groupId } = req.params;
+        const { courseId, date, studyNote, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, applyToOverall = false, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+        }
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ success: false, error: 'A valid date (YYYY-MM-DD) is required.' });
+        }
+        const normalizedCourseId = (0, duolingoService_1.normalizeCourseId)(courseId);
+        if (!normalizedCourseId) {
+            return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, name: true, timezone: true },
+        });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const group = await prisma_1.default.group.findUnique({
+            where: { id: groupId },
+            select: { id: true, name: true, specialPlatform: true },
+        });
+        if (!group || (!(0, duolingoService_1.isDuolingoName)(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+            return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+        }
+        const updatedCourse = await (0, duolingoService_1.adminGrantCourseDate)(groupId, userId, normalizedCourseId, date, studyNote);
+        const changesSummary = `Duolingo course "${updatedCourse.name}" completion granted for date ${date}. New streak: ${updatedCourse.currentStreak}d.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'DUOLINGO_COURSE_GRANT_DATE',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: updatedCourse,
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: `Duolingo ${updatedCourse.name} Lesson Granted`,
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `Lesson for ${updatedCourse.name} on ${date} granted. Streak: ${updatedCourse.currentStreak} days.`,
+            course: updatedCourse,
+        });
+    }
+    catch (err) {
+        console.error('adminGrantDuolingoCourseDate error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to grant Duolingo course date.' });
+    }
+}
+/**
+ * Super Admin commits or uncommits a user to/from any individual Duolingo course
+ */
+async function adminSetDuolingoCourseCommitment(req, res) {
+    try {
+        const { userId, groupId } = req.params;
+        const { courseId, isCommitted, reason, sendInApp, sendEmail: shouldSendEmail, includeReason = true, includeChanges = true, } = req.body;
+        if (!reason || typeof reason !== 'string') {
+            return res.status(400).json({ success: false, error: 'An administrative reason is mandatory.' });
+        }
+        const normalizedCourseId = (0, duolingoService_1.normalizeCourseId)(courseId);
+        if (!normalizedCourseId) {
+            return res.status(400).json({ success: false, error: `Invalid Duolingo course: ${courseId}` });
+        }
+        const user = await prisma_1.default.user.findUnique({
+            where: { id: userId },
+            select: { id: true, username: true, name: true, timezone: true },
+        });
+        if (!user)
+            return res.status(404).json({ success: false, error: 'User not found.' });
+        const group = await prisma_1.default.group.findUnique({
+            where: { id: groupId },
+            select: { id: true, name: true, specialPlatform: true },
+        });
+        if (!group || (!(0, duolingoService_1.isDuolingoName)(group.name) && group.specialPlatform !== 'DUOLINGO')) {
+            return res.status(400).json({ success: false, error: 'Target group is not a Duolingo group.' });
+        }
+        let updatedCourse;
+        if (isCommitted) {
+            const result = await (0, duolingoService_1.adminForceCommitCourse)(groupId, userId, normalizedCourseId);
+            if (!result.success) {
+                return res.status(400).json({ success: false, error: result.error });
+            }
+            updatedCourse = result.data;
+        }
+        else {
+            const result = await (0, duolingoService_1.uncommitFromCourse)(groupId, userId, normalizedCourseId, user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+            if (!result.success) {
+                return res.status(400).json({ success: false, error: result.error });
+            }
+            updatedCourse = result.data;
+        }
+        const actionText = isCommitted ? 'committed to' : 'uncommitted from';
+        const changesSummary = `User ${actionText} Duolingo course "${updatedCourse.name}" by admin.`;
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'DUOLINGO_COURSE_COMMITMENT_OVERRIDE',
+            targetUserId: userId,
+            targetUser: `@${user.username}`,
+            reason,
+            afterState: updatedCourse,
+        });
+        await dispatchAdminNotification({
+            userId,
+            adminUsername: req.admin.username,
+            actionTitle: `Duolingo ${updatedCourse.name} Commitment Updated`,
+            reason,
+            changesSummary,
+            sendInApp,
+            sendEmail: shouldSendEmail,
+            includeReason,
+            includeChanges,
+        });
+        return res.json({
+            success: true,
+            message: `User successfully ${actionText} ${updatedCourse.name}.`,
+            course: updatedCourse,
+        });
+    }
+    catch (err) {
+        console.error('adminSetDuolingoCourseCommitment error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to update course commitment.' });
+    }
+}
 /**
  * GET /api/admin/managers - List all current managers
  */
@@ -3593,11 +4301,19 @@ async function updateManagerEmailAdmin(req, res) {
  */
 async function sendAdminMessage(req, res) {
     try {
-        const { recipientUserId, title, message, channel } = req.body;
-        if (!recipientUserId || !title || !message || !channel) {
+        const { recipientUserId, recipientUserIds, sendToAll, title, message, channel } = req.body;
+        const isBroadcast = sendToAll === true || recipientUserId === 'ALL';
+        const isMultiple = Array.isArray(recipientUserIds) && recipientUserIds.length > 0;
+        if (!isBroadcast && !isMultiple && !recipientUserId) {
             return res.status(400).json({
                 success: false,
-                error: 'recipientUserId, title, message, and channel are required.',
+                error: 'Recipient user(s) must be specified (recipientUserId, recipientUserIds, or sendToAll).',
+            });
+        }
+        if (!title || !message || !channel) {
+            return res.status(400).json({
+                success: false,
+                error: 'title, message, and channel are required.',
             });
         }
         const validChannels = ['IN_APP', 'EMAIL', 'BOTH'];
@@ -3605,6 +4321,35 @@ async function sendAdminMessage(req, res) {
             return res.status(400).json({
                 success: false,
                 error: 'Invalid delivery channel. Must be IN_APP, EMAIL, or BOTH.',
+            });
+        }
+        if (isBroadcast || isMultiple) {
+            const result = await (0, adminMessageService_1.sendAdminMessageToMultipleUsers)({
+                adminUsername: req.admin.username,
+                recipientUserIds: isMultiple ? recipientUserIds : undefined,
+                sendToAll: isBroadcast,
+                title,
+                message,
+                channel,
+            });
+            await recordAuditLog({
+                adminUsername: req.admin.username,
+                action: 'ADMIN_SEND_MESSAGE',
+                targetUserId: isBroadcast ? 'ALL' : recipientUserIds.join(','),
+                targetUser: isBroadcast ? 'ALL_USERS' : `MULTIPLE_USERS (${result.count})`,
+                reason: `Admin broadcast sent via ${channel} to ${result.count} users`,
+                afterState: {
+                    channel,
+                    count: result.count,
+                    inAppStatus: result.delivery.inAppStatus,
+                    emailStatus: result.delivery.emailStatus,
+                },
+            });
+            return res.status(201).json({
+                success: true,
+                message: `Administrative message sent to ${result.count} user(s).`,
+                count: result.count,
+                delivery: result.delivery,
             });
         }
         const logRecord = await (0, adminMessageService_1.sendAdminMessageToUser)({
@@ -3630,6 +4375,7 @@ async function sendAdminMessage(req, res) {
             success: true,
             message: 'Administrative message processed.',
             delivery: logRecord,
+            count: 1,
         });
     }
     catch (err) {
@@ -5141,50 +5887,135 @@ async function adminReconcileStreaks(req, res) {
     }
 }
 /**
- * GET /api/admin/system/announcement
- * Fetch platform announcement config
+ * GET /api/admin/system/announcement (and /system/announcements)
+ * Fetch platform announcement history logs and current config
  */
 async function adminGetAnnouncement(req, res) {
     try {
-        const announcement = (0, announcementService_1.getPlatformAnnouncement)();
-        return res.json({ success: true, announcement });
+        const announcements = await (0, announcementService_1.getAllPlatformAnnouncements)();
+        const active = announcements.filter((a) => a.active);
+        return res.json({
+            success: true,
+            announcements,
+            announcement: active[0] || announcements[0] || null,
+        });
     }
     catch (err) {
-        return res.status(500).json({ success: false, error: 'Failed to retrieve announcement.' });
+        return res.status(500).json({ success: false, error: 'Failed to retrieve announcements.' });
     }
 }
 /**
- * POST /api/admin/system/announcement
- * Update platform announcement broadcast banner
+ * POST /api/admin/system/announcement (and /system/announcements)
+ * Create or update platform announcement broadcast
  */
 async function adminUpdateAnnouncement(req, res) {
     try {
-        const { active, message, type, link, linkText, dismissible } = req.body;
-        const current = (0, announcementService_1.getPlatformAnnouncement)();
-        const updated = (0, announcementService_1.updatePlatformAnnouncement)({
-            active: typeof active === 'boolean' ? active : current.active,
-            message: typeof message === 'string' ? message : current.message,
-            type: type || current.type,
-            link: typeof link === 'string' ? link : current.link,
-            linkText: typeof linkText === 'string' ? linkText : current.linkText,
-            dismissible: typeof dismissible === 'boolean' ? dismissible : current.dismissible,
-        });
+        const { id, active, message, type, link, linkText, dismissible } = req.body;
+        if (!message || typeof message !== 'string' || !message.trim()) {
+            return res.status(400).json({ success: false, error: 'Announcement message is required.' });
+        }
+        const isNew = !id || id === 'default' || id === 'default-announcement';
+        let updated;
+        if (isNew) {
+            updated = await (0, announcementService_1.createPlatformAnnouncement)({
+                active: typeof active === 'boolean' ? active : true,
+                message: message.trim(),
+                type: type || 'info',
+                link: typeof link === 'string' ? link.trim() : undefined,
+                linkText: typeof linkText === 'string' ? linkText.trim() : undefined,
+                dismissible: typeof dismissible === 'boolean' ? dismissible : true,
+            });
+        }
+        else {
+            updated = await (0, announcementService_1.updatePlatformAnnouncement)({
+                id,
+                active: typeof active === 'boolean' ? active : true,
+                message: message.trim(),
+                type: type || 'info',
+                link: typeof link === 'string' ? link.trim() : undefined,
+                linkText: typeof linkText === 'string' ? linkText.trim() : undefined,
+                dismissible: typeof dismissible === 'boolean' ? dismissible : true,
+            });
+        }
         await recordAuditLog({
             adminUsername: req.admin.username,
-            action: 'SYSTEM_ANNOUNCEMENT_UPDATE',
-            reason: 'Updated platform broadcast announcement banner',
-            beforeState: current,
+            action: isNew ? 'SYSTEM_ANNOUNCEMENT_CREATE' : 'SYSTEM_ANNOUNCEMENT_UPDATE',
+            reason: `Published platform broadcast announcement: ${updated.id}`,
             afterState: updated,
         });
+        const all = await (0, announcementService_1.getAllPlatformAnnouncements)();
         return res.json({
             success: true,
-            message: 'Platform announcement updated successfully.',
+            message: 'Platform announcement broadcast published successfully.',
             announcement: updated,
+            announcements: all,
         });
     }
     catch (err) {
         console.error('adminUpdateAnnouncement error:', err);
-        return res.status(500).json({ success: false, error: 'Failed to update announcement.' });
+        return res.status(500).json({ success: false, error: 'Failed to save announcement.' });
+    }
+}
+/**
+ * DELETE /api/admin/system/announcements/:id
+ * Delete an announcement permanently so no future users will see it
+ */
+async function adminDeleteAnnouncement(req, res) {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            return res.status(400).json({ success: false, error: 'Announcement ID is required.' });
+        }
+        await (0, announcementService_1.deletePlatformAnnouncement)(id);
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'SYSTEM_ANNOUNCEMENT_DELETE',
+            reason: `Permanently deleted announcement: ${id}`,
+        });
+        const all = await (0, announcementService_1.getAllPlatformAnnouncements)();
+        return res.json({
+            success: true,
+            message: 'Announcement deleted successfully. Users will no longer see it.',
+            announcements: all,
+        });
+    }
+    catch (err) {
+        console.error('adminDeleteAnnouncement error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to delete announcement.' });
+    }
+}
+/**
+ * PATCH /api/admin/system/announcements/:id/toggle
+ * Toggle active status of an announcement
+ */
+async function adminToggleAnnouncement(req, res) {
+    try {
+        const { id } = req.params;
+        const { active } = req.body;
+        if (!id) {
+            return res.status(400).json({ success: false, error: 'Announcement ID is required.' });
+        }
+        const updated = await (0, announcementService_1.togglePlatformAnnouncement)(id, active);
+        if (!updated) {
+            return res.status(404).json({ success: false, error: 'Announcement not found.' });
+        }
+        await recordAuditLog({
+            adminUsername: req.admin.username,
+            action: 'SYSTEM_ANNOUNCEMENT_TOGGLE',
+            reason: `Toggled announcement ${id} active=${updated.active}`,
+            afterState: updated,
+        });
+        const all = await (0, announcementService_1.getAllPlatformAnnouncements)();
+        return res.json({
+            success: true,
+            message: `Announcement ${updated.active ? 'activated' : 'deactivated'} successfully.`,
+            announcement: updated,
+            announcements: all,
+        });
+    }
+    catch (err) {
+        console.error('adminToggleAnnouncement error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to toggle announcement.' });
     }
 }
 /**

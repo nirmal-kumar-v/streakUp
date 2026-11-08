@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const groupController_1 = require("../controllers/groupController");
 const linkedInGameController_1 = require("../controllers/linkedInGameController");
+const duolingoController_1 = require("../controllers/duolingoController");
 const authMiddleware_1 = require("../middleware/authMiddleware");
 const router = (0, express_1.Router)();
 router.use(authMiddleware_1.requireAuth);
@@ -39,6 +40,16 @@ router.post('/:id/linkedin-games/:gameId/complete', linkedInGameController_1.com
 router.post('/:id/linkedin-games/:gameId/uncomplete', linkedInGameController_1.uncompleteLinkedInGame);
 router.put('/:id/linkedin-games/:gameId/commitment', linkedInGameController_1.setLinkedInGameCommitment);
 router.get('/:id/linkedin-games/:gameId/leaderboard', linkedInGameController_1.getLinkedInGameLeaderboard);
+// Duolingo Special Group Hub
+router.get('/:id/duolingo/courses', duolingoController_1.getDuolingoCourses);
+router.get('/:id/duolingo/dashboard-streak', duolingoController_1.getDuolingoDashboardStreakEndpoint);
+router.post('/:id/duolingo/commit', duolingoController_1.commitDuolingoCourse);
+router.post('/:id/duolingo/uncommit', duolingoController_1.uncommitDuolingoCourse);
+router.post('/:id/duolingo/complete-all', duolingoController_1.completeAllDuolingoCourses);
+router.post('/:id/duolingo/uncomplete-all', duolingoController_1.uncompleteAllDuolingoCourses);
+router.post('/:id/duolingo/courses/:courseId/complete', duolingoController_1.completeDuolingoCourse);
+router.post('/:id/duolingo/courses/:courseId/uncomplete', duolingoController_1.uncompleteDuolingoCourse);
+router.get('/:id/duolingo/leaderboard/:courseId', duolingoController_1.getDuolingoCourseLeaderboard);
 router.post('/:id/members/:targetUserId/promote', groupController_1.promoteMemberToAdmin);
 router.delete('/:id/members/:targetUserId', groupController_1.removeMemberFromGroup);
 router.post('/:id/leave', groupController_1.leaveGroup);

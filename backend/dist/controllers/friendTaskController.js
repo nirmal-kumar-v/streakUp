@@ -334,87 +334,51 @@ async function getTaskFriendsLeaderboard(req, res) {
         }
         const cacheKey = `task:friends_lb:${id}:${userId}`;
         const result = await cacheService_1.default.swr(cacheKey, async () => {
-            // Cohort for comparison: task owner + their accepted friends
-            const targetUserId = baseTask.userId;
-            const friendIds = await getAcceptedFriendUserIds(targetUserId);
-            const cohortUserIds = Array.from(new Set([targetUserId, ...friendIds]));
-            // Fetch confirmed and rejected mappings for this task
-            const equivalences = await prisma_1.default.taskEquivalence.findMany({
-                where: {
-                    OR: [
-                        { userTaskId: id },
-                        { friendTaskId: id }
-                    ]
-                }
-            });
-            const confirmedTaskIds = new Set();
-            const rejectedTaskIds = new Set();
-            for (const eq of equivalences) {
-                const otherTaskId = eq.userTaskId === id ? eq.friendTaskId : eq.userTaskId;
-                if (eq.status === 'CONFIRMED')
-                    confirmedTaskIds.add(otherTaskId);
-                if (eq.status === 'REJECTED')
-                    rejectedTaskIds.add(otherTaskId);
-            }
-            // Fetch active recurring tasks of friends
-            const rawFriendTasks = await prisma_1.default.task.findMany({
-                where: {
-                    userId: { in: friendIds },
-                    status: 'ACTIVE',
-                    recurrence: 'DAILY'
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            name: true,
-                            username: true,
-                            profileImage: true,
-                            timezone: true
-                        }
-                    }
-                }
-            });
-            const friendTasks = rawFriendTasks.filter(t => (0, taskPrivacy_1.isTaskVisibleToUser)(t, viewer));
-            const matchingTasks = [];
-            const suggestedMatches = [];
-            for (const fTask of friendTasks) {
-                if (rejectedTaskIds.has(fTask.id))
-                    continue;
-                // Special activity guard: Do not cross-match DAILY with POTD
-                if (baseTask.specialActivity && fTask.specialActivity && baseTask.specialActivity !== fTask.specialActivity) {
-                    continue;
-                }
-                if (baseTask.isGroupTask && fTask.isGroupTask && baseTask.groupId === fTask.groupId && baseTask.specialActivity !== fTask.specialActivity) {
-                    continue;
-                }
-                if (confirmedTaskIds.has(fTask.id)) {
-                    matchingTasks.push({ task: fTask, confidence: 1.0, isConfirmed: true });
-                    continue;
-                }
-                const matchResult = (0, fuzzyMatchService_1.compareTaskTitles)(baseTask.title, fTask.title);
-                if (matchResult.isHighConfidence) {
-                    matchingTasks.push({ task: fTask, confidence: matchResult.confidence, isConfirmed: false });
-                }
-                else if (matchResult.isModerateConfidence) {
-                    suggestedMatches.push({
-                        taskId: fTask.id,
-                        title: fTask.title,
-                        user: fTask.user,
-                        confidence: matchResult.confidence,
-                        reason: matchResult.reason
-                    });
-                }
-            }
-            // Include the base task itself in the leaderboard cohort
-            const allParticipants = [
-                {
-                    task: baseTask,
+            let allParticipants = [];
+            if (baseTask.groupId) {
+                // Group task: ONLY accepted members of this exact group who have this task assigned
+                const acceptedMembers = await prisma_1.default.groupMember.findMany({
+                    where: { groupId: baseTask.groupId },
+                    select: { userId: true },
+                });
+                const memberUserIds = acceptedMembers.map((m) => m.userId);
+                const groupTasks = await prisma_1.default.task.findMany({
+                    where: {
+                        groupId: baseTask.groupId,
+                        userId: { in: memberUserIds },
+                        status: 'ACTIVE',
+                        ...(baseTask.specialActivity ? { specialActivity: baseTask.specialActivity } : {}),
+                    },
+                    include: {
+                        user: {
+                            select: {
+                                id: true,
+                                name: true,
+                                username: true,
+                                profileImage: true,
+                                timezone: true,
+                            },
+                        },
+                    },
+                });
+                const visibleGroupTasks = groupTasks.filter((t) => (0, taskPrivacy_1.isTaskVisibleToUser)(t, viewer));
+                allParticipants = visibleGroupTasks.map((t) => ({
+                    task: t,
                     confidence: 1.0,
-                    isConfirmed: true
-                },
-                ...matchingTasks
-            ];
+                    isConfirmed: true,
+                }));
+            }
+            else {
+                // Personal task: Strictly isolated. No fuzzy matching, no "similar tasks".
+                // Only the task owner is in their own task cohort.
+                allParticipants = [
+                    {
+                        task: baseTask,
+                        confidence: 1.0,
+                        isConfirmed: true,
+                    },
+                ];
+            }
             // Build leaderboard entries with today's status and study notes
             const entries = await Promise.all(allParticipants.map(async (p) => {
                 const t = p.task;
@@ -459,7 +423,7 @@ async function getTaskFriendsLeaderboard(req, res) {
                 success: true,
                 taskTitle: baseTask.title,
                 leaderboard: rankedLeaderboard,
-                suggestedMatches: isOwner ? suggestedMatches : [] // only owner sees suggestions to confirm
+                suggestedMatches: [],
             };
         }, {
             freshTtlMs: 30 * 1000,

@@ -106,7 +106,13 @@ app.get('/announcement', async (_req: Request, res: Response) => {
 app.get('/api/health', handleHealth);
 app.get('/health', handleHealth);
 app.get('/api', handleHealth);
-app.get('/', handleHealth);
+app.get('/', (req: Request, res: Response) => {
+  // If visited via a browser or Android WebView requesting HTML, redirect smoothly to frontend
+  if (req.accepts('html')) {
+    return res.redirect(302, 'https://streakup-karo.vercel.app');
+  }
+  return handleHealth(req, res);
+});
 
 // Cron / Automated Reminders Trigger (accessible via GET/POST on both /api/cron/reminders and /cron/reminders)
 const handleCronReminders = async (_req: Request, res: Response) => {
@@ -153,6 +159,10 @@ app.use('/requests', userRequestRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
+  // If visited via browser/webview expecting a web page, redirect to frontend SPA
+  if (req.accepts('html')) {
+    return res.redirect(302, 'https://streakup-karo.vercel.app' + req.originalUrl);
+  }
   res.status(404).json({
     success: false,
     error: `API route not found: ${req.method} ${req.originalUrl}`

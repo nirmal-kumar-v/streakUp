@@ -761,12 +761,12 @@ async function getMe(req, res) {
         let longestStreak = user.longestStreak;
         if (user.currentStreak > 0) {
             try {
-                const refreshed = await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, user.timezone);
+                const refreshed = await (0, streakService_1.ensureUserStreakCurrent)(prisma_1.default, user);
                 currentStreak = refreshed.currentStreak;
                 longestStreak = refreshed.longestStreak;
             }
             catch (e) {
-                console.error('getMe recalculateUserStreaks error:', e);
+                console.error('getMe ensureUserStreakCurrent error:', e);
             }
         }
         const safeUser = {

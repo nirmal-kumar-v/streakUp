@@ -4,5 +4,53 @@
     "reminderLimit": 5,
     "discoverGroupsLimit": 2,
     "profileImageLimitMb": 6
+  },
+  "user-duo-1-1794155740158": {
+    "duolingoCourseLimit": 8
+  },
+  "test-quota-user-1794155748354": {
+    "reminderLimit": 10,
+    "activeTaskLimit": 25,
+    "archivedTaskLimit": 12,
+    "taskReminderLimit": 4,
+    "discoverGroupsLimit": 25,
+    "profileImageLimitMb": 15
+  },
+  "test-friend-user-1794155752116": {
+    "friendLimit": 1
+  },
+  "user-duo-1-1794159090513": {
+    "duolingoCourseLimit": 8
+  },
+  "test-quota-user-1794159099153": {
+    "reminderLimit": 10,
+    "activeTaskLimit": 25,
+    "archivedTaskLimit": 12,
+    "taskReminderLimit": 4,
+    "discoverGroupsLimit": 25,
+    "profileImageLimitMb": 15
+  },
+  "test-friend-user-1794159102027": {
+    "friendLimit": 1
+  },
+  "user-duo-1-1794160596385": {
+    "duolingoCourseLimit": 8
+  },
+  "test-quota-user-1794160610855": {
+    "reminderLimit": 10,
+    "activeTaskLimit": 25,
+    "archivedTaskLimit": 12,
+    "taskReminderLimit": 4,
+    "discoverGroupsLimit": 25,
+    "profileImageLimitMb": 15
+  },
+  "test-friend-user-1794160613718": {
+    "friendLimit": 1
+  },
+  "user-duo-1-1794162101325": {
+    "duolingoCourseLimit": 8
+  },
+  "test-friend-user-1794162119200": {
+    "friendLimit": 1
   }
 }

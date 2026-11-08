@@ -10,4 +10,4 @@ Disallow: /notifications
 Disallow: /streakup-karo/
 
 # Sitemap
-Sitemap: https://streak-up-karo.vercel.app/sitemap.xml
+Sitemap: https://streakup-karo.vercel.app/sitemap.xml

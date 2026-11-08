@@ -48,6 +48,7 @@ exports.nudgeFriend = nudgeFriend;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const timezoneService_1 = require("../services/timezoneService");
 const streakService_1 = require("../services/streakService");
+const adminConfigService_1 = require("../services/adminConfigService");
 /**
  * Helper to ensure canonical ordering for Friendship table
  */
@@ -151,6 +152,28 @@ async function sendFriendRequest(req, res) {
         });
         if (!targetUser) {
             return res.status(404).json({ success: false, error: 'Target user does not exist.' });
+        }
+        // Enforce sender friend limit (default 15)
+        const senderLimit = (0, adminConfigService_1.getUserFriendLimit)(senderId);
+        const senderFriendCount = await prisma_1.default.friendship.count({
+            where: { OR: [{ user1Id: senderId }, { user2Id: senderId }] }
+        });
+        if (senderFriendCount >= senderLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `You have reached your maximum friend connection limit (max ${senderLimit} friends).`
+            });
+        }
+        // Enforce target user friend limit
+        const targetLimit = (0, adminConfigService_1.getUserFriendLimit)(targetUserId);
+        const targetFriendCount = await prisma_1.default.friendship.count({
+            where: { OR: [{ user1Id: targetUserId }, { user2Id: targetUserId }] }
+        });
+        if (targetFriendCount >= targetLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `@${targetUser.username} has reached their maximum friend connection limit.`
+            });
         }
         // Check if already friends
         const [u1, u2] = getCanonicalPair(senderId, targetUserId);
@@ -299,6 +322,28 @@ async function acceptFriendRequest(req, res) {
         });
         if (!request || request.receiverId !== userId || request.status !== 'PENDING') {
             return res.status(404).json({ success: false, error: 'Friend request not found or already handled.' });
+        }
+        // Enforce receiver friend limit
+        const myLimit = (0, adminConfigService_1.getUserFriendLimit)(userId);
+        const myFriendCount = await prisma_1.default.friendship.count({
+            where: { OR: [{ user1Id: userId }, { user2Id: userId }] }
+        });
+        if (myFriendCount >= myLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `You have reached your maximum friend connection limit (max ${myLimit} friends).`
+            });
+        }
+        // Enforce sender friend limit
+        const senderLimit = (0, adminConfigService_1.getUserFriendLimit)(request.senderId);
+        const senderFriendCount = await prisma_1.default.friendship.count({
+            where: { OR: [{ user1Id: request.senderId }, { user2Id: request.senderId }] }
+        });
+        if (senderFriendCount >= senderLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `The sender has reached their maximum friend connection limit.`
+            });
         }
         const [u1, u2] = getCanonicalPair(request.senderId, request.receiverId);
         // Update request status and insert friendship in a transaction

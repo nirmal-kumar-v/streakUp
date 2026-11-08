@@ -68,6 +68,7 @@ const timezoneService_1 = require("../services/timezoneService");
 const taskPrivacy_1 = require("../utils/taskPrivacy");
 const adminConfigService_1 = require("../services/adminConfigService");
 const linkedInGameService_1 = require("../services/linkedInGameService");
+const duolingoService_1 = require("../services/duolingoService");
 const specialGroupRegistry_1 = require("../services/specialGroupRegistry");
 const specialGroupService_1 = require("../services/specialGroupService");
 const streakService_1 = require("../services/streakService");
@@ -162,6 +163,18 @@ async function createGroup(req, res) {
             });
         }
         const { name, description, scheduledDays, enableSpecialFeatures } = parseResult.data;
+        // Enforce active quota limit (tasks + groups combined, default 10)
+        const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+            prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+            prisma_1.default.groupMember.count({ where: { userId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= activeLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to create a new group.`,
+            });
+        }
         const detectedPlatform = (0, specialGroupRegistry_1.detectSpecialPlatform)(name);
         const shouldEnableSpecial = enableSpecialFeatures !== false && detectedPlatform !== null;
         const specialPlatform = shouldEnableSpecial ? detectedPlatform : null;
@@ -189,7 +202,7 @@ async function createGroup(req, res) {
                 },
             });
             // 3. Assign tasks
-            if (shouldEnableSpecial && specialPlatform !== 'LINKEDIN') {
+            if (shouldEnableSpecial && specialPlatform !== 'LINKEDIN' && specialPlatform !== 'DUOLINGO') {
                 const platformDef = (0, specialGroupRegistry_1.getSpecialGroupDefinition)(specialPlatform);
                 const dailyDef = platformDef?.activities.find((a) => a.id === 'daily') || platformDef?.activities[0];
                 const potdDef = platformDef?.activities.find((a) => a.id === 'potd') || platformDef?.activities[1];
@@ -402,6 +415,18 @@ async function requestToJoinGroup(req, res) {
         if (!group) {
             return res.status(404).json({ success: false, error: 'Group not found.' });
         }
+        // Enforce active quota limit (tasks + groups combined, default 10)
+        const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+            prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+            prisma_1.default.groupMember.count({ where: { userId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= activeLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to join a new group.`,
+            });
+        }
         // Check if already an accepted member
         const existingMember = await prisma_1.default.groupMember.findUnique({
             where: { groupId_userId: { groupId: group.id, userId } },
@@ -571,6 +596,18 @@ async function respondToJoinRequest(req, res) {
         // Action is ACCEPT: Add member & automatically assign the shared group task
         const applicantUserId = joinRequest.userId;
         const group = joinRequest.group;
+        // Enforce applicant active quota limit
+        const applicantActiveLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(applicantUserId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+            prisma_1.default.task.count({ where: { userId: applicantUserId, status: 'ACTIVE', groupId: null } }),
+            prisma_1.default.groupMember.count({ where: { userId: applicantUserId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= applicantActiveLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `User has reached their active quota limit (max ${applicantActiveLimit} combined tasks and groups). They cannot join until they free up quota.`,
+            });
+        }
         await prisma_1.default.$transaction(async (tx) => {
             // 1. Update request status to ACCEPTED
             await tx.groupJoinRequest.update({
@@ -590,7 +627,7 @@ async function respondToJoinRequest(req, res) {
                 },
             });
             // 3. Automatically assign shared group task if not already assigned
-            if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+            if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
                 // Will ensure special tasks for the member
             }
             else {
@@ -621,7 +658,7 @@ async function respondToJoinRequest(req, res) {
                 }
             }
         });
-        if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+        if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
             await (0, specialGroupService_1.ensureSpecialGroupMemberTasks)(group.id, applicantUserId);
         }
         cacheService_1.default.invalidateGroup(id);
@@ -687,10 +724,14 @@ async function getUserGroups(req, res) {
                     tasksByGroupMap.set(t.groupId, arr);
                 }
             });
-            const groups = memberships.map((m) => {
+            const groups = await Promise.all(memberships.map(async (m) => {
                 const pendingRequestsCount = pendingRequestsMap.get(m.group.id) || 0;
                 const streaks = tasksByGroupMap.get(m.group.id) || [];
-                const currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+                let currentStreak = streaks.length > 0 ? Math.max(...streaks) : 0;
+                if (m.group.specialPlatform === 'DUOLINGO' || (0, duolingoService_1.isDuolingoName)(m.group.name)) {
+                    const dStreak = await (0, duolingoService_1.getDuolingoDashboardStreak)(m.group.id, userId, req.user?.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                    currentStreak = dStreak.currentStreak;
+                }
                 return {
                     id: m.group.id,
                     name: m.group.name,
@@ -704,12 +745,12 @@ async function getUserGroups(req, res) {
                     memberCount: m.group._count.members,
                     pendingRequestsCount,
                     currentStreak,
-                    isSpecialGroup: m.group.isSpecialGroup,
-                    specialPlatform: m.group.specialPlatform,
+                    isSpecialGroup: m.group.isSpecialGroup || (0, duolingoService_1.isDuolingoName)(m.group.name),
+                    specialPlatform: m.group.specialPlatform || ((0, duolingoService_1.isDuolingoName)(m.group.name) ? 'DUOLINGO' : null),
                     isPotdCommitted: m.isPotdCommitted,
                     joinedAt: m.joinedAt,
                 };
-            });
+            }));
             return {
                 success: true,
                 groups,
@@ -893,8 +934,12 @@ async function getGroupDetails(req, res) {
             });
             // Fetch special group view if applicable
             let specialGroupView = null;
-            if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+            if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
                 specialGroupView = await (0, specialGroupService_1.getSpecialGroupActivitiesForMember)(id, userId, timezone);
+            }
+            let duolingoSummary = null;
+            if (group.specialPlatform === 'DUOLINGO' || (0, duolingoService_1.isDuolingoName)(group.name)) {
+                duolingoSummary = await (0, duolingoService_1.getDuolingoDashboardStreak)(id, userId, timezone);
             }
             return {
                 success: true,
@@ -914,10 +959,11 @@ async function getGroupDetails(req, res) {
                     memberHiddenFrom: membership.hiddenFrom || [],
                     pendingRequestsCount,
                     hasActiveDashboardTask: !!userTask && userTask.status === 'ACTIVE',
-                    isSpecialGroup: group.isSpecialGroup,
-                    specialPlatform: group.specialPlatform,
+                    isSpecialGroup: group.isSpecialGroup || (duolingoSummary !== null),
+                    specialPlatform: group.specialPlatform || (duolingoSummary !== null ? 'DUOLINGO' : null),
                     isPotdCommitted: membership.isPotdCommitted,
                     specialGroupView,
+                    duolingoSummary,
                     createdAt: group.createdAt,
                     userTask: userTask
                         ? {
@@ -981,7 +1027,8 @@ async function getGroupLeaderboards(req, res) {
         if (!group) {
             return res.status(404).json({ success: false, error: 'Group not found.' });
         }
-        const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN');
+        const isSpecialGroup = Boolean(group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO');
+        const isDuolingo = Boolean(group.specialPlatform === 'DUOLINGO' || (0, duolingoService_1.isDuolingoName)(group.name));
         const activityFilter = (req.query.activity || 'overall').toLowerCase(); // 'overall' | 'daily' | 'potd'
         const cacheKey = `group:lb:${id}:${type}:${activityFilter}:${userId}`;
         const result = await cacheService_1.default.swr(cacheKey, async () => {
@@ -1074,6 +1121,12 @@ async function getGroupLeaderboards(req, res) {
                     const liStats = await (0, linkedInGameService_1.getLinkedInDashboardStreak)(id, m.user.id, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
                     currentStreak = liStats.currentStreak;
                     longestStreak = liStats.longestStreak;
+                }
+                else if (isDuolingo) {
+                    // Duolingo group: highest current streak of any committed course
+                    const duoStats = await (0, duolingoService_1.getDuolingoDashboardStreak)(id, m.user.id, m.user.timezone || timezoneService_1.DEFAULT_TIMEZONE);
+                    currentStreak = duoStats.currentStreak;
+                    longestStreak = duoStats.longestStreak;
                 }
                 else if (isSpecialGroup) {
                     const dailyTask = taskMap.get(`${m.user.id}_DAILY`);
@@ -1856,6 +1909,18 @@ async function respondToGroupInvitation(req, res) {
                 message: 'Group invitation declined.',
             });
         }
+        // Action is ACCEPT: enforce active quota limit (tasks + groups combined, default 10)
+        const activeLimit = (0, adminConfigService_1.getUserActiveTaskLimit)(userId);
+        const [activePersonalTasks, joinedGroups] = await Promise.all([
+            prisma_1.default.task.count({ where: { userId, status: 'ACTIVE', groupId: null } }),
+            prisma_1.default.groupMember.count({ where: { userId } }),
+        ]);
+        if (activePersonalTasks + joinedGroups >= activeLimit) {
+            return res.status(400).json({
+                success: false,
+                error: `Active quota limit reached (max ${activeLimit} combined tasks and groups). Archive, delete, or leave an existing task or group to accept this invitation.`,
+            });
+        }
         // Check if inviter is the owner or an admin
         const inviterMembership = await prisma_1.default.groupMember.findUnique({
             where: { groupId_userId: { groupId: group.id, userId: invitation.inviterId } },
@@ -1964,7 +2029,7 @@ async function respondToGroupInvitation(req, res) {
                 });
             }
         });
-        if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN') {
+        if (group.isSpecialGroup && group.specialPlatform && group.specialPlatform !== 'LINKEDIN' && group.specialPlatform !== 'DUOLINGO') {
             await (0, specialGroupService_1.ensureSpecialGroupMemberTasks)(group.id, userId);
         }
         cacheService_1.default.invalidateGroup(group.id);

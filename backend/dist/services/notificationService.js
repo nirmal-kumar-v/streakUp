@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.emailDispatcher = void 0;
 exports.isQualifyingMilestone = isQualifyingMilestone;
 exports.getOrCreateNotificationPreferences = getOrCreateNotificationPreferences;
 exports.createNotification = createNotification;
@@ -12,8 +13,10 @@ const prisma_1 = __importDefault(require("../config/prisma"));
 const cacheService_1 = __importDefault(require("../utils/cacheService"));
 const client_1 = require("@prisma/client");
 const timezoneService_1 = require("./timezoneService");
-const fuzzyMatchService_1 = require("./fuzzyMatchService");
 const emailService_1 = require("./emailService");
+exports.emailDispatcher = {
+    sendEmail: (opts) => (0, emailService_1.sendEmail)(opts),
+};
 // Milestone schedule required by Section 10:
 // 5, 10, 25, 50, 100, and every additional 50 days after 100 (150, 200, 250, 300...)
 function isQualifyingMilestone(streak) {
@@ -40,17 +43,17 @@ async function getOrCreateNotificationPreferences(userId) {
                 inAppNotificationsEnabled: true,
                 overallStreakRemindersEmail: true,
                 overallStreakRemindersInApp: true,
-                taskRemindersEmail: true,
+                taskRemindersEmail: false,
                 taskRemindersInApp: true,
                 friendOverallActivityAlerts: true,
                 friendOverallActivityInApp: true,
                 friendTaskActivityAlerts: true,
                 friendTaskActivityInApp: true,
-                friendOverallMilestones: true,
+                friendOverallMilestones: false,
                 friendOverallMilestonesInApp: true,
-                friendTaskMilestones: true,
+                friendTaskMilestones: false,
                 friendTaskMilestonesInApp: true,
-                myMilestonesEmail: true,
+                myMilestonesEmail: false,
                 myMilestonesInApp: true,
                 freezeStatusNotifications: true,
                 freezeStatusInApp: true,
@@ -157,7 +160,7 @@ async function createNotification(params) {
         }
         const emailIdempotencyKey = params.emailIdempotencyKey ||
             (eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`);
-        await (0, emailService_1.sendEmail)({
+        await exports.emailDispatcher.sendEmail({
             userId,
             recipientEmail: destinationEmail,
             category,
@@ -252,35 +255,42 @@ async function checkAndTriggerMilestones(params) {
             });
         }
         else {
-            // Task milestone: check if friend has a matching task or is authorized
-            const friendTasks = await prisma_1.default.task.findMany({
-                where: {
-                    userId: friend.id,
-                    recurrence: 'DAILY',
-                    status: 'ACTIVE',
-                },
+            // Task milestone: Only notify friends if this is a shared group task
+            const task = await prisma_1.default.task.findUnique({
+                where: { id: scopeId },
+                select: { groupId: true, title: true, specialActivity: true },
             });
-            const match = (0, fuzzyMatchService_1.findBestMatchingTask)(taskTitle || '', friendTasks);
-            // Only notify friends who share this matching habit/activity
-            if (match.match && match.confidence >= 0.6) {
-                const friendEmail = (0, emailService_1.buildTaskMilestoneEmail)({
-                    friendName: user.name,
-                    taskTitle: taskTitle || 'task',
-                    milestone: currentStreak,
+            if (task?.groupId) {
+                // Friend must be an accepted member of the SAME group and share this task
+                const friendGroupTask = await prisma_1.default.task.findFirst({
+                    where: {
+                        userId: friend.id,
+                        groupId: task.groupId,
+                        status: 'ACTIVE',
+                        ...(task.specialActivity ? { specialActivity: task.specialActivity } : {}),
+                    },
                 });
-                await createNotification({
-                    userId: friend.id,
-                    category: client_1.NotificationCategory.FRIEND_TASK_MILESTONE,
-                    title: `🎯 ${user.name} reached ${currentStreak} days on ${taskTitle}!`,
-                    message: `Your friend ${user.name} achieved a ${currentStreak}-day streak on their matching ${taskTitle} task!`,
-                    friendId: user.id,
-                    taskId: match.match.id,
-                    actionUrl: `/friends/tasks`,
-                    eventKey: `MILESTONE:FRIEND_TASK:${user.id}:${friend.id}:${scopeId}:${currentStreak}`,
-                    emailSubject: friendEmail.subject,
-                    emailText: friendEmail.text,
-                });
+                if (friendGroupTask) {
+                    const friendEmail = (0, emailService_1.buildTaskMilestoneEmail)({
+                        friendName: user.name,
+                        taskTitle: taskTitle || task.title || 'task',
+                        milestone: currentStreak,
+                    });
+                    await createNotification({
+                        userId: friend.id,
+                        category: client_1.NotificationCategory.FRIEND_TASK_MILESTONE,
+                        title: `🎯 ${user.name} reached ${currentStreak} days on ${taskTitle || task.title}!`,
+                        message: `Your friend ${user.name} achieved a ${currentStreak}-day streak on the shared group task ${taskTitle || task.title}!`,
+                        friendId: user.id,
+                        taskId: friendGroupTask.id,
+                        actionUrl: `/groups/${task.groupId}`,
+                        eventKey: `MILESTONE:FRIEND_TASK:${user.id}:${friend.id}:${scopeId}:${currentStreak}`,
+                        emailSubject: friendEmail.subject,
+                        emailText: friendEmail.text,
+                    });
+                }
             }
+            // Note: Personal tasks are strictly private and do not dispatch friend task milestone alerts.
         }
     }
 }
@@ -426,70 +436,9 @@ async function checkAndTriggerFriendActivityAlerts(params) {
             }
         }
         else {
-            // Personal Task: Find matching tasks in friend's active daily habits
-            const friendTasks = await prisma_1.default.task.findMany({
-                where: {
-                    userId: friend.id,
-                    recurrence: 'DAILY',
-                    status: 'ACTIVE',
-                    groupId: null,
-                },
-                include: {
-                    completions: {
-                        where: { completionDate: friendToday },
-                    },
-                },
-            });
-            const match = (0, fuzzyMatchService_1.findBestMatchingTask)(completedTaskTitle, friendTasks);
-            if (match.match && match.confidence >= 0.6) {
-                const matchedTask = match.match;
-                // Has the friend completed their matching task today?
-                const friendCompletedMatchingTask = matchedTask.completions.length > 0;
-                if (!friendCompletedMatchingTask) {
-                    const taskEventKey = `FRIEND_TASK:${completedUserId}:${friend.id}:${matchedTask.id}:${friendToday}`;
-                    // Deduplicate: If multiple friends complete their matching task, only one email reminder per task per day
-                    const taskEmailKey = `EMAIL:FRIEND_TASK_REMINDER:${friend.id}:${matchedTask.id}:${friendToday}`;
-                    const alreadySentTaskMail = await prisma_1.default.emailDelivery.findFirst({
-                        where: {
-                            idempotencyKey: taskEmailKey,
-                            status: client_1.EmailDeliveryStatus.SENT,
-                        },
-                    });
-                    if (alreadySentTaskMail) {
-                        await createNotification({
-                            userId: friend.id,
-                            category: client_1.NotificationCategory.FRIEND_TASK_ACTIVITY,
-                            title: `${completedUser.name} completed ${completedTaskTitle}`,
-                            message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
-                            friendId: completedUser.id,
-                            taskId: matchedTask.id,
-                            actionUrl: `/dashboard`,
-                            eventKey: taskEventKey,
-                        });
-                    }
-                    else {
-                        const emailContent = (0, emailService_1.buildFriendTaskActivityEmail)({
-                            recipientName: friend.name,
-                            friendName: completedUser.name,
-                            taskTitle: matchedTask.title,
-                            studyNote: studyNote || undefined,
-                        });
-                        await createNotification({
-                            userId: friend.id,
-                            category: client_1.NotificationCategory.FRIEND_TASK_ACTIVITY,
-                            title: `${completedUser.name} completed ${completedTaskTitle}`,
-                            message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
-                            friendId: completedUser.id,
-                            taskId: matchedTask.id,
-                            actionUrl: `/dashboard`,
-                            eventKey: taskEventKey,
-                            emailSubject: emailContent.subject,
-                            emailText: emailContent.text,
-                            emailIdempotencyKey: taskEmailKey,
-                        });
-                    }
-                }
-            }
+            // Personal Task: Strictly isolated.
+            // No fuzzy matching across friend tasks, no "similar tasks".
+            // Friend overall activity alerts handle daily consistency celebration without cross-task confusion.
         }
     }
 }

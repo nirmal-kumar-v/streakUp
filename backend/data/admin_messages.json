@@ -1,6 +1,6 @@
 [
   {
-    "id": "816e5d27-3021-477d-a2f4-df78d60b90aa",
+    "id": "c11e8a0b-a51c-4e20-8fc6-8b1e4d266606",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -9,11 +9,12 @@
     "message": "This is an alert regarding your streak performance.",
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-25T04:11:12.149Z"
+    "emailStatus": "FAILED",
+    "deliveryNote": "SMTP service is not configured on server. Email could not be dispatched.",
+    "createdAt": "2026-11-08T18:20:57.560Z"
   },
   {
-    "id": "1d3c4d80-20ff-44f0-a8ac-94e0ab6bfb85",
+    "id": "b6f8237e-339b-458e-a4ab-0170b536f24c",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -23,10 +24,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-25T04:11:06.661Z"
+    "createdAt": "2026-11-08T18:20:56.448Z"
   },
   {
-    "id": "8559f736-0cff-4ba6-9189-1b05130df1a2",
+    "id": "a176fa8b-5dc9-4c7c-95ea-1a393d6dc06f",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -35,11 +36,12 @@
     "message": "This is an alert regarding your streak performance.",
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-25T04:10:29.622Z"
+    "emailStatus": "FAILED",
+    "deliveryNote": "SMTP service is not configured on server. Email could not be dispatched.",
+    "createdAt": "2026-11-08T17:56:36.117Z"
   },
   {
-    "id": "d47dafba-e7e2-4208-a05c-bfacf274f4ef",
+    "id": "3f2d2092-aebe-417b-8b3e-e0fd11ce9d4e",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -49,10 +51,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-25T04:10:22.054Z"
+    "createdAt": "2026-11-08T17:56:35.817Z"
   },
   {
-    "id": "b2982219-1ba1-45ff-88c2-be05e21f43dd",
+    "id": "8e30b1a6-e018-4787-bdb4-6ab22f9bec24",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -61,11 +63,12 @@
     "message": "This is an alert regarding your streak performance.",
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-25T03:58:36.589Z"
+    "emailStatus": "FAILED",
+    "deliveryNote": "SMTP service is not configured on server. Email could not be dispatched.",
+    "createdAt": "2026-11-08T17:31:14.087Z"
   },
   {
-    "id": "7fb9bf8a-65b2-427d-b3b1-4d021e051acc",
+    "id": "067816e7-e1c9-4897-9010-d83139a1db55",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -75,10 +78,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-25T03:58:30.461Z"
+    "createdAt": "2026-11-08T17:31:13.507Z"
   },
   {
-    "id": "a3b13df5-8f54-4af7-a4dd-aa947e3ab5f1",
+    "id": "da2b05e2-9fe1-43c0-b972-ba45a510a259",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -87,11 +90,12 @@
     "message": "This is an alert regarding your streak performance.",
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-24T14:32:50.087Z"
+    "emailStatus": "FAILED",
+    "deliveryNote": "SMTP service is not configured on server. Email could not be dispatched.",
+    "createdAt": "2026-11-08T16:35:08.936Z"
   },
   {
-    "id": "c2ee682d-6505-4791-a395-3133e607ec03",
+    "id": "2c6a359f-1e05-4b95-9074-be591d282d55",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -101,10 +105,10 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-24T14:32:40.564Z"
+    "createdAt": "2026-11-08T16:35:08.584Z"
   },
   {
-    "id": "e8f1e1a7-db45-4c36-88b2-ab07d71ccde4",
+    "id": "9d7debd4-3174-45f4-af09-16890775e38d",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -113,11 +117,12 @@
     "message": "This is an alert regarding your streak performance.",
     "channel": "EMAIL",
     "inAppStatus": "SKIPPED",
-    "emailStatus": "SENT",
-    "createdAt": "2026-10-23T02:30:45.093Z"
+    "emailStatus": "FAILED",
+    "deliveryNote": "SMTP service is not configured on server. Email could not be dispatched.",
+    "createdAt": "2026-11-08T14:52:58.666Z"
   },
   {
-    "id": "a3547391-2a68-4bd1-a44f-986fed6ece4f",
+    "id": "02daf7dc-4305-40e3-9062-93bc3778ae7d",
     "adminUsername": "admin",
     "recipientUserId": "test-req-user-1",
     "recipientUsername": "reqtester",
@@ -127,6 +132,6 @@
     "channel": "IN_APP",
     "inAppStatus": "SENT",
     "emailStatus": "SKIPPED",
-    "createdAt": "2026-10-23T02:30:37.763Z"
+    "createdAt": "2026-11-08T14:52:58.083Z"
   }
 ]
