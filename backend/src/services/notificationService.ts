@@ -18,6 +18,10 @@ import {
   buildFriendTaskActivityEmail,
 } from './emailService';
 
+export const emailDispatcher = {
+  sendEmail: (opts: Parameters<typeof sendEmail>[0]) => sendEmail(opts),
+};
+
 // Milestone schedule required by Section 10:
 // 5, 10, 25, 50, 100, and every additional 50 days after 100 (150, 200, 250, 300...)
 export function isQualifyingMilestone(streak: number): boolean {
@@ -203,7 +207,7 @@ export async function createNotification(params: CreateNotificationParams) {
       params.emailIdempotencyKey ||
       (eventKey ? `EMAIL:${eventKey}` : `EMAIL:${userId}:${Date.now()}`);
 
-    await sendEmail({
+    await emailDispatcher.sendEmail({
       userId,
       recipientEmail: destinationEmail,
       category,

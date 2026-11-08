@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../src/services/streakService';
-import { checkAndTriggerMilestones } from '../src/services/notificationService';
+import { checkAndTriggerMilestones, emailDispatcher } from '../src/services/notificationService';
 import { FreezeScope, NotificationCategory } from '@prisma/client';
 import { calculateOptimisticUserStreak } from '../../frontend/src/utils/streak';
 
@@ -158,7 +158,8 @@ describe('Admin Streak Correction & Account Tick Progression', () => {
       return { id: 'n-1', ...data } as any;
     });
     const findFriendshipSpy = vi.spyOn(prisma.friendship, 'findMany').mockResolvedValue([]);
-    const sendEmailSpy = vi.spyOn(emailModule, 'sendEmail').mockImplementation(async (opts: any) => {
+    const notifModule = await import('../src/services/notificationService');
+    const sendEmailSpy = vi.spyOn((notifModule.default as any)?.emailDispatcher || notifModule.emailDispatcher, 'sendEmail').mockImplementation(async (opts: any) => {
       capturedEmail = opts;
       return { success: true };
     });
