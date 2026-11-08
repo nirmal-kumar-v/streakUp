@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   fetchTaskDetails,
   fetchTaskFriendsLeaderboard,
-  confirmTaskEquivalence,
-  rejectTaskEquivalence,
   updateCompletionNote,
   TaskDetailData,
   TaskFriendsLeaderboardData,
@@ -23,7 +21,6 @@ import {
   Sparkles,
   Lock,
   Clock,
-  HelpCircle,
 } from 'lucide-react';
 
 import { useBodyScrollLock } from '../utils/scrollLock';
@@ -74,6 +71,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   useEffect(() => {
     if (isOpen && taskId) {
+      setActiveTab('overview');
       loadData();
     }
   }, [isOpen, taskId]);
@@ -104,26 +102,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       toast.error(err?.response?.data?.error || 'Failed to update note.');
     } finally {
       setIsSavingNote(false);
-    }
-  };
-
-  const handleConfirmMatch = async (friendTaskId: string) => {
-    try {
-      await confirmTaskEquivalence(taskId, friendTaskId);
-      toast.info('Habit matched with friend');
-      await loadData();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Failed to confirm equivalence.');
-    }
-  };
-
-  const handleRejectMatch = async (friendTaskId: string) => {
-    try {
-      await rejectTaskEquivalence(taskId, friendTaskId);
-      toast.info('Match dismissed');
-      await loadData();
-    } catch (err: any) {
-      toast.error(err?.response?.data?.error || 'Failed to reject match.');
     }
   };
 
@@ -215,17 +193,19 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <CalendarIcon className="w-4 h-4" />
             <span>History & Notes ({details?.completions.length || 0})</span>
           </button>
-          <button
-            onClick={() => setActiveTab('leaderboard')}
-            className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'leaderboard'
-                ? 'border-flame-500 text-flame-400'
-                : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
-          >
-            <Trophy className="w-4 h-4" />
-            <span>Friends Rank ({leaderboard?.leaderboard.length || 0})</span>
-          </button>
+          {Boolean(details?.task.groupId) && (
+            <button
+              onClick={() => setActiveTab('leaderboard')}
+              className={`py-3 px-4 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
+                activeTab === 'leaderboard'
+                  ? 'border-flame-500 text-flame-400'
+                  : 'border-transparent text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              <Trophy className="w-4 h-4" />
+              <span>Group Rank ({leaderboard?.leaderboard.length || 0})</span>
+            </button>
+          )}
         </div>
 
         {/* Content Area */}
@@ -452,64 +432,13 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 3: TASK-SPECIFIC FRIENDS LEADERBOARD */}
+              {/* TAB 3: GROUP TASK LEADERBOARD */}
               {activeTab === 'leaderboard' && leaderboard && (
                 <div className="space-y-6">
-                  {/* Suggested Fuzzy Matches (Owner only) */}
-                  {leaderboard.suggestedMatches && leaderboard.suggestedMatches.length > 0 && (
-                    <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
-                        <HelpCircle className="w-4 h-4" />
-                        <span>Suggested Equivalent Friend Tasks</span>
-                      </div>
-                      <p className="text-[11px] text-zinc-300">
-                        These friends' tasks look similar to your "{leaderboard.taskTitle}". Confirm
-                        to compare streaks together!
-                      </p>
-                      <div className="space-y-2">
-                        {leaderboard.suggestedMatches.map((m) => (
-                          <div
-                            key={m.taskId}
-                            className="p-2.5 bg-dark-bg border border-dark-border rounded-lg flex items-center justify-between text-xs"
-                          >
-                            <div className="flex items-center gap-2">
-                              <InitialsAvatar
-                                name={m.user.name}
-                                image={m.user.profileImage}
-                                size="sm"
-                              />
-                              <div>
-                                <span className="font-semibold text-zinc-200">
-                                  @{m.user.username}
-                                </span>
-                                <span className="text-zinc-400 mx-1.5">•</span>
-                                <span className="text-amber-300 italic">"{m.title}"</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => handleConfirmMatch(m.taskId)}
-                                className="px-2.5 py-1 text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-zinc-950 rounded-md transition-colors"
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                onClick={() => handleRejectMatch(m.taskId)}
-                                className="px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 rounded-md"
-                              >
-                                Dismiss
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Leaderboard Table */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs font-bold text-zinc-400 px-3 uppercase tracking-wider">
-                      <span>Friend</span>
+                      <span>Member</span>
                       <div className="flex items-center gap-6">
                         <span>Current</span>
                         <span>Best</span>
@@ -519,7 +448,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
                     {leaderboard.leaderboard.length === 0 ? (
                       <div className="py-10 text-center text-zinc-500 text-xs">
-                        None of your accepted friends have matching tasks yet.
+                        No accepted group members currently have this task assigned.
                       </div>
                     ) : (
                       <div className="space-y-1.5">

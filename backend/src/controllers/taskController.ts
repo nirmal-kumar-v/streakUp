@@ -5,7 +5,6 @@ import { AuthenticatedRequest } from '../middleware/authMiddleware';
 import { getLocalDateString, getYesterdayDateString, getLocalTimeInfo, getTodayInTimezone, DEFAULT_TIMEZONE } from '../services/timezoneService';
 import { DateTime } from 'luxon';
 import { recalculateUserStreaks, recalculateTaskStreaks } from '../services/streakService';
-import { getCanonicalTaskTitle } from '../services/fuzzyMatchService';
 import { checkAndTriggerMilestones, checkAndTriggerFriendActivityAlerts, createNotification } from '../services/notificationService';
 import { awardCompletionPoints, reconcileMissedPointsForUser, getUserPointsStats } from '../services/pointsService';
 import { FreezeScope, NotificationCategory } from '@prisma/client';
@@ -227,7 +226,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response) {
       data: {
         userId,
         title: data.title.trim(),
-        normalizedTitle: getCanonicalTaskTitle(data.title),
+        normalizedTitle: data.title.trim().toLowerCase(),
         description: data.description?.trim() || null,
         category: data.category?.trim() || 'General',
         priority: data.priority,

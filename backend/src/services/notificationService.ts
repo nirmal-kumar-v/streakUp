@@ -8,7 +8,6 @@ import {
   EmailDeliveryStatus,
 } from '@prisma/client';
 import { getTodayInTimezone } from './timezoneService';
-import { findBestMatchingTask } from './fuzzyMatchService';
 import {
   sendEmail,
   buildOverallMilestoneEmail,
@@ -320,38 +319,45 @@ export async function checkAndTriggerMilestones(params: {
         emailText: friendEmail.text,
       });
     } else {
-      // Task milestone: check if friend has a matching task or is authorized
-      const friendTasks = await prisma.task.findMany({
-        where: {
-          userId: friend.id,
-          recurrence: 'DAILY',
-          status: 'ACTIVE',
-        },
+      // Task milestone: Only notify friends if this is a shared group task
+      const task = await prisma.task.findUnique({
+        where: { id: scopeId },
+        select: { groupId: true, title: true, specialActivity: true },
       });
 
-      const match = findBestMatchingTask(taskTitle || '', friendTasks);
-
-      // Only notify friends who share this matching habit/activity
-      if (match.match && match.confidence >= 0.6) {
-        const friendEmail = buildTaskMilestoneEmail({
-          friendName: user.name,
-          taskTitle: taskTitle || 'task',
-          milestone: currentStreak,
+      if (task?.groupId) {
+        // Friend must be an accepted member of the SAME group and share this task
+        const friendGroupTask = await prisma.task.findFirst({
+          where: {
+            userId: friend.id,
+            groupId: task.groupId,
+            status: 'ACTIVE',
+            ...(task.specialActivity ? { specialActivity: task.specialActivity } : {}),
+          },
         });
 
-        await createNotification({
-          userId: friend.id,
-          category: NotificationCategory.FRIEND_TASK_MILESTONE,
-          title: `🎯 ${user.name} reached ${currentStreak} days on ${taskTitle}!`,
-          message: `Your friend ${user.name} achieved a ${currentStreak}-day streak on their matching ${taskTitle} task!`,
-          friendId: user.id,
-          taskId: match.match.id,
-          actionUrl: `/friends/tasks`,
-          eventKey: `MILESTONE:FRIEND_TASK:${user.id}:${friend.id}:${scopeId}:${currentStreak}`,
-          emailSubject: friendEmail.subject,
-          emailText: friendEmail.text,
-        });
+        if (friendGroupTask) {
+          const friendEmail = buildTaskMilestoneEmail({
+            friendName: user.name,
+            taskTitle: taskTitle || task.title || 'task',
+            milestone: currentStreak,
+          });
+
+          await createNotification({
+            userId: friend.id,
+            category: NotificationCategory.FRIEND_TASK_MILESTONE,
+            title: `🎯 ${user.name} reached ${currentStreak} days on ${taskTitle || task.title}!`,
+            message: `Your friend ${user.name} achieved a ${currentStreak}-day streak on the shared group task ${taskTitle || task.title}!`,
+            friendId: user.id,
+            taskId: friendGroupTask.id,
+            actionUrl: `/groups/${task.groupId}`,
+            eventKey: `MILESTONE:FRIEND_TASK:${user.id}:${friend.id}:${scopeId}:${currentStreak}`,
+            emailSubject: friendEmail.subject,
+            emailText: friendEmail.text,
+          });
+        }
       }
+      // Note: Personal tasks are strictly private and do not dispatch friend task milestone alerts.
     }
   }
 }
@@ -514,76 +520,9 @@ export async function checkAndTriggerFriendActivityAlerts(params: {
         }
       }
     } else {
-      // Personal Task: Find matching tasks in friend's active daily habits
-      const friendTasks = await prisma.task.findMany({
-        where: {
-          userId: friend.id,
-          recurrence: 'DAILY',
-          status: 'ACTIVE',
-          groupId: null,
-        },
-        include: {
-          completions: {
-            where: { completionDate: friendToday },
-          },
-        },
-      });
-
-      const match = findBestMatchingTask(completedTaskTitle, friendTasks);
-
-      if (match.match && match.confidence >= 0.6) {
-        const matchedTask = match.match;
-
-        // Has the friend completed their matching task today?
-        const friendCompletedMatchingTask = matchedTask.completions.length > 0;
-
-        if (!friendCompletedMatchingTask) {
-          const taskEventKey = `FRIEND_TASK:${completedUserId}:${friend.id}:${matchedTask.id}:${friendToday}`;
-
-          // Deduplicate: If multiple friends complete their matching task, only one email reminder per task per day
-          const taskEmailKey = `EMAIL:FRIEND_TASK_REMINDER:${friend.id}:${matchedTask.id}:${friendToday}`;
-          const alreadySentTaskMail = await prisma.emailDelivery.findFirst({
-            where: {
-              idempotencyKey: taskEmailKey,
-              status: EmailDeliveryStatus.SENT,
-            },
-          });
-
-          if (alreadySentTaskMail) {
-            await createNotification({
-              userId: friend.id,
-              category: NotificationCategory.FRIEND_TASK_ACTIVITY,
-              title: `${completedUser.name} completed ${completedTaskTitle}`,
-              message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
-              friendId: completedUser.id,
-              taskId: matchedTask.id,
-              actionUrl: `/dashboard`,
-              eventKey: taskEventKey,
-            });
-          } else {
-            const emailContent = buildFriendTaskActivityEmail({
-              recipientName: friend.name,
-              friendName: completedUser.name,
-              taskTitle: matchedTask.title,
-              studyNote: studyNote || undefined,
-            });
-
-            await createNotification({
-              userId: friend.id,
-              category: NotificationCategory.FRIEND_TASK_ACTIVITY,
-              title: `${completedUser.name} completed ${completedTaskTitle}`,
-              message: `Your friend ${completedUser.name} completed their ${completedTaskTitle} task today, but you haven't completed your matching task (${matchedTask.title}) yet.`,
-              friendId: completedUser.id,
-              taskId: matchedTask.id,
-              actionUrl: `/dashboard`,
-              eventKey: taskEventKey,
-              emailSubject: emailContent.subject,
-              emailText: emailContent.text,
-              emailIdempotencyKey: taskEmailKey,
-            });
-          }
-        }
-      }
+      // Personal Task: Strictly isolated.
+      // No fuzzy matching across friend tasks, no "similar tasks".
+      // Friend overall activity alerts handle daily consistency celebration without cross-task confusion.
     }
   }
 }
