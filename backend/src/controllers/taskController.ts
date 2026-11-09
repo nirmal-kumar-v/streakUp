@@ -1549,7 +1549,8 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
     const result = await swrCache.swr(
       cacheKey,
       async () => {
-        // Fetch completions within date range
+        // Fetch completions within date range, strictly excluding task-only admin adjustments
+        // so the activity heatmap reflects the user's true overall app consistency
         const [completions, freezeLogs] = await Promise.all([
           prisma.taskCompletion.findMany({
             where: {
@@ -1557,6 +1558,9 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
               completionDate: {
                 gte: rangeStart,
                 lte: rangeEnd
+              },
+              NOT: {
+                studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
               }
             },
             include: {
@@ -1569,6 +1573,7 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
           prisma.freezeLog.findMany({
             where: {
               userId,
+              scope: 'OVERALL',
               protectedDate: {
                 gte: rangeStart,
                 lte: rangeEnd
@@ -1598,15 +1603,25 @@ export async function getActivityHistory(req: AuthenticatedRequest, res: Respons
           tasks: data.tasks
         })).sort((a, b) => a.date.localeCompare(b.date));
 
-        // Determine available years efficiently using min and max completions
+        // Determine available years efficiently using min and max overall completions
         const [oldestCompletion, newestCompletion] = await Promise.all([
           prisma.taskCompletion.findFirst({
-            where: { userId },
+            where: {
+              userId,
+              NOT: {
+                studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+              }
+            },
             orderBy: { completionDate: 'asc' },
             select: { completionDate: true }
           }),
           prisma.taskCompletion.findFirst({
-            where: { userId },
+            where: {
+              userId,
+              NOT: {
+                studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+              }
+            },
             orderBy: { completionDate: 'desc' },
             select: { completionDate: true }
           })

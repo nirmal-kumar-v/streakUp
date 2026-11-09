@@ -1346,7 +1346,8 @@ async function getActivityHistory(req, res) {
         // Fetch completions and activity with SWR caching
         const cacheKey = `heatmap:${userId}:${rangeStart}:${rangeEnd}:${targetYear || 'default'}`;
         const result = await cacheService_1.default.swr(cacheKey, async () => {
-            // Fetch completions within date range
+            // Fetch completions within date range, strictly excluding task-only admin adjustments
+            // so the activity heatmap reflects the user's true overall app consistency
             const [completions, freezeLogs] = await Promise.all([
                 prisma_1.default.taskCompletion.findMany({
                     where: {
@@ -1354,6 +1355,9 @@ async function getActivityHistory(req, res) {
                         completionDate: {
                             gte: rangeStart,
                             lte: rangeEnd
+                        },
+                        NOT: {
+                            studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
                         }
                     },
                     include: {
@@ -1366,6 +1370,7 @@ async function getActivityHistory(req, res) {
                 prisma_1.default.freezeLog.findMany({
                     where: {
                         userId,
+                        scope: 'OVERALL',
                         protectedDate: {
                             gte: rangeStart,
                             lte: rangeEnd
@@ -1393,15 +1398,25 @@ async function getActivityHistory(req, res) {
                 count: data.count,
                 tasks: data.tasks
             })).sort((a, b) => a.date.localeCompare(b.date));
-            // Determine available years efficiently using min and max completions
+            // Determine available years efficiently using min and max overall completions
             const [oldestCompletion, newestCompletion] = await Promise.all([
                 prisma_1.default.taskCompletion.findFirst({
-                    where: { userId },
+                    where: {
+                        userId,
+                        NOT: {
+                            studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+                        }
+                    },
                     orderBy: { completionDate: 'asc' },
                     select: { completionDate: true }
                 }),
                 prisma_1.default.taskCompletion.findFirst({
-                    where: { userId },
+                    where: {
+                        userId,
+                        NOT: {
+                            studyNote: { startsWith: '[ADMIN_TASK_ONLY]' }
+                        }
+                    },
                     orderBy: { completionDate: 'desc' },
                     select: { completionDate: true }
                 })

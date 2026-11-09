@@ -1044,7 +1044,7 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
     } else {
       // OVERALL STREAK
       const beforeState = { currentStreak: user.currentStreak, longestStreak: user.longestStreak };
-      const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(user.longestStreak, currentStreak);
+      const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : currentStreak;
 
       if (currentStreak > 0) {
         let anchorTask = await prisma.task.findFirst({
