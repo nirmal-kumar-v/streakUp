@@ -865,19 +865,52 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
       const newLongest = longestStreak !== undefined ? Math.max(longestStreak, currentStreak) : Math.max(task.longestStreak, currentStreak);
 
       if (currentStreak > 0) {
-        // Check if task was already completed on today's local date
-        const isAlreadyCompletedToday = await prisma.taskCompletion.findFirst({
+        // CRITICAL FIX: Delete ALL existing completions for this task before inserting the corrected set.
+        // Without this, old records remain in DB and recalculateTaskStreaks() recomputes a higher streak
+        // from the full history, overriding the admin correction on the user's next task completion.
+        // For applyToOverall=false: preserve any non-task-only today completion on other tasks for overall streak continuity.
+        const hasThisTaskToday = await prisma.taskCompletion.findFirst({
           where: { taskId, completionDate: todayStr },
-          select: { id: true },
         });
-        const startOffset = isAlreadyCompletedToday ? 0 : 1;
+        const startOffset = hasThisTaskToday ? 0 : 1;
+        if (!applyToOverall) {
+          const remainingOtherCompletionsToday = await prisma.taskCompletion.count({
+            where: {
+              userId,
+              taskId: { not: taskId },
+              completionDate: todayStr,
+              NOT: { studyNote: { startsWith: '[ADMIN_TASK_ONLY]' } },
+            },
+          });
+          if (hasThisTaskToday && remainingOtherCompletionsToday === 0) {
+            // Preserve overall streak for today by anchoring it to another task
+            let anchorTask = await prisma.task.findFirst({
+              where: { userId, status: 'ACTIVE', id: { not: taskId } },
+              orderBy: { createdAt: 'asc' },
+            });
+            if (anchorTask) {
+              await prisma.taskCompletion.upsert({
+                where: { taskId_completionDate: { taskId: anchorTask.id, completionDate: todayStr } },
+                create: {
+                  userId,
+                  taskId: anchorTask.id,
+                  completionDate: todayStr,
+                  completedAt: new Date(),
+                  studyNote: 'Preserved user overall streak',
+                },
+                update: {},
+              });
+            }
+          }
+        }
+        // Now delete all existing completions for this task to reset history to exactly what admin specifies
+        await prisma.taskCompletion.deleteMany({ where: { taskId } });
 
         const scheduledDays = Array.isArray(task.scheduledDays) && task.scheduledDays.length > 0
           ? task.scheduledDays
           : [0, 1, 2, 3, 4, 5, 6];
 
-        // Step backwards matching only the days the habit is scheduled for
-        // Batch insert completions to prevent sequential network latency bottlenecks & serverless timeouts
+        // Step backwards matching only the days the habit is scheduled for, inserting exactly currentStreak days
         const maxDaysToCreate = Math.min(currentStreak, 365);
         const completionsToInsert: {
           userId: string;
@@ -887,6 +920,7 @@ export async function correctStreaks(req: AdminAuthenticatedRequest, res: Respon
           studyNote?: string;
         }[] = [];
 
+        // Start from startOffset (0 if already completed today, 1 if pending today)
         let daysAdded = 0;
         let dayStep = startOffset;
         while (daysAdded < maxDaysToCreate && dayStep < 3650) {
@@ -5297,7 +5331,8 @@ export async function adminCorrectSpecialActivityStreak(req: AdminAuthenticatedR
       userId,
       activityType as 'daily' | 'potd',
       currentStreak,
-      typeof longestStreak === 'number' ? longestStreak : currentStreak
+      typeof longestStreak === 'number' ? longestStreak : currentStreak,
+      user.timezone || 'Asia/Kolkata'
     );
 
     const changesSummary = `Special group "${group.name}" ${activityType.toUpperCase()} streak corrected: ${beforeAct?.currentStreak ?? 0}d -> ${currentStreak}d (best: ${updatedTask.longestStreak}d).`;

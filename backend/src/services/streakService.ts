@@ -303,12 +303,12 @@ export async function recalculateTaskStreaks(
     effectiveCurrentStreak = freezeResult.currentStreak; // 0 when scheduled days missed without freeze
   }
 
-  const effectiveLongestStreak = Math.max(
-    task?.longestStreak || 0,
-    options?.targetLongestStreak || 0,
-    freezeResult.longestStreak,
-    effectiveCurrentStreak
-  );
+  // When admin explicitly sets options, do NOT let the previously-stored longestStreak act as an
+  // immovable floor — that would prevent admin from ever correcting a streak downward.
+  // Only use the stored task.longestStreak as a floor when no admin override is active.
+  const effectiveLongestStreak = options?.targetLongestStreak !== undefined
+    ? Math.max(options.targetLongestStreak, freezeResult.longestStreak, effectiveCurrentStreak)
+    : Math.max(task?.longestStreak || 0, freezeResult.longestStreak, effectiveCurrentStreak);
 
   const needsTaskUpdate =
     task.currentStreak !== effectiveCurrentStreak ||
@@ -541,10 +541,18 @@ export async function reconcileStaleStreaks(prismaClient: any = defaultPrisma): 
         });
 
         if (!hasRecentFreeze) {
-          const res = await recalculateTaskStreaks(prismaClient, t.id, t.userId, tz);
-          if (res.currentStreak !== t.currentStreak) {
-            updatedTasks++;
-          }
+          // CRITICAL FIX: Only RESET streak to 0 when genuinely missed — never call full recalculate
+          // which would recompute from history and potentially override admin-corrected streak values.
+          // Streaks only break (→ 0) when: no recent activity AND no freeze protection.
+          await prismaClient.task.update({
+            where: { id: t.id },
+            data: {
+              currentStreak: 0,
+              freezeBalance: 0,
+              freezeRechargeDays: 0,
+            }
+          });
+          updatedTasks++;
         }
       }
     }

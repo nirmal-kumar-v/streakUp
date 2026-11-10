@@ -12,6 +12,7 @@ exports.adminGrantSpecialActivityDate = adminGrantSpecialActivityDate;
 const prisma_1 = __importDefault(require("../config/prisma"));
 const specialGroupRegistry_1 = require("./specialGroupRegistry");
 const streakService_1 = require("./streakService");
+const luxon_1 = require("luxon");
 const timezoneService_1 = require("./timezoneService");
 /**
  * Ensures that a member has all required special group tasks (Daily and POTD).
@@ -253,6 +254,7 @@ async function completeSpecialActivity(groupId, userId, activityType, userTimezo
         if (dailyTask) {
             dailyStreak = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, dailyTask.id, userId, userTimezone);
         }
+        await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, userTimezone).catch(() => { });
         return {
             success: true,
             completedActivity: 'potd',
@@ -280,6 +282,7 @@ async function completeSpecialActivity(groupId, userId, activityType, userTimezo
             },
         });
         const dailyStreak = await (0, streakService_1.recalculateTaskStreaks)(prisma_1.default, dailyTask.id, userId, userTimezone);
+        await (0, streakService_1.recalculateUserStreaks)(prisma_1.default, userId, userTimezone).catch(() => { });
         return {
             success: true,
             completedActivity: 'daily',
@@ -322,7 +325,7 @@ async function uncompleteSpecialActivity(groupId, userId, activityType, userTime
 /**
  * Super Admin streak correction for LeetCode / GeeksforGeeks activities
  */
-async function adminCorrectSpecialActivityStreak(groupId, userId, activityType, currentStreak, longestStreak) {
+async function adminCorrectSpecialActivityStreak(groupId, userId, activityType, currentStreak, longestStreak, userTimezone) {
     const norm = activityType.trim().toUpperCase();
     const task = await prisma_1.default.task.findFirst({
         where: {
@@ -330,11 +333,64 @@ async function adminCorrectSpecialActivityStreak(groupId, userId, activityType, 
             userId,
             specialActivity: norm,
         },
+        include: {
+            user: { select: { timezone: true } },
+        },
     });
     if (!task) {
         throw new Error(`Special activity task for ${activityType} not found.`);
     }
+    const tz = userTimezone || task.user?.timezone || timezoneService_1.DEFAULT_TIMEZONE;
+    const todayStr = (0, timezoneService_1.getTodayInTimezone)(tz);
     const newLongest = Math.max(longestStreak, currentStreak);
+    if (currentStreak > 0) {
+        const isAlreadyCompletedToday = Boolean(await prisma_1.default.taskCompletion.findFirst({
+            where: { taskId: task.id, completionDate: todayStr },
+            select: { id: true },
+        }));
+        const startOffset = isAlreadyCompletedToday ? 0 : 1;
+        // Delete existing completions for this task so old historical completions don't resurrect a higher streak
+        await prisma_1.default.taskCompletion.deleteMany({ where: { taskId: task.id } });
+        const scheduledDays = Array.isArray(task.scheduledDays) && task.scheduledDays.length > 0
+            ? task.scheduledDays
+            : [0, 1, 2, 3, 4, 5, 6];
+        const maxDaysToCreate = Math.min(currentStreak, 365);
+        const completionsToInsert = [];
+        let daysAdded = 0;
+        let dayStep = startOffset;
+        while (daysAdded < maxDaysToCreate && dayStep < 3650) {
+            const dt = luxon_1.DateTime.now().setZone(tz).minus({ days: dayStep });
+            const dayOfWeek = dt.weekday % 7;
+            if (scheduledDays.includes(dayOfWeek)) {
+                const dateStr = dt.toFormat('yyyy-MM-dd');
+                completionsToInsert.push({
+                    userId,
+                    taskId: task.id,
+                    completionDate: dateStr,
+                    completedAt: dt.toJSDate(),
+                    studyNote: '[ADMIN_TASK_ONLY]',
+                });
+                daysAdded++;
+            }
+            dayStep++;
+        }
+        if (completionsToInsert.length > 0) {
+            await prisma_1.default.taskCompletion.createMany({
+                data: completionsToInsert,
+                skipDuplicates: true,
+            });
+        }
+    }
+    else {
+        // If setting to 0, clear today and yesterday
+        const yesterdayStr = luxon_1.DateTime.now().setZone(tz).minus({ days: 1 }).toFormat('yyyy-MM-dd');
+        await prisma_1.default.taskCompletion.deleteMany({
+            where: {
+                taskId: task.id,
+                completionDate: { in: [todayStr, yesterdayStr] },
+            },
+        });
+    }
     const updated = await prisma_1.default.task.update({
         where: { id: task.id },
         data: {

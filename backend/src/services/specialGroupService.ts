@@ -5,8 +5,9 @@ import {
   SpecialPlatformType,
   SPECIAL_GROUP_REGISTRY,
 } from './specialGroupRegistry';
-import { recalculateTaskStreaks, ensureTaskStreakCurrent } from './streakService';
+import { recalculateTaskStreaks, recalculateUserStreaks, ensureTaskStreakCurrent } from './streakService';
 import { awardCompletionPoints } from './pointsService';
+import { DateTime } from 'luxon';
 import {
   getAllGamesForMember,
   adminCorrectGameStreak,
@@ -324,6 +325,7 @@ export async function completeSpecialActivity(
     if (dailyTask) {
       dailyStreak = await recalculateTaskStreaks(prisma, dailyTask.id, userId, userTimezone);
     }
+    await recalculateUserStreaks(prisma, userId, userTimezone).catch(() => {});
 
     return {
       success: true,
@@ -352,6 +354,7 @@ export async function completeSpecialActivity(
     });
 
     const dailyStreak = await recalculateTaskStreaks(prisma, dailyTask.id, userId, userTimezone);
+    await recalculateUserStreaks(prisma, userId, userTimezone).catch(() => {});
 
     return {
       success: true,
@@ -417,7 +420,8 @@ export async function adminCorrectSpecialActivityStreak(
   userId: string,
   activityType: string,
   currentStreak: number,
-  longestStreak: number
+  longestStreak: number,
+  userTimezone?: string
 ) {
   const norm = activityType.trim().toUpperCase();
   const task = await prisma.task.findFirst({
@@ -426,13 +430,80 @@ export async function adminCorrectSpecialActivityStreak(
       userId,
       specialActivity: norm,
     },
+    include: {
+      user: { select: { timezone: true } },
+    },
   });
 
   if (!task) {
     throw new Error(`Special activity task for ${activityType} not found.`);
   }
 
+  const tz = userTimezone || task.user?.timezone || DEFAULT_TIMEZONE;
+  const todayStr = getTodayInTimezone(tz);
   const newLongest = Math.max(longestStreak, currentStreak);
+
+  if (currentStreak > 0) {
+    const isAlreadyCompletedToday = Boolean(
+      await prisma.taskCompletion.findFirst({
+        where: { taskId: task.id, completionDate: todayStr },
+        select: { id: true },
+      })
+    );
+    const startOffset = isAlreadyCompletedToday ? 0 : 1;
+
+    // Delete existing completions for this task so old historical completions don't resurrect a higher streak
+    await prisma.taskCompletion.deleteMany({ where: { taskId: task.id } });
+
+    const scheduledDays = Array.isArray(task.scheduledDays) && task.scheduledDays.length > 0
+      ? task.scheduledDays
+      : [0, 1, 2, 3, 4, 5, 6];
+
+    const maxDaysToCreate = Math.min(currentStreak, 365);
+    const completionsToInsert: {
+      userId: string;
+      taskId: string;
+      completionDate: string;
+      completedAt: Date;
+      studyNote?: string;
+    }[] = [];
+
+    let daysAdded = 0;
+    let dayStep = startOffset;
+    while (daysAdded < maxDaysToCreate && dayStep < 3650) {
+      const dt = DateTime.now().setZone(tz).minus({ days: dayStep });
+      const dayOfWeek = dt.weekday % 7;
+      if (scheduledDays.includes(dayOfWeek)) {
+        const dateStr = dt.toFormat('yyyy-MM-dd');
+        completionsToInsert.push({
+          userId,
+          taskId: task.id,
+          completionDate: dateStr,
+          completedAt: dt.toJSDate(),
+          studyNote: '[ADMIN_TASK_ONLY]',
+        });
+        daysAdded++;
+      }
+      dayStep++;
+    }
+
+    if (completionsToInsert.length > 0) {
+      await prisma.taskCompletion.createMany({
+        data: completionsToInsert,
+        skipDuplicates: true,
+      });
+    }
+  } else {
+    // If setting to 0, clear today and yesterday
+    const yesterdayStr = DateTime.now().setZone(tz).minus({ days: 1 }).toFormat('yyyy-MM-dd');
+    await prisma.taskCompletion.deleteMany({
+      where: {
+        taskId: task.id,
+        completionDate: { in: [todayStr, yesterdayStr] },
+      },
+    });
+  }
+
   const updated = await prisma.task.update({
     where: { id: task.id },
     data: {
