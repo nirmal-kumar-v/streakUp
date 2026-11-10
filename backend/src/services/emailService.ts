@@ -21,11 +21,22 @@ export interface SendEmailOptions {
   idempotencyKey: string;
 }
 
+export interface SmtpAccountConfig {
+  accountIndex: number;
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  mailFrom: string;
+  mailFromName: string;
+  configured: boolean;
+}
+
 /**
- * Dynamically resolves SMTP credentials from environment variables.
- * Avoids stale configuration if environment variables are loaded asynchronously.
+ * Dynamically resolves primary SMTP credentials from environment variables (Account 1).
  */
-export function getSmtpConfig() {
+export function getPrimarySmtpConfig(): SmtpAccountConfig {
   const host = process.env.SMTP_HOST || 'smtp.gmail.com';
   let port = parseInt(process.env.SMTP_PORT || '465', 10);
   // Default to 465 SSL for Gmail to guarantee instant delivery without STARTTLS timeout
@@ -33,12 +44,100 @@ export function getSmtpConfig() {
     port = 465;
   }
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-  const user = process.env.SMTP_USER || 'streakup.web@gmail.com';
+  const user = (process.env.SMTP_USER || 'streakup.web@gmail.com').trim();
   const pass = (process.env.SMTP_PASS || 'ezmaeigrmnrnsomd').replace(/\s+/g, '');
-  const mailFrom = process.env.MAIL_FROM || user || 'streakup.web@gmail.com';
-  const mailFromName = process.env.MAIL_FROM_NAME || 'StreakUp';
+  const mailFrom = (process.env.MAIL_FROM || user || 'streakup.web@gmail.com').trim();
+  const mailFromName = (process.env.MAIL_FROM_NAME || 'StreakUp').trim();
+  const configured = Boolean(host && user && pass);
 
-  return { host, port, secure, user, pass, mailFrom, mailFromName };
+  return { accountIndex: 0, host, port, secure, user, pass, mailFrom, mailFromName, configured };
+}
+
+/**
+ * Dynamically resolves secondary SMTP credentials from environment variables (Account 2).
+ * Used for the 50-email per account round-robin rotation.
+ */
+export function getSecondarySmtpConfig(): SmtpAccountConfig {
+  const host = process.env.SMTP_HOST_2 || process.env.SMTP_HOST || 'smtp.gmail.com';
+  let port = parseInt(process.env.SMTP_PORT_2 || process.env.SMTP_PORT || '465', 10);
+  if (host.includes('gmail') && (port === 587 || !process.env.SMTP_PORT_2)) {
+    port = 465;
+  }
+  const secure = process.env.SMTP_SECURE_2
+    ? process.env.SMTP_SECURE_2 === 'true'
+    : (port === 465 || process.env.SMTP_SECURE === 'true');
+  const user = (process.env.SMTP_USER_2 || '').trim();
+  const pass = (process.env.SMTP_PASS_2 || '').replace(/\s+/g, '');
+  const mailFrom = (process.env.MAIL_FROM_2 || user || '').trim();
+  const mailFromName = (process.env.MAIL_FROM_NAME_2 || process.env.MAIL_FROM_NAME || 'StreakUp').trim();
+  const configured = Boolean(host && user && pass);
+
+  return { accountIndex: 1, host, port, secure, user, pass, mailFrom: mailFrom || user, mailFromName, configured };
+}
+
+/**
+ * Returns SMTP config. Defaults to Account 1 for backward compatibility.
+ */
+export function getSmtpConfig(accountIndex = 0): SmtpAccountConfig {
+  return accountIndex === 1 ? getSecondarySmtpConfig() : getPrimarySmtpConfig();
+}
+
+/**
+ * In-memory round-robin state tracker.
+ * Rotates between Account 1 and Account 2 every 50 emails sent per day.
+ */
+interface RoundRobinState {
+  currentDateKey: string;
+  activeAccountIndex: number;
+  consecutiveCount: number;
+  totalSentToday: [number, number];
+}
+
+const roundRobinState: RoundRobinState = {
+  currentDateKey: new Date().toISOString().slice(0, 10),
+  activeAccountIndex: 0,
+  consecutiveCount: 0,
+  totalSentToday: [0, 0],
+};
+
+function checkAndResetDailyRoundRobin() {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  if (roundRobinState.currentDateKey !== todayKey) {
+    roundRobinState.currentDateKey = todayKey;
+    roundRobinState.activeAccountIndex = 0;
+    roundRobinState.consecutiveCount = 0;
+    roundRobinState.totalSentToday = [0, 0];
+  }
+}
+
+/**
+ * Inspect round-robin dispatcher status
+ */
+export function getRoundRobinStatus() {
+  checkAndResetDailyRoundRobin();
+  const primary = getPrimarySmtpConfig();
+  const secondary = getSecondarySmtpConfig();
+  return {
+    currentDate: roundRobinState.currentDateKey,
+    activeAccountIndex: roundRobinState.activeAccountIndex,
+    consecutiveCount: roundRobinState.consecutiveCount,
+    batchLimit: 50,
+    totalSentToday: [...roundRobinState.totalSentToday],
+    primaryConfigured: primary.configured,
+    primaryUser: primary.user,
+    secondaryConfigured: secondary.configured,
+    secondaryUser: secondary.configured ? secondary.user : null,
+  };
+}
+
+/**
+ * Test helper to reset round robin state
+ */
+export function resetRoundRobinForTesting(activeAccountIndex = 0, consecutiveCount = 0) {
+  roundRobinState.currentDateKey = new Date().toISOString().slice(0, 10);
+  roundRobinState.activeAccountIndex = activeAccountIndex;
+  roundRobinState.consecutiveCount = consecutiveCount;
+  roundRobinState.totalSentToday = [0, 0];
 }
 
 /**
@@ -71,15 +170,16 @@ export function isSmtpConfigured(): boolean {
   if (process.env.NODE_ENV === 'test' && !process.env.ENABLE_TEST_SMTP) {
     return false;
   }
-  const config = getSmtpConfig();
-  return Boolean(config.host && config.user && config.pass);
+  const primary = getPrimarySmtpConfig();
+  const secondary = getSecondarySmtpConfig();
+  return primary.configured || secondary.configured;
 }
 
 /**
  * Creates a Nodemailer transport with family: 4 (IPv4) and cloud-resilient timeouts.
  */
-function createTransporter(portOverride?: number, secureOverride?: boolean) {
-  const config = getSmtpConfig();
+function createTransporter(configOverride?: SmtpAccountConfig, portOverride?: number, secureOverride?: boolean) {
+  const config = configOverride ?? getSmtpConfig();
   const port = portOverride ?? config.port;
   const secure = secureOverride ?? (port === 465 || config.secure);
 
@@ -118,46 +218,85 @@ export async function verifySmtpConnection(): Promise<{
     };
   }
 
-  const config = getSmtpConfig();
+  const primary = getPrimarySmtpConfig();
+  const secondary = getSecondarySmtpConfig();
 
-  try {
-    const transporter = createTransporter();
-    await transporter.verify();
-    return {
-      success: true,
-      message: 'SMTP transport connection successfully verified.',
-      host: config.host,
-      port: config.port,
-    };
-  } catch (err: any) {
-    // If primary port failed and wasn't 465, test fallback port 465
-    if (config.port !== 465) {
-      try {
-        const fallbackTransporter = createTransporter(465, true);
-        await fallbackTransporter.verify();
-        return {
-          success: true,
-          message: 'SMTP connection verified via fallback port 465 (SSL).',
-          host: config.host,
-          port: 465,
-        };
-      } catch (fallbackErr: any) {
-        // Fallback also failed
+  if (primary.configured) {
+    try {
+      const transporter = createTransporter(primary);
+      await transporter.verify();
+      return {
+        success: true,
+        message: secondary.configured
+          ? `Primary SMTP (${primary.user}) verified. Secondary SMTP (${secondary.user}) active for 50-email round-robin.`
+          : `SMTP transport connection successfully verified (${primary.user}).`,
+        host: primary.host,
+        port: primary.port,
+      };
+    } catch (err: any) {
+      if (primary.port !== 465) {
+        try {
+          const fallbackTransporter = createTransporter(primary, 465, true);
+          await fallbackTransporter.verify();
+          return {
+            success: true,
+            message: 'SMTP connection verified via fallback port 465 (SSL).',
+            host: primary.host,
+            port: 465,
+          };
+        } catch {}
       }
+      if (secondary.configured) {
+        try {
+          const secTransporter = createTransporter(secondary);
+          await secTransporter.verify();
+          return {
+            success: true,
+            message: `Primary failed, but secondary SMTP (${secondary.user}) verified successfully.`,
+            host: secondary.host,
+            port: secondary.port,
+          };
+        } catch {}
+      }
+      return {
+        success: false,
+        message: `SMTP connection verification failed: ${err.message || 'Connection timeout or authentication error'}`,
+        host: primary.host,
+        port: primary.port,
+      };
     }
-
-    return {
-      success: false,
-      message: `SMTP connection verification failed: ${err.message || 'Connection timeout or authentication error'}`,
-      host: config.host,
-      port: config.port,
-    };
   }
+
+  if (secondary.configured) {
+    try {
+      const secTransporter = createTransporter(secondary);
+      await secTransporter.verify();
+      return {
+        success: true,
+        message: `Secondary SMTP connection verified (${secondary.user}).`,
+        host: secondary.host,
+        port: secondary.port,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: `Secondary SMTP verification failed: ${err.message}`,
+        host: secondary.host,
+        port: secondary.port,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    message: 'No SMTP credentials configured.',
+  };
 }
 
 /**
  * Sends a natural plain-text email with full idempotency, audit logging in EmailDelivery,
- * resilient cloud IPv4 routing, automatic port 465 SSL fallback, and graceful error handling.
+ * resilient cloud IPv4 routing, automatic port 465 SSL fallback, 50-email round-robin dispatch,
+ * and graceful failover error handling.
  */
 export async function sendEmail(options: SendEmailOptions): Promise<{
   success: boolean;
@@ -165,7 +304,6 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
   error?: string;
 }> {
   const { userId, recipientEmail, category, subject, text, idempotencyKey } = options;
-  const config = getSmtpConfig();
 
   // 1. Idempotency Check
   const existingDelivery = await prisma.emailDelivery.findUnique({
@@ -231,16 +369,88 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
     };
   }
 
-  // 3. Dispatch through Nodemailer using pure plain-text message
-  try {
-    const transporter = createTransporter();
-    await transporter.sendMail({
-      from: `"${config.mailFromName}" <${config.mailFrom}>`,
-      to: recipientEmail,
-      subject,
-      text, // Natural, accessible plain-text body with zero color or styling conflict
-    });
+  // 3. Resolve Round-Robin Dispatch Account (every 50 emails per day)
+  checkAndResetDailyRoundRobin();
+  const primary = getPrimarySmtpConfig();
+  const secondary = getSecondarySmtpConfig();
 
+  let targetAccount: SmtpAccountConfig;
+  let alternateAccount: SmtpAccountConfig | null = null;
+
+  if (secondary.configured && primary.configured) {
+    if (roundRobinState.activeAccountIndex === 1) {
+      targetAccount = secondary;
+      alternateAccount = primary;
+    } else {
+      targetAccount = primary;
+      alternateAccount = secondary;
+    }
+  } else if (secondary.configured) {
+    targetAccount = secondary;
+  } else {
+    targetAccount = primary;
+  }
+
+  // Helper to attempt dispatch with port 465 fallback
+  const dispatchMail = async (config: SmtpAccountConfig): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const transporter = createTransporter(config);
+      await transporter.sendMail({
+        from: `"${config.mailFromName}" <${config.mailFrom}>`,
+        to: recipientEmail,
+        subject,
+        text, // Natural, accessible plain-text body with zero color or styling conflict
+      });
+      return { success: true };
+    } catch (err: any) {
+      const initialError = err.message || 'SMTP delivery failed';
+      if (config.port !== 465) {
+        try {
+          const fallbackTransporter = createTransporter(config, 465, true);
+          await fallbackTransporter.sendMail({
+            from: `"${config.mailFromName}" <${config.mailFrom}>`,
+            to: recipientEmail,
+            subject,
+            text,
+          });
+          return { success: true };
+        } catch (fallbackErr: any) {
+          return { success: false, error: fallbackErr.message || initialError };
+        }
+      }
+      return { success: false, error: initialError };
+    }
+  };
+
+  // 4. Dispatch using selected round-robin account
+  let sendResult = await dispatchMail(targetAccount);
+
+  // If initial attempt failed, and an alternate configured account exists, attempt failover
+  if (!sendResult.success && alternateAccount) {
+    console.warn(`[EmailService] Account ${targetAccount.accountIndex + 1} (${targetAccount.user}) failed (${sendResult.error}). Testing failover to Account ${alternateAccount.accountIndex + 1} (${alternateAccount.user})...`);
+    const failoverResult = await dispatchMail(alternateAccount);
+    if (failoverResult.success) {
+      sendResult = failoverResult;
+      // Switch active account so subsequent emails use the healthy account
+      roundRobinState.activeAccountIndex = alternateAccount.accountIndex;
+      roundRobinState.consecutiveCount = 1;
+      roundRobinState.totalSentToday[alternateAccount.accountIndex]++;
+    }
+  } else if (sendResult.success && secondary.configured && primary.configured) {
+    // Increment batch counter on successful dispatch
+    roundRobinState.consecutiveCount++;
+    roundRobinState.totalSentToday[targetAccount.accountIndex]++;
+
+    if (roundRobinState.consecutiveCount >= 50) {
+      const previousIndex = roundRobinState.activeAccountIndex;
+      roundRobinState.activeAccountIndex = previousIndex === 0 ? 1 : 0;
+      roundRobinState.consecutiveCount = 0;
+      console.log(`[EmailService] 50-email round-robin threshold reached on Account ${previousIndex + 1}. Rotated next batch to Account ${roundRobinState.activeAccountIndex + 1}.`);
+    }
+  }
+
+  // 5. Update delivery record & return result
+  if (sendResult.success) {
     if (deliveryRecord) {
       await prisma.emailDelivery.update({
         where: { id: deliveryRecord.id },
@@ -250,57 +460,22 @@ export async function sendEmail(options: SendEmailOptions): Promise<{
         },
       });
     }
-
     return { success: true, deliveryId: deliveryRecord?.id };
-  } catch (err: any) {
-    const initialError = err.message || 'SMTP delivery failed';
-    console.warn(`[EmailService] Attempt on port ${config.port} failed (${initialError}). Testing cloud-resilient fallback to port 465 (SSL + IPv4)...`);
-
-    // 4. Cloud Fallback: If port 587 timed out or failed on Render, retry immediately via port 465 SSL
-    if (config.port !== 465) {
-      try {
-        const fallbackTransporter = createTransporter(465, true);
-        await fallbackTransporter.sendMail({
-          from: `"${config.mailFromName}" <${config.mailFrom}>`,
-          to: recipientEmail,
-          subject,
-          text,
-        });
-
-        console.log(`[EmailService] Fallback to port 465 succeeded for ${recipientEmail}!`);
-
-        if (deliveryRecord) {
-          await prisma.emailDelivery.update({
-            where: { id: deliveryRecord.id },
-            data: {
-              status: EmailDeliveryStatus.SENT,
-              error: null,
-            },
-          });
-        }
-
-        return { success: true, deliveryId: deliveryRecord?.id };
-      } catch (fallbackErr: any) {
-        console.error(`[EmailService] Fallback to port 465 also failed:`, fallbackErr.message);
-      }
-    }
-
-    console.error(`[EmailService] Failed to send email to ${recipientEmail}:`, initialError);
-
+  } else {
+    console.error(`[EmailService] Failed to send email to ${recipientEmail}:`, sendResult.error);
     if (deliveryRecord) {
       await prisma.emailDelivery.update({
         where: { id: deliveryRecord.id },
         data: {
           status: EmailDeliveryStatus.FAILED,
-          error: initialError.slice(0, 500),
+          error: (sendResult.error || 'SMTP delivery failed').slice(0, 500),
         },
       });
     }
-
     return {
       success: false,
       deliveryId: deliveryRecord?.id,
-      error: initialError,
+      error: sendResult.error,
     };
   }
 }

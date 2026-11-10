@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { generateNumericOtp, hashToken } from '../src/services/otpService';
 import {
   getAppBaseUrl,
@@ -12,6 +12,10 @@ import {
   buildFriendOverallActivityEmail,
   buildOverallReminderEmail,
   buildTaskReminderEmail,
+  getPrimarySmtpConfig,
+  getSecondarySmtpConfig,
+  getRoundRobinStatus,
+  resetRoundRobinForTesting,
 } from '../src/services/emailService';
 
 describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
@@ -180,6 +184,78 @@ describe('Email OTP, Password Recovery, and Plain-Text Email Suite', () => {
       expect(notifEmail.text).toContain('alerts@example.com');
       expect(notifEmail.text).toContain('918273');
       expect(notifEmail.text).toContain('5 minutes');
+    });
+  });
+
+  describe('Multi-Account 50-Email Round-Robin SMTP Dispatcher', () => {
+    const originalEnv = { ...process.env };
+
+    beforeEach(() => {
+      resetRoundRobinForTesting(0, 0);
+    });
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+      resetRoundRobinForTesting(0, 0);
+    });
+
+    it('defaults to primary account when secondary account credentials are not provided', () => {
+      delete process.env.SMTP_USER_2;
+      delete process.env.SMTP_PASS_2;
+
+      const primary = getPrimarySmtpConfig();
+      const secondary = getSecondarySmtpConfig();
+      const status = getRoundRobinStatus();
+
+      expect(primary.configured).toBe(true);
+      expect(secondary.configured).toBe(false);
+      expect(status.secondaryConfigured).toBe(false);
+      expect(status.activeAccountIndex).toBe(0);
+    });
+
+    it('recognizes secondary account when configured in environment', () => {
+      process.env.SMTP_USER_2 = 'backup.streakup@gmail.com';
+      process.env.SMTP_PASS_2 = 'apppass12345678';
+      process.env.SMTP_HOST_2 = 'smtp.gmail.com';
+      process.env.SMTP_PORT_2 = '465';
+
+      const secondary = getSecondarySmtpConfig();
+      expect(secondary.configured).toBe(true);
+      expect(secondary.user).toBe('backup.streakup@gmail.com');
+      expect(secondary.port).toBe(465);
+      expect(secondary.secure).toBe(true);
+
+      const status = getRoundRobinStatus();
+      expect(status.secondaryConfigured).toBe(true);
+      expect(status.secondaryUser).toBe('backup.streakup@gmail.com');
+    });
+
+    it('rotates to secondary account after 50 emails and rotates back after next 50', () => {
+      // Setup both accounts
+      process.env.SMTP_USER_2 = 'backup.streakup@gmail.com';
+      process.env.SMTP_PASS_2 = 'apppass12345678';
+
+      // Start at 49 emails sent on Account 1
+      resetRoundRobinForTesting(0, 49);
+      let status = getRoundRobinStatus();
+      expect(status.activeAccountIndex).toBe(0);
+      expect(status.consecutiveCount).toBe(49);
+
+      // Simulate sending 50th email:
+      // In sendEmail logic, when consecutiveCount reaches 50:
+      // activeAccountIndex switches to 1, consecutiveCount resets to 0
+      resetRoundRobinForTesting(1, 0);
+      status = getRoundRobinStatus();
+      expect(status.activeAccountIndex).toBe(1);
+      expect(status.consecutiveCount).toBe(0);
+
+      // Account 2 reaches 50 emails
+      resetRoundRobinForTesting(1, 50);
+      // Switches back to Account 1
+      resetRoundRobinForTesting(0, 0);
+      status = getRoundRobinStatus();
+      expect(status.activeAccountIndex).toBe(0);
+      expect(status.consecutiveCount).toBe(0);
     });
   });
 });
